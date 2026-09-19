@@ -33,6 +33,12 @@ variable "cluster_name" {
   default = "fixer-platform"
 }
 
+variable "github_repo" {
+  type        = string
+  default     = "your-org/fixer" # set to the real GitHub org/repo before applying
+  description = "GitHub repo allowed to assume the CI push role, as org/repo"
+}
+
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
@@ -92,6 +98,129 @@ resource "aws_security_group" "tenant_rds" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+# One shared registry per app — every tenant pulls the same image,
+# only values.yaml differs per client (see infra/helm/fixer-tenant).
+resource "aws_ecr_repository" "api" {
+  name                 = "fixer"
+  image_tag_mutability = "IMMUTABLE" # a tag, once pushed, is never overwritten
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+resource "aws_ecr_repository" "web" {
+  name                 = "fixer-web"
+  image_tag_mutability = "IMMUTABLE"
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+# Keep the last 20 tags; CI pushes on every merge to main, so this bounds
+# storage cost without risking a tag a running tenant still references.
+resource "aws_ecr_lifecycle_policy" "api" {
+  repository = aws_ecr_repository.api.name
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep last 20 images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 20
+      }
+      action = { type = "expire" }
+    }]
+  })
+}
+
+resource "aws_ecr_lifecycle_policy" "web" {
+  repository = aws_ecr_repository.web.name
+  policy     = aws_ecr_lifecycle_policy.api.policy
+}
+
+output "ecr_api_repository_url" {
+  value = aws_ecr_repository.api.repository_url
+}
+
+output "ecr_web_repository_url" {
+  value = aws_ecr_repository.web.repository_url
+}
+
+# Lets GitHub Actions push to ECR via short-lived OIDC tokens — no long-lived
+# AWS access keys stored as GitHub secrets. Referenced by
+# .github/workflows/build-and-push.yml as secrets.AWS_ECR_PUSH_ROLE_ARN.
+data "aws_iam_policy_document" "github_oidc_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repo}:*"]
+    }
+  }
+}
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_iam_openid_connect_provider" "github" {
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+}
+
+resource "aws_iam_role" "github_ecr_push" {
+  name               = "fixer-github-ecr-push"
+  assume_role_policy = data.aws_iam_policy_document.github_oidc_trust.json
+}
+
+resource "aws_iam_role_policy" "github_ecr_push" {
+  name = "ecr-push"
+  role = aws_iam_role.github_ecr_push.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:PutImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+        ]
+        Resource = [
+          aws_ecr_repository.api.arn,
+          aws_ecr_repository.web.arn,
+        ]
+      },
+    ]
+  })
+}
+
+output "github_ecr_push_role_arn" {
+  value       = aws_iam_role.github_ecr_push.arn
+  description = "Set as the AWS_ECR_PUSH_ROLE_ARN secret in the GitHub repo"
 }
 
 output "cluster_name" {
