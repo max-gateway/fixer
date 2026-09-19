@@ -8,10 +8,13 @@
 
 terraform {
   required_version = ">= 1.7"
+  # Bucket and lock table created once by infra/terraform/bootstrap.
   backend "s3" {
-    bucket = "fixer-terraform-state"
-    key    = "tenants/terraform.tfstate" # combined with workspace prefix automatically
-    region = "us-east-1"
+    bucket         = "fixer-terraform-state"
+    key            = "tenants/terraform.tfstate" # combined with workspace prefix automatically
+    region         = "us-east-1"
+    dynamodb_table = "fixer-terraform-locks"
+    encrypt        = true
   }
 }
 

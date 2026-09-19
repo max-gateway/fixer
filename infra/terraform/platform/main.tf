@@ -9,6 +9,14 @@ terraform {
       version = "~> 5.0"
     }
   }
+  # Bucket and lock table created once by infra/terraform/bootstrap.
+  backend "s3" {
+    bucket         = "fixer-terraform-state"
+    key            = "platform/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "fixer-terraform-locks"
+    encrypt        = true
+  }
 }
 
 provider "aws" {
