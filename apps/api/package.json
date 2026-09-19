@@ -1,0 +1,14 @@
+{
+  "name": "@fixer/api",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo \"NestJS app not scaffolded yet — see apps/api/README.md\"",
+    "build": "echo \"NestJS app not scaffolded yet\"",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@fixer/db": "*",
+    "@fixer/domain": "*"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@fixer/domain",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.ts",
+  "dependencies": {
+    "@fixer/db": "*"
+  }
+}

@@ -1,0 +1,266 @@
+// Fixer — schema Prisma (por instância/tenant)
+// Cada tenant tem seu próprio banco Postgres: não há tenant_id nas tabelas,
+// o isolamento é garantido pela infraestrutura (1 banco = 1 oficina).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Users & Roles (identity mirrors Keycloak; Keycloak is source of truth)
+// ============================================================
+
+model User {
+  id         String   @id @default(cuid())
+  keycloakId String   @unique // "sub" claim from the tenant's Keycloak realm
+  name       String
+  email      String   @unique
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  roles                   UserRole[]
+  createdServiceOrders    ServiceOrder[]          @relation("ServiceOrderCreatedBy")
+  assignedServiceOrders   ServiceOrder[]          @relation("ServiceOrderAssignedTo")
+  statusChanges           ServiceOrderStatusLog[]
+  stockMovements          StockMovement[]
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique // e.g. "Admin", "Front desk", "Lead mechanic"
+  description String?
+  isSystem    Boolean  @default(false) // seeded on tenant provisioning, not deletable
+  createdAt   DateTime @default(now())
+
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model Permission {
+  id    String @id @default(cuid())
+  key   String @unique // e.g. "service_order.create", "stock.adjust", "finance.view"
+  label String // human-readable label for the role management UI
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+// ============================================================
+// Customers & Vehicles
+// ============================================================
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  document  String   @unique // CPF/CNPJ
+  phone     String?
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicleOwnerships VehicleOwner[]
+  serviceOrders     ServiceOrder[]
+}
+
+model Vehicle {
+  id        String   @id @default(cuid())
+  plate     String   @unique
+  brand     String
+  model     String
+  year      Int?
+  color     String?
+  mileage   Int? // km at last known update
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owners        VehicleOwner[]
+  serviceOrders ServiceOrder[]
+}
+
+// Ownership history: current owner has endedAt = null.
+// Application enforces exactly one open record per vehicle in a transaction.
+model VehicleOwner {
+  id         String    @id @default(cuid())
+  vehicleId  String
+  customerId String
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+
+  vehicle  Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  @@index([vehicleId, endedAt])
+}
+
+// ============================================================
+// Catalogs: Parts (inventory) & Services (labor) — kept separate on purpose
+// ============================================================
+
+model Part {
+  id           String   @id @default(cuid())
+  sku          String   @unique
+  name         String
+  costPrice    Decimal
+  sellPrice    Decimal
+  stockQty     Decimal  @default(0)
+  supplierName String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orderLines     ServiceOrderPartLine[]
+  stockMovements StockMovement[]
+}
+
+model Service {
+  id               String   @id @default(cuid())
+  name             String   @unique // e.g. "Oil change", "Wheel alignment"
+  description      String?
+  estimatedMinutes Int?
+  defaultPrice     Decimal
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  orderLines ServiceOrderServiceLine[]
+}
+
+// ============================================================
+// Service Orders
+// ============================================================
+
+enum ServiceOrderStatus {
+  QUOTE // awaiting customer approval
+  APPROVED
+  IN_PROGRESS
+  AWAITING_PART
+  COMPLETED
+  DELIVERED
+  CANCELLED
+}
+
+model ServiceOrder {
+  id             String             @id @default(cuid())
+  number         Int                @unique @default(autoincrement()) // sequential number shown to the customer
+  status         ServiceOrderStatus @default(QUOTE)
+  description    String? // customer's initial complaint/request
+  mileageAtEntry Int? // vehicle odometer at intake
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  createdById String
+  createdBy   User @relation("ServiceOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  assignedToId String?
+  assignedTo   User? @relation("ServiceOrderAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  partLines    ServiceOrderPartLine[]
+  serviceLines ServiceOrderServiceLine[]
+  statusLogs   ServiceOrderStatusLog[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  closedAt  DateTime?
+}
+
+// Part line: stock is only debited when the order transitions QUOTE -> APPROVED
+// (application rule, enforced in the service layer, not by the schema).
+model ServiceOrderPartLine {
+  id             String       @id @default(cuid())
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  partId String
+  part   Part   @relation(fields: [partId], references: [id], onDelete: Restrict)
+
+  partName  String // snapshot of the part's name at time of sale
+  quantity  Decimal @default(1)
+  unitPrice Decimal // price charged on this order, frozen
+
+  stockMovements StockMovement[]
+
+  createdAt DateTime @default(now())
+}
+
+model ServiceOrderServiceLine {
+  id             String       @id @default(cuid())
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  serviceName String // snapshot of the service's name at time of execution
+  price       Decimal // price charged on this order, frozen
+
+  createdAt DateTime @default(now())
+}
+
+// Every status change is appended, never overwritten — audit trail for disputes.
+model ServiceOrderStatusLog {
+  id             String       @id @default(cuid())
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  fromStatus  ServiceOrderStatus?
+  toStatus    ServiceOrderStatus
+  changedById String
+  changedBy   User    @relation(fields: [changedById], references: [id], onDelete: Restrict)
+  note        String?
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// Stock movements (append-only ledger backing Part.stockQty)
+// ============================================================
+
+enum StockMovementType {
+  PURCHASE // inbound from supplier
+  SALE_CONSUMPTION // outbound via ServiceOrder approval
+  ADJUSTMENT // manual correction (inventory count, damage, loss)
+  RETURN // part returned to stock (e.g. order cancelled after approval)
+}
+
+model StockMovement {
+  id     String @id @default(cuid())
+  partId String
+  part   Part   @relation(fields: [partId], references: [id], onDelete: Restrict)
+
+  type         StockMovementType
+  quantity     Decimal // always positive; direction comes from `type`
+  balanceAfter Decimal // Part.stockQty right after this movement, for audit
+
+  serviceOrderPartLineId String?
+  serviceOrderPartLine   ServiceOrderPartLine? @relation(fields: [serviceOrderPartLineId], references: [id], onDelete: SetNull)
+
+  note        String? // reason, purchase invoice number, etc.
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+}

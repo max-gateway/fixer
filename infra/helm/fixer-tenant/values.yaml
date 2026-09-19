@@ -1,0 +1,75 @@
+# Everything below is what changes from one workshop (tenant) to the next.
+# The image is always the same across all tenants — only these values differ.
+
+tenant:
+  # Slug used to name resources and build the default hostname (e.g. "oficina-silva").
+  slug: ""
+  displayName: ""
+
+branding:
+  logoUrl: ""
+  primaryColor: "#d9531e"
+  secondaryColor: "#3a6ea5"
+
+image:
+  repository: ""      # e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com/fixer
+  tag: ""              # immutable tag or digest, set by CI on release
+  pullPolicy: IfNotPresent
+
+api:
+  replicaCount: 2
+  port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+web:
+  replicaCount: 2
+  port: 3001
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 384Mi
+
+redis:
+  storageSize: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+ingress:
+  # Full hostnames for this tenant. Left empty by default; the provisioning
+  # pipeline fills these in from tenant.slug plus the platform's base domain.
+  apiHost: ""
+  webHost: ""
+  className: nginx
+  tlsSecretName: ""     # created by cert-manager per tenant
+
+# Populated by the provisioning pipeline (Terraform output), never committed to git.
+# The chart only references secret/key names — it never carries credential values.
+secrets:
+  databaseUrlSecretName: ""   # Secret holding DATABASE_URL, created by Terraform/External Secrets
+  redisUrlSecretName: ""      # Secret holding REDIS_URL
+  keycloakSecretName: ""      # Secret holding this tenant's Keycloak realm client secret
+
+keycloak:
+  realm: ""
+  authServerUrl: ""
+  clientId: "fixer-api"
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70

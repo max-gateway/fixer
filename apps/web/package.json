@@ -1,0 +1,12 @@
+{
+  "name": "@fixer/web",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo \"Next.js app not scaffolded yet — see apps/web/README.md\"",
+    "build": "echo \"Next.js app not scaffolded yet\""
+  },
+  "dependencies": {
+    "@fixer/ui": "*"
+  }
+}
