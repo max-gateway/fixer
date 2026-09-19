@@ -1,5 +1,5 @@
 {{- define "fixer-tenant.fullname" -}}
-{{ .Values.tenant.slug }}
+{{ required "tenant.slug is required (e.g. \"oficina-silva\")" .Values.tenant.slug }}
 {{- end -}}
 
 {{- define "fixer-tenant.labels" -}}
