@@ -13,6 +13,7 @@
     "infra:ps": "docker compose -f infra/dev/docker-compose.yml ps",
     "dev": "npm run infra:up && turbo run dev --filter=api --filter=web",
     "dev:all": "npm run infra:up && turbo run dev --continue",
+    "tunnel": "ngrok http --url=unturpentined-lichtly-delena.ngrok-free.dev 3001",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",

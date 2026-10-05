@@ -22,7 +22,16 @@ npm run dev        # sobe a infra (Docker) e depois API + web
 | `npm run infra:up` / `infra:down` | só a infra (Postgres, Redis, Keycloak, plate-lookup) |
 | `npm run infra:up -- --profile vision` | inclui o plate-reader (leitura por imagem) |
 | `npm run infra:ps` / `infra:logs` | estado e logs da infra |
+| `npm run tunnel` | túnel HTTPS do ngrok para o web (3001), p/ testar no celular |
 | `npm run lint` / `typecheck` / `test` | verificações (as mesmas do CI) |
+
+### Celular / ngrok
+
+Com `npm run dev` rodando, em outro terminal `npm run tunnel` publica o web em
+`https://unturpentined-lichtly-delena.ngrok-free.dev` (domínio fixo da conta). O celular precisa estar
+na mesma rede Wi-Fi: API (3002) e Keycloak (8180) são acessados pelo IP da máquina (`192.168.0.14` em
+`apps/web/.env.local`; se o IP mudar, atualize lá e em `infra/dev/realm-fixer-dev.json`).
+O webhook da Meta (WhatsApp) é outro caso: precisa de um túnel para o serviço `whatsapp` (3006).
 
 Os dados do Postgres/Redis ficam em volumes nomeados e sobrevivem a `infra:down`
 e a reinícios do Docker. Mapa de serviços e portas: [ARCHITECTURE.md](ARCHITECTURE.md).
