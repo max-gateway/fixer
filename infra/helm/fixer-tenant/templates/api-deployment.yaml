@@ -32,6 +32,8 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.databaseUrlSecretName }}
                   key: DATABASE_URL
+            - name: PORTAL_BASE_URL
+              value: "https://{{ .Values.ingress.webHost }}"
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:

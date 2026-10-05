@@ -1,0 +1,98 @@
+{{- if .Values.notifications.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fixer-tenant.fullname" . }}-notifications
+  labels:
+    {{- include "fixer-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notifications
+spec:
+  replicas: {{ .Values.notifications.replicaCount }}
+  selector:
+    matchLabels:
+      fixer.io/tenant: {{ .Values.tenant.slug }}
+      app.kubernetes.io/component: notifications
+  template:
+    metadata:
+      labels:
+        {{- include "fixer-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: notifications
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notifications
+          image: "{{ .Values.image.repository }}-notifications:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.notifications.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "fixer-tenant.fullname" . }}-branding
+          env:
+            - name: PORT
+              value: "{{ .Values.notifications.port }}"
+            - name: NOTIFICATIONS_CONSUMER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name # estável por réplica: XAUTOCLAIM reconhece o consumer
+            - name: NOTIFICATIONS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.databaseUrlSecretName }}
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.redisUrlSecretName }}
+                  key: REDIS_URL
+            - name: EMAIL_TRANSPORT
+              value: {{ .Values.notifications.email.transport | quote }}
+            {{- with .Values.notifications.email.from }}
+            - name: EMAIL_FROM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.secrets.notificationsSecretName }}
+            - name: SMTP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.notificationsSecretName }}
+                  key: SMTP_URL
+                  optional: true
+            - name: WEBHOOKS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.notificationsSecretName }}
+                  key: WEBHOOKS
+                  optional: true
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: {{ .Values.notifications.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: {{ .Values.notifications.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.notifications.resources | nindent 12 }}
+---
+# Só in-cluster: o navegador fala com o web, que faz proxy (apps/web /api/notifications).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "fixer-tenant.fullname" . }}-notifications
+  labels:
+    {{- include "fixer-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notifications
+spec:
+  selector:
+    fixer.io/tenant: {{ .Values.tenant.slug }}
+    app.kubernetes.io/component: notifications
+  ports:
+    - port: {{ .Values.notifications.port }}
+      targetPort: {{ .Values.notifications.port }}
+{{- end }}

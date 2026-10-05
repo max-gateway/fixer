@@ -29,6 +29,20 @@ spec:
           env:
             - name: NEXT_PUBLIC_API_URL
               value: "https://{{ .Values.ingress.apiHost }}"
+            - name: NOTIFICATIONS_URL
+              value: "http://{{ include "fixer-tenant.fullname" . }}-notifications:{{ .Values.notifications.port }}"
+            - name: AUTH_URL
+              value: "https://{{ .Values.ingress.webHost }}"
+            - name: KEYCLOAK_WEB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.keycloakSecretName }}
+                  key: WEB_CLIENT_SECRET
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.keycloakSecretName }}
+                  key: AUTH_SECRET
           readinessProbe:
             httpGet:
               path: /

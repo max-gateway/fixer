@@ -118,6 +118,14 @@ resource "aws_ecr_repository" "web" {
   }
 }
 
+resource "aws_ecr_repository" "notifications" {
+  name                 = "fixer-notifications"
+  image_tag_mutability = "IMMUTABLE"
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
 # Keep the last 20 tags; CI pushes on every merge to main, so this bounds
 # storage cost without risking a tag a running tenant still references.
 resource "aws_ecr_lifecycle_policy" "api" {
@@ -139,6 +147,15 @@ resource "aws_ecr_lifecycle_policy" "api" {
 resource "aws_ecr_lifecycle_policy" "web" {
   repository = aws_ecr_repository.web.name
   policy     = aws_ecr_lifecycle_policy.api.policy
+}
+
+resource "aws_ecr_lifecycle_policy" "notifications" {
+  repository = aws_ecr_repository.notifications.name
+  policy     = aws_ecr_lifecycle_policy.api.policy
+}
+
+output "ecr_notifications_repository_url" {
+  value = aws_ecr_repository.notifications.repository_url
 }
 
 output "ecr_api_repository_url" {

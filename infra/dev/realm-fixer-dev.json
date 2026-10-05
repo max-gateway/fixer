@@ -1,0 +1,39 @@
+{
+  "realm": "fixer-dev",
+  "displayName": "Fixer",
+  "enabled": true,
+  "loginTheme": "fixer",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["pt-BR"],
+  "defaultLocale": "pt-BR",
+  "attributes": { "brandPrimary": "#C2410C", "brandSecondary": "#1C2430" },
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "clients": [
+    {
+      "clientId": "fixer-web",
+      "name": "Fixer Web",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "dev-web-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:3001/*", "http://192.168.0.14:3001/*", "https://unturpentined-lichtly-delena.ngrok-free.dev/*"],
+      "webOrigins": ["http://localhost:3001", "http://192.168.0.14:3001", "https://unturpentined-lichtly-delena.ngrok-free.dev"],
+      "defaultClientScopes": ["basic", "web-origins", "profile", "email", "roles"]
+    }
+  ],
+  "users": [
+    {
+      "id": "cfd4d11e-34d1-402c-9f20-05bc8bbc5b0c",
+      "username": "dev@fixer.local",
+      "email": "dev@fixer.local",
+      "firstName": "Dev",
+      "lastName": "Fixer",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "dev123", "temporary": false }]
+    }
+  ]
+}

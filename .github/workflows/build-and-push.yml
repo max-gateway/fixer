@@ -28,6 +28,9 @@ jobs:
           - app: web
             repository: fixer-web
             dockerfile: apps/web/Dockerfile
+          - app: notifications
+            repository: fixer-notifications
+            dockerfile: apps/notifications/Dockerfile
     steps:
       - uses: actions/checkout@v4
 

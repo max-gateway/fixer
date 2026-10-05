@@ -26,6 +26,16 @@ variable "tenant_display_name" {
   type = string
 }
 
+variable "brand_primary_color" {
+  type    = string
+  default = "#C2410C"
+}
+
+variable "brand_secondary_color" {
+  type    = string
+  default = "#1C2430"
+}
+
 variable "image_tag" {
   type    = string
   default = "latest" # CI overrides with the release tag being rolled out
@@ -59,6 +69,8 @@ module "tenant" {
 
   tenant_slug          = var.tenant_slug
   tenant_display_name  = var.tenant_display_name
+  brand_primary_color   = var.brand_primary_color
+  brand_secondary_color = var.brand_secondary_color
   base_domain          = "fixer.app"
   db_subnet_group_name = data.terraform_remote_state.platform.outputs.db_subnet_group_name
   db_security_group_id = data.terraform_remote_state.platform.outputs.tenant_rds_security_group_id
@@ -80,6 +92,14 @@ resource "helm_release" "tenant" {
   set {
     name  = "tenant.displayName"
     value = var.tenant_display_name
+  }
+  set {
+    name  = "branding.primaryColor"
+    value = var.brand_primary_color
+  }
+  set {
+    name  = "branding.secondaryColor"
+    value = var.brand_secondary_color
   }
   set {
     name  = "image.repository"

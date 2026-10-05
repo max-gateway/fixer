@@ -89,8 +89,22 @@ resource "kubernetes_secret" "redis_url" {
 
 # One realm per tenant, per the blueprint's Keycloak multi-realm decision.
 resource "keycloak_realm" "tenant" {
-  realm   = var.tenant_slug
-  enabled = true
+  realm        = var.tenant_slug
+  enabled      = true
+  display_name = var.tenant_display_name
+
+  # Tema em infra/keycloak-theme/fixer (precisa estar instalado no Keycloak compartilhado).
+  # As cores vão como atributos do realm; o template do tema as lê em runtime.
+  login_theme = "fixer"
+  attributes = {
+    brandPrimary   = var.brand_primary_color
+    brandSecondary = var.brand_secondary_color
+  }
+
+  internationalization {
+    supported_locales = ["pt-BR"]
+    default_locale    = "pt-BR"
+  }
 }
 
 resource "keycloak_openid_client" "api" {
@@ -106,13 +120,36 @@ resource "keycloak_openid_client" "api" {
   ]
 }
 
+# Client do frontend (Auth.js, server-side, por isso CONFIDENTIAL). O access token
+# que ele obtém é o que a API valida (issuer do realm), então o fixer-api acima
+# não participa do login do usuário.
+resource "keycloak_openid_client" "web" {
+  realm_id  = keycloak_realm.tenant.id
+  client_id = "fixer-web"
+  name      = "Fixer Web"
+
+  access_type           = "CONFIDENTIAL"
+  standard_flow_enabled = true
+
+  valid_redirect_uris = [
+    "https://${var.tenant_slug}.${var.base_domain}/*",
+  ]
+}
+
+# Segredo de assinatura da sessão do Auth.js.
+resource "random_password" "auth_secret" {
+  length = 48
+}
+
 resource "kubernetes_secret" "keycloak" {
   metadata {
     name      = "${var.tenant_slug}-keycloak"
     namespace = kubernetes_namespace.tenant.metadata[0].name
   }
   data = {
-    CLIENT_SECRET = keycloak_openid_client.api.client_secret
+    CLIENT_SECRET     = keycloak_openid_client.api.client_secret
+    WEB_CLIENT_SECRET = keycloak_openid_client.web.client_secret
+    AUTH_SECRET       = random_password.auth_secret.result
   }
 }
 

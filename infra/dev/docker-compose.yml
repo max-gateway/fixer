@@ -1,0 +1,108 @@
+# Ambiente de desenvolvimento local do Fixer: toda a infra num lugar só.
+#   npm run infra:up        sobe tudo e espera os healthchecks
+#   npm run infra:down      para (dados ficam nos volumes nomeados)
+#   npm run infra:logs      segue os logs
+# Com a câmera/leitor de placa: npm run infra:up -- --profile vision
+#
+# Portas: postgres 5432 · redis 6379 · plate-reader 8080 · plate-lookup 8081 · keycloak 8180
+# Keycloak: admin/admin em http://localhost:8180, realm "fixer-dev", usuário dev@fixer.local / dev123.
+# O id do usuário de teste em realm-fixer-dev.json é fixo de propósito: a API liga User.keycloakId ao sub
+# do token, então reimportar o realm com id novo faria o login falhar (e-mail duplicado).
+name: fixer
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  postgres:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fixer_app
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: fixer
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fixer_app -d fixer"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    <<: *restart
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    <<: *restart
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8180:8080"
+    volumes:
+      - ./realm-fixer-dev.json:/opt/keycloak/data/import/realm-fixer-dev.json:ro
+      - ../keycloak-theme/fixer:/opt/keycloak/themes/fixer:ro
+    healthcheck:
+      # A imagem não tem curl; testa a porta de management (9000) com bash.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  # Consulta de placa na Puxa Placa (paga). O token vem de apps/plate-lookup/.env (nunca comitado);
+  # sem token o serviço se recusa a subir.
+  plate-lookup:
+    <<: *restart
+    build: ../../apps/plate-lookup
+    env_file:
+      - path: ../../apps/plate-lookup/.env
+        required: false
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8081/readyz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # Leitor de placa por imagem/câmera. Pesado: só sobe com --profile vision.
+  plate-reader:
+    <<: *restart
+    profiles: ["vision"]
+    build: ../../apps/plate-reader
+    environment:
+      PLATE_READER_REDIS_URL: redis://redis:6379/0
+      PLATE_READER_OCR_ENGINE: opencv_tesseract
+      PLATE_READER_LOG_LEVEL: INFO
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdata:
+  redisdata:

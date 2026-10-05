@@ -8,8 +8,8 @@ tenant:
 
 branding:
   logoUrl: ""
-  primaryColor: "#d9531e"
-  secondaryColor: "#3a6ea5"
+  primaryColor: "#C2410C"
+  secondaryColor: "#1C2430"
 
 image:
   repository: ""      # e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com/fixer
@@ -38,6 +38,23 @@ web:
       cpu: 300m
       memory: 384Mi
 
+# Serviço de notificações: consome o stream de eventos de ordens (Redis do tenant)
+# e entrega e-mails/webhooks. Imagem própria: "<image.repository>-notifications".
+notifications:
+  enabled: true
+  replicaCount: 2
+  port: 3002
+  email:
+    transport: log          # "smtp" em produção (exige secrets.notificationsSecretName com SMTP_URL)
+    from: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
 redis:
   storageSize: 1Gi
   resources:
@@ -61,12 +78,14 @@ ingress:
 secrets:
   databaseUrlSecretName: ""   # Secret holding DATABASE_URL, created by Terraform/External Secrets
   redisUrlSecretName: ""      # Secret holding REDIS_URL
+  notificationsSecretName: "" # Secret com SMTP_URL e WEBHOOKS (opcionais; só se usados)
   keycloakSecretName: ""      # Secret holding this tenant's Keycloak realm client secret
 
 keycloak:
   realm: ""
   authServerUrl: ""
   clientId: "fixer-api"
+  webClientId: "fixer-web"
 
 autoscaling:
   enabled: false

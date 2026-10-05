@@ -13,3 +13,4 @@ data:
   KEYCLOAK_REALM: {{ .Values.keycloak.realm | quote }}
   KEYCLOAK_AUTH_SERVER_URL: {{ .Values.keycloak.authServerUrl | quote }}
   KEYCLOAK_CLIENT_ID: {{ .Values.keycloak.clientId | quote }}
+  KEYCLOAK_WEB_CLIENT_ID: {{ .Values.keycloak.webClientId | quote }}
