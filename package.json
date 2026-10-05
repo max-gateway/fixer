@@ -1,14 +1,19 @@
 {
   "name": "fixer",
   "private": true,
-  "packageManager": "npm@10.9.2",
+  "packageManager": "npm@11.19.1",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
+    "infra:up": "docker compose -f infra/dev/docker-compose.yml up -d --build --wait",
+    "infra:down": "docker compose -f infra/dev/docker-compose.yml down",
+    "infra:logs": "docker compose -f infra/dev/docker-compose.yml logs -f --tail=100",
+    "infra:ps": "docker compose -f infra/dev/docker-compose.yml ps",
+    "dev": "npm run infra:up && turbo run dev --filter=api --filter=web",
+    "dev:all": "npm run infra:up && turbo run dev --continue",
     "build": "turbo run build",
-    "dev": "turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck"

@@ -4,6 +4,12 @@ dist/
 .turbo/
 *.tsbuildinfo
 
+# Python (apps/plate-reader)
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
 # Terraform
 **/.terraform/
 *.tfstate
@@ -15,6 +21,10 @@ crash.log
 .env
 .env.local
 .env.*.local
+
+# Logs de processos locais
+*.log
+.logs/
 
 # OS
 .DS_Store
