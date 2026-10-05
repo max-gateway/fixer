@@ -1,0 +1,133 @@
+@import 'tailwindcss';
+@import '@fontsource/bai-jamjuree/400.css';
+@import '@fontsource/bai-jamjuree/500.css';
+@import '@fontsource/bai-jamjuree/600.css';
+@import '@fontsource/bai-jamjuree/700.css';
+
+/*
+ * Camadas de tema:
+ *  - marca (por tenant): --brand-primary / --brand-secondary, injetados no <html> pelo layout
+ *    (lib/branding.ts garante contraste mínimo com branco);
+ *  - derivadas: calculadas aqui a partir da marca, sem build por tenant;
+ *  - estrutura e semânticas: fixas para todos os tenants (status de OS significa a mesma coisa em qualquer cliente).
+ */
+:root {
+  --brand-primary: #c2410c;
+  --brand-secondary: #1c2430;
+  --brand-hover: color-mix(in oklab, var(--brand-primary) 85%, black);
+  --brand-soft: color-mix(in oklab, var(--brand-primary) 10%, white);
+}
+
+/*
+ * Tokens do shadcn/ui ligados à identidade: --primary segue a cor do tenant (white-label),
+ * o resto é o cinza quente fixo do Fixer.
+ */
+:root {
+  --radius: 0.5rem;
+  --background: #f7f6f3;
+  --foreground: #1c2430;
+  --card: #ffffff;
+  --card-foreground: #1c2430;
+  --popover: #ffffff;
+  --popover-foreground: #1c2430;
+  --primary: var(--brand-primary);
+  --primary-foreground: #ffffff;
+  --secondary: #efede8;
+  --secondary-foreground: #1c2430;
+  --muted: #efede8;
+  --muted-foreground: #5b6472;
+  --accent: #efede8;
+  --accent-foreground: #1c2430;
+  --destructive: #b91c1c;
+  --border: #e5e2dc;
+  --input: #e5e2dc;
+  --ring: var(--brand-primary);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: 'Bai Jamjuree', ui-sans-serif, system-ui, sans-serif;
+
+  --color-brand: var(--brand-primary);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-secondary: var(--brand-secondary);
+}
+
+/*
+ * As telas usam a escala slate do Tailwind; aqui ela vira o cinza quente da identidade Fixer
+ * (fundo, bordas, texto suave e tinta) sem precisar reescrever cada classe.
+ */
+@theme {
+  --color-slate-50: #f7f6f3;
+  --color-slate-100: #efede8;
+  --color-slate-200: #e5e2dc;
+  --color-slate-500: #5b6472;
+  --color-slate-600: #4b5362;
+  --color-slate-900: #1c2430;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand-primary);
+    outline-offset: 2px;
+  }
+}
+
+/* Números alinhados em colunas (placas, valores, nº de OS). */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Microinterações do portal do cliente. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pop {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.85); }
+  100% { opacity: 1; transform: translateX(-50%) scale(1); }
+}
+@keyframes tick {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes shimmer {
+  to { background-position: -200% 0; }
+}
+@utility animate-rise { animation: rise 0.28s ease-out both; }
+@utility animate-pop { animation: pop 0.2s ease-out both; }
+@utility animate-tick { stroke-dasharray: 24; animation: tick 0.35s ease-out 0.05s both; }
+@utility skeleton {
+  background: linear-gradient(90deg, #e5e2dc 25%, #efede8 50%, #e5e2dc 75%) 0 0 / 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
