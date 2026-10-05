@@ -69,15 +69,44 @@ model UserRole {
 }
 
 // ============================================================
+// Plate lookups (Puxa Placa)
+// ============================================================
+
+// Histórico de consultas de placa feitas na API Puxa Placa, via o
+// microservice apps/plate-lookup (Python). Uma placa só é consultada na API
+// externa (paga) uma vez: antes de chamar o microservice, a aplicação checa
+// se já existe um registro aqui para a placa e, se sim, reaproveita `rawResponse`
+// em vez de gerar uma nova chamada. Ver apps/api/src/plate-lookup/README.md.
+model PlateLookup {
+  id          String   @id @default(cuid())
+  plate       String   @unique
+  rawResponse Json // payload completo devolvido pela Puxa Placa (schema em apps/plate-lookup)
+  brand       String? // extraído de rawResponse.basico.dados.marca, para consulta/index sem parsear o JSON
+  model       String? // extraído de rawResponse.basico.dados.modelo
+  year        Int? // extraído de rawResponse.basico.dados.ano
+  queriedAt   DateTime @default(now())
+}
+
+// ============================================================
 // Customers & Vehicles
 // ============================================================
 
 model Customer {
   id        String   @id @default(cuid())
   name      String
-  document  String   @unique // CPF/CNPJ
+  document  String?  @unique // CPF/CNPJ; null = cadastro pendente (OS aberta só com o telefone, o cliente completa no portal)
   phone     String?
   email     String?
+
+  // Endereço — preenchido pelo próprio cliente no portal da ordem de serviço.
+  zipCode    String?
+  street     String?
+  number     String?
+  complement String?
+  district   String?
+  city       String?
+  state      String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -167,6 +196,17 @@ model ServiceOrder {
   description    String? // customer's initial complaint/request
   mileageAtEntry Int? // vehicle odometer at intake
 
+  // Capability token do portal do cliente (/o/<token>): quem tem o link acessa a
+  // ordem sem login. Alta entropia (24 bytes, base64url), gerado na criação.
+  portalToken String @unique
+
+  // Código curto (OS-XXXX-XXXX) que o portal pré-preenche na mensagem do wa.me. Ao chegar pelo
+  // WhatsApp, o número do remetente (verificado pela Meta) é vinculado à ordem. Diferente do
+  // portalToken: pode aparecer numa conversa, então só serve para vincular, nunca dá acesso ao portal.
+  linkCode            String    @unique
+  whatsappLinkedAt    DateTime?
+  whatsappLinkedPhone String? // E.164 sem "+", do WhatsApp que se vinculou
+
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
 
@@ -182,6 +222,8 @@ model ServiceOrder {
   partLines    ServiceOrderPartLine[]
   serviceLines ServiceOrderServiceLine[]
   statusLogs   ServiceOrderStatusLog[]
+  events       ServiceOrderEvent[]
+  checklist    ServiceOrderChecklistItem[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -236,6 +278,65 @@ model ServiceOrderStatusLog {
 }
 
 // ============================================================
+// Portal do cliente: linha do tempo de eventos + checklist
+// ============================================================
+
+enum EventAuthor {
+  CUSTOMER
+  SHOP
+  SYSTEM
+}
+
+enum EventType {
+  MESSAGE // conversa entre cliente e oficina
+  PROBLEM_REPORT // cliente descreveu o problema do carro
+  STATUS_CHANGE // ordem mudou de status (gerado pelo sistema)
+  CHECKLIST_UPDATE // item do checklist respondido/alterado
+  CUSTOMER_DATA_UPDATE // cliente atualizou seus dados cadastrais
+  WHATSAPP_LINK // WhatsApp do cliente vinculado à ordem (ou tentativa recusada)
+}
+
+// Toda a comunicação cliente <-> oficina acontece como eventos append-only, na
+// ordem em que ocorreram. `data` guarda o payload estruturado de cada tipo
+// (ex.: de/para do status, label e resultado do item de checklist).
+model ServiceOrderEvent {
+  id             String       @id @default(cuid())
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  type         EventType
+  author       EventAuthor
+  authorUserId String? // preenchido quando author = SHOP
+  authorName   String? // snapshot do nome exibido no momento do evento
+  body         String?
+  data         Json?
+  createdAt    DateTime @default(now())
+
+  @@index([serviceOrderId, createdAt])
+}
+
+enum ChecklistStatus {
+  PENDING
+  OK
+  ISSUE
+}
+
+model ServiceOrderChecklistItem {
+  id             String       @id @default(cuid())
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  section    String // agrupamento na UI, ex.: "Exterior", "Painel"
+  label      String
+  position   Int
+  status     ChecklistStatus @default(PENDING)
+  note       String?
+  answeredAt DateTime?
+
+  @@index([serviceOrderId, position])
+}
+
+// ============================================================
 // Stock movements (append-only ledger backing Part.stockQty)
 // ============================================================
 
@@ -263,4 +364,37 @@ model StockMovement {
   createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
+}
+
+// ============================================================
+// Outbox transacional (integração com serviços desacoplados)
+// ============================================================
+
+// Mudanças em ordens de serviço são gravadas aqui NA MESMA TRANSAÇÃO da mudança
+// (garantia: se a ordem mudou, o evento existe; se rolou back, não existe).
+// O OutboxRelay da API publica as linhas pendentes no Redis Stream e marca
+// `publishedAt`. Consumidores (ex.: apps/notifications) só conhecem o envelope
+// publicado, nunca esta tabela. `payload` é o envelope v1 completo.
+// Inbox do consumidor de eventos que chegam de outros serviços (ex.: whatsapp.order_code_received).
+// A PK é o id do evento: reentrega (at-least-once) cai no conflito e vira no-op, na mesma
+// transação que aplica o efeito.
+model ProcessedInboundEvent {
+  id          String   @id // id do evento (UUID gerado por quem publicou)
+  type        String
+  processedAt DateTime @default(now())
+
+  @@index([processedAt])
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid())
+  seq           BigInt    @unique @default(autoincrement()) // ordem global de emissão
+  type          String // ex.: "order.status_changed"
+  aggregateType String // ex.: "service_order"
+  aggregateId   String
+  payload       Json
+  createdAt     DateTime  @default(now())
+  publishedAt   DateTime?
+
+  @@index([publishedAt, seq])
 }
