@@ -1,0 +1,91 @@
+# dfe-gateway na VM Oracle (Ampere ARM) ao lado do rocket. Ver deploy/README.md.
+#
+#   cd ~/fixer && docker compose -f apps/dfe-gateway/deploy/docker-compose.prod.yml --env-file apps/dfe-gateway/deploy/.env up -d --build
+#
+# Redes:
+#   dfe_net              privada: SÓ o Postgres do gateway e os dois processos do gateway. Nada do rocket entra aqui.
+#   rocket_prod_network  externa (criada pelo compose da raiz do rocket): dá ao gateway o RabbitMQ do rocket
+#                        (aviso `{cnpj, fromNsu, toNsu}`, sem dado sensível) e deixa o nginx do rocket alcançá-lo.
+#                        Suba o compose da raiz do rocket primeiro.
+#
+# O Postgres NÃO publica porta: só responde como `dfe-postgres:5432` dentro de dfe_net.
+
+x-gateway: &gateway
+  build:
+    context: ../../..
+    dockerfile: apps/dfe-gateway/Dockerfile
+  restart: unless-stopped
+  env_file: [.env]
+  depends_on:
+    dfe-postgres:
+      condition: service_healthy
+  networks: [dfe_net, rocket_prod_network]
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+services:
+  dfe-postgres:
+    image: postgres:16-alpine
+    container_name: dfe_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dfe
+      POSTGRES_DB: dfe
+      POSTGRES_PASSWORD_FILE: /run/secrets/dfe_db_password
+    secrets: [dfe_db_password]
+    volumes:
+      - dfe_pgdata:/var/lib/postgresql/data
+    networks: [dfe_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dfe -d dfe"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 512m
+    cpus: 0.5
+
+  # Atende HTTP (/v1, /healthz). O nginx do rocket publica só estes caminhos (ver nginx-dfe-gateway.conf).
+  dfe-api:
+    <<: *gateway
+    container_name: dfe_api
+    environment:
+      DFE_ROLE: api
+      NODE_ENV: production
+    mem_limit: 384m
+    cpus: 0.5
+
+  # Sincroniza com a SEFAZ e entrega os avisos. Escala por réplicas: o lease por CNPJ evita consulta duplicada.
+  dfe-worker:
+    <<: *gateway
+    container_name: dfe_worker
+    environment:
+      DFE_ROLE: worker
+      NODE_ENV: production
+      PORT: "3011"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3011/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    mem_limit: 384m
+    cpus: 0.5
+
+secrets:
+  dfe_db_password:
+    file: ./secrets/db_password
+
+networks:
+  dfe_net:
+    name: dfe_net
+    driver: bridge
+    internal: false
+  rocket_prod_network:
+    external: true
+    name: rocket_prod_network
+
+volumes:
+  dfe_pgdata:
