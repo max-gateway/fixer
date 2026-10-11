@@ -4,6 +4,7 @@ import { AuditService } from './audit/audit.service.js';
 import { CompaniesController } from './api/companies.controller.js';
 import { CredentialInspectController } from './api/credential-inspect.controller.js';
 import { CompanyService } from './companies/company.service.js';
+import { RegistrationService } from './companies/registration.service.js';
 import { CONFIG, loadConfig } from './config/config.js';
 import { EnvKeyProvider } from './core/crypto/key-provider.js';
 import { SefazDfeClient } from './core/sefaz/sefaz-dfe.client.js';
@@ -36,6 +37,7 @@ import { TenantService } from './tenants/tenant.service.js';
     TenantService,
     AuthGuard,
     CompanyService,
+    RegistrationService,
     CredentialService,
     DocumentsService,
     SubscriptionService,

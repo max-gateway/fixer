@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Pa
 import { z } from 'zod';
 import { type Actor, AuditService } from '../audit/audit.service.js';
 import { CompanyBodySchema, CompanyService, parseCnpj } from '../companies/company.service.js';
+import { RegistrationSchema, RegistrationService } from '../companies/registration.service.js';
 import { CredentialService, FlagsSchema, InspectSchema, UploadSchema } from '../credentials/credential.service.js';
 import { Database } from '../db/database.service.js';
 import { DocumentsService } from '../documents/documents.service.js';
@@ -33,12 +34,23 @@ export class CompaniesController {
     private readonly documents: DocumentsService,
     private readonly subscriptions: SubscriptionService,
     private readonly audit: AuditService,
+    private readonly registration: RegistrationService,
   ) {}
 
   @Put()
   async upsert(@Param('cnpj') cnpj: string, @Body() body: unknown, @CurrentActor() actor: Actor) {
     const company = await this.companies.upsert(actor, parseCnpj(cnpj), CompanyBodySchema.parse(body ?? {}));
     return this.companies.status(company);
+  }
+
+  /**
+   * Cadastro completo e IDEMPOTENTE, em uma chamada: empresa + certificado + flags + retomada do NSU. É o que os
+   * produtos chamam ao salvar (spec §6.2). As regras (instalar só se mudou, consentimento da ciência automática,
+   * retomar só com NSU zerado) moram AQUI, não em cada produto.
+   */
+  @Put('registration')
+  async register(@Param('cnpj') cnpj: string, @Body() body: unknown, @CurrentActor() actor: Actor) {
+    return this.registration.register(actor, parseCnpj(cnpj), RegistrationSchema.parse(body ?? {}));
   }
 
   @Get()

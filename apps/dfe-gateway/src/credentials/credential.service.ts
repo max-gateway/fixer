@@ -94,6 +94,31 @@ export class CredentialService {
     return { subject: parsed.subject, certCnpj: parsed.certCnpj, notBefore: parsed.notBefore, notAfter: parsed.notAfter, environment: input.environment };
   }
 
+  /**
+   * Instala o certificado SÓ se mudou (idempotente): reenviar o mesmo certificado não regrava nada, não zera
+   * `version` e não gera auditoria. "Mesmo" = mesmo titular, CNPJ, validade e ambiente e credencial ainda ACTIVE.
+   * Quem chama (os produtos) não precisa saber comparar validade nem decidir renovação.
+   */
+  async register(actor: Actor, company: CompanyRow, input: z.infer<typeof UploadSchema>): Promise<{ changed: boolean }> {
+    const parsed = this.parse(this.decode(input.pfxBase64), input.password);
+    const { rows } = await this.db.query<{ environment: string; subject: string; cert_cnpj: string; not_before: Date; not_after: Date; status: string }>(
+      'SELECT environment, subject, cert_cnpj, not_before, not_after, status FROM credentials WHERE company_id = $1',
+      [company.id],
+    );
+    const cur = rows[0];
+    const same =
+      cur &&
+      cur.status === 'ACTIVE' &&
+      cur.environment === input.environment &&
+      cur.subject === parsed.subject &&
+      cur.cert_cnpj === parsed.certCnpj &&
+      cur.not_before.getTime() === parsed.notBefore.getTime() &&
+      cur.not_after.getTime() === parsed.notAfter.getTime();
+    if (same) return { changed: false };
+    await this.upload(actor, company, input);
+    return { changed: true };
+  }
+
   async updateFlags(actor: Actor, company: CompanyRow, flags: z.infer<typeof FlagsSchema>) {
     const { rows } = await this.db.query(
       `UPDATE credentials SET enabled = COALESCE($2, enabled), auto_manifest = COALESCE($3, auto_manifest), updated_at = now()
