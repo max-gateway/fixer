@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "infra:up": "docker compose -f infra/dev/docker-compose.yml up -d --build --wait",
+    "infra:up": "docker compose -f infra/dev/docker-compose.yml up -d --build --wait && node scripts/sync-keycloak-host.mjs",
     "infra:down": "docker compose -f infra/dev/docker-compose.yml down",
     "infra:logs": "docker compose -f infra/dev/docker-compose.yml logs -f --tail=100",
     "infra:ps": "docker compose -f infra/dev/docker-compose.yml ps",

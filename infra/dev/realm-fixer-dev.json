@@ -19,8 +19,8 @@
       "secret": "dev-web-secret",
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:3001/*", "http://192.168.0.14:3001/*", "https://unturpentined-lichtly-delena.ngrok-free.dev/*"],
-      "webOrigins": ["http://localhost:3001", "http://192.168.0.14:3001", "https://unturpentined-lichtly-delena.ngrok-free.dev"],
+      "redirectUris": ["http://localhost:3001/*", "http://${DEV_HOST:localhost}:3001/*", "https://unturpentined-lichtly-delena.ngrok-free.dev/*"],
+      "webOrigins": ["http://localhost:3001", "http://${DEV_HOST:localhost}:3001", "https://unturpentined-lichtly-delena.ngrok-free.dev"],
       "defaultClientScopes": ["basic", "web-origins", "profile", "email", "roles"]
     }
   ],

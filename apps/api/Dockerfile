@@ -8,6 +8,7 @@ FROM base AS deps
 COPY package.json package-lock.json turbo.json ./
 COPY packages/db/package.json packages/db/package.json
 COPY packages/domain/package.json packages/domain/package.json
+COPY packages/catalog/package.json packages/catalog/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY apps/api/package.json apps/api/package.json
 RUN npm ci
@@ -15,9 +16,12 @@ RUN npm ci
 FROM deps AS build
 COPY packages/db packages/db
 COPY packages/domain packages/domain
+COPY packages/catalog packages/catalog
 COPY packages/config packages/config
 COPY apps/api apps/api
 RUN npm run build --workspace=@fixer/db
+RUN npm run build --workspace=@fixer/domain
+RUN npm run build --workspace=@fixer/catalog
 RUN npm run build --workspace=@fixer/api
 
 FROM base AS runtime

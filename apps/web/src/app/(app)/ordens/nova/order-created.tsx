@@ -3,7 +3,8 @@
 import { Check, CircleCheck, Clock, Copy, ExternalLink, MessageCircle, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 
 export type CreatedOrder = { id: string; number: number; portalToken: string };
@@ -15,29 +16,21 @@ const POLL_MS = 4000;
  * a mensagem chega, o número é vinculado e esta tela confirma sozinha (polling leve na ordem).
  */
 export function OrderCreated({ order, phone, portalUrl, onNew }: { order: CreatedOrder; phone: string; portalUrl: string; onNew: () => void }) {
-  const [linked, setLinked] = useState<{ last4: string | null } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (linked) return;
-    let stopped = false;
-    async function poll() {
-      if (stopped || document.hidden) return;
-      try {
-        const res = await fetch(`/api/service-orders/${order.id}`, { cache: 'no-store' });
-        if (!res.ok || stopped) return;
-        const fresh = (await res.json()) as { whatsappLinkedAt: string | null; whatsappLinkedPhone: string | null };
-        if (fresh.whatsappLinkedAt) setLinked({ last4: fresh.whatsappLinkedPhone?.slice(-4) ?? null });
-      } catch {
-        /* próxima tentativa */
-      }
-    }
-    const id = setInterval(poll, POLL_MS);
-    return () => {
-      stopped = true;
-      clearInterval(id);
-    };
-  }, [order.id, linked]);
+  type LinkState = { whatsappLinkedAt: string | null; whatsappLinkedPhone: string | null };
+  const { data } = useQuery({
+    queryKey: ['service-order-link', order.id],
+    queryFn: async ({ signal }): Promise<LinkState> => {
+      const res = await fetch(`/api/service-orders/${order.id}`, { cache: 'no-store', signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    // Para de consultar assim que o WhatsApp é vinculado; pausa com a aba oculta.
+    refetchInterval: (q) => (q.state.data?.whatsappLinkedAt ? false : POLL_MS),
+    refetchIntervalInBackground: false,
+  });
+  const linked = data?.whatsappLinkedAt ? { last4: data.whatsappLinkedPhone?.slice(-4) ?? null } : null;
 
   async function copy() {
     try {

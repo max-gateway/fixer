@@ -44,6 +44,62 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.keycloakSecretName }}
                   key: CLIENT_SECRET
+            {{- if .Values.secrets.fiscalSecretName }}
+            - name: FISCAL_ENC_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.fiscalSecretName }}
+                  key: FISCAL_ENC_KEYS
+            - name: FISCAL_ACTIVE_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.fiscalSecretName }}
+                  key: FISCAL_ACTIVE_KEY_ID
+            {{- end }}
+            {{- if .Values.secrets.dfeGatewaySecretName }}
+            # Modo gateway: a SEFAZ é consultada pelo dfe-gateway central; este tenant só consome.
+            # FISCAL_ENC_KEYS e as URLs da SEFAZ deixam de ser necessárias.
+            - name: DFE_GATEWAY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.dfeGatewaySecretName }}
+                  key: DFE_GATEWAY_URL
+            - name: DFE_GATEWAY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.dfeGatewaySecretName }}
+                  key: DFE_GATEWAY_API_KEY
+            {{- end }}
+            {{- if .Values.fiscal.distUrlProduction }}
+            - name: FISCAL_DIST_URL_PRODUCTION
+              value: {{ .Values.fiscal.distUrlProduction | quote }}
+            {{- end }}
+            {{- if .Values.fiscal.distUrlHomologation }}
+            - name: FISCAL_DIST_URL_HOMOLOGATION
+              value: {{ .Values.fiscal.distUrlHomologation | quote }}
+            {{- end }}
+            {{- if .Values.fiscal.eventUrlProduction }}
+            - name: FISCAL_EVENT_URL_PRODUCTION
+              value: {{ .Values.fiscal.eventUrlProduction | quote }}
+            {{- end }}
+            {{- if .Values.fiscal.eventUrlHomologation }}
+            - name: FISCAL_EVENT_URL_HOMOLOGATION
+              value: {{ .Values.fiscal.eventUrlHomologation | quote }}
+            {{- end }}
+            {{- if .Values.fiscal.eventSoap }}
+            - name: FISCAL_EVENT_SOAP
+              value: {{ .Values.fiscal.eventSoap | quote }}
+            {{- end }}
+            {{- if .Values.fiscal.caBundleConfigMap }}
+            - name: FISCAL_CA_BUNDLE
+              value: /etc/fiscal-ca/ca.pem
+            {{- end }}
+          {{- if .Values.fiscal.caBundleConfigMap }}
+          volumeMounts:
+            - name: fiscal-ca
+              mountPath: /etc/fiscal-ca
+              readOnly: true
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /health
@@ -58,6 +114,12 @@ spec:
             periodSeconds: 20
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
+      {{- if .Values.fiscal.caBundleConfigMap }}
+      volumes:
+        - name: fiscal-ca
+          configMap:
+            name: {{ .Values.fiscal.caBundleConfigMap }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

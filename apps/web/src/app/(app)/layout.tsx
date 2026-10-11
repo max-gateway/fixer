@@ -1,43 +1,35 @@
-import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { auth, signOut } from '@/auth';
+import { AppHeader } from '@/components/nav/app-header';
 import { InboxProvider } from '@/components/notifications/inbox-provider';
-import { NotificationBell } from '@/components/notifications/notification-bell';
+import { QueryProvider } from '@/components/query-provider';
 import { getBranding } from '@/lib/branding';
+
+async function signOutAction() {
+  'use server';
+  await signOut();
+}
 
 // Área interna da oficina (exige login via proxy.ts). O portal do cliente fica em /o/[token].
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const b = getBranding();
   const session = await auth();
+  const user = session?.user ? { name: session.user.name ?? session.user.email ?? 'Usuário', email: session.user.email } : null;
   return (
-    <InboxProvider>
-        <header className="bg-brand-secondary text-white">
-          <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-4">
-            {b.logoUrl && <img src={b.logoUrl} alt="" className="h-8 w-auto" />}
-            <span className="text-lg font-semibold">{b.displayName}</span>
-            <nav className="ml-6 flex gap-4 text-sm">
-              <Link href="/">Consulta de placa</Link>
-              <Link href="/ordens">Ordens</Link>
-              <Link href="/clientes">Clientes</Link>
-            </nav>
-            <div className="ml-auto flex items-center gap-2">
-              <NotificationBell />
-            {session?.user && (
-              <form
-                className="flex items-center gap-3 text-sm"
-                action={async () => {
-                  'use server';
-                  await signOut();
-                }}
-              >
-                <span>{session.user.name}</span>
-                <button className="underline">Sair</button>
-              </form>
-            )}
-            </div>
-          </div>
-        </header>
-      <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
-    </InboxProvider>
+    <QueryProvider>
+      <InboxProvider>
+        <a
+          href="#conteudo"
+          className="sr-only z-50 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+        >
+          Pular para o conteúdo
+        </a>
+        <AppHeader brand={{ name: b.displayName, logoUrl: b.logoUrl }} user={user} signOutAction={signOutAction} />
+        {/* pb-28 no mobile abre espaço para a tab bar flutuante */}
+        <main id="conteudo" className="mx-auto max-w-6xl px-4 py-6 pb-28 sm:px-6 sm:py-8 md:pb-8">
+          {children}
+        </main>
+      </InboxProvider>
+    </QueryProvider>
   );
 }

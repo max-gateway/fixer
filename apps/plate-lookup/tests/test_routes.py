@@ -28,8 +28,9 @@ def test_consulta_placa_success_returns_puxa_placa_payload():
         "message": "ok",
         "basico": {
             "error": False,
-            "dados": {"marca": "FIAT", "modelo": "UNO", "ano": 2020},
+            "dados": {"marca": "FIAT", "modelo": "UNO", "ano": "2020", "motor": "1.0", "potencia": "71"},
         },
+        "campo_futuro": {"x": 1},
     }
     app.dependency_overrides[get_client] = lambda: fake_client
 
@@ -38,6 +39,10 @@ def test_consulta_placa_success_returns_puxa_placa_payload():
     assert response.status_code == 200
     body = response.json()
     assert body["basico"]["dados"]["marca"] == "FIAT"
+    # resposta repassada crua: campos desconhecidos e tipos originais preservados
+    assert body["basico"]["dados"]["motor"] == "1.0"
+    assert body["basico"]["dados"]["ano"] == "2020"
+    assert body["campo_futuro"] == {"x": 1}
     fake_client.consulta_placa.assert_awaited_once_with("ABC1D23")
 
 

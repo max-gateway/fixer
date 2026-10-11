@@ -1,3 +1,9 @@
+"""Documentação tipada do payload da Puxa Placa v2.
+
+NÃO é usado para filtrar a resposta: a rota repassa o JSON cru do provedor.
+Campos não listados aqui (ex.: motor, cilindradas, potencia) existem de fato.
+"""
+
 from pydantic import BaseModel
 
 

@@ -29,8 +29,9 @@ npm run dev        # sobe a infra (Docker) e depois API + web
 
 Com `npm run dev` rodando, em outro terminal `npm run tunnel` publica o web em
 `https://unturpentined-lichtly-delena.ngrok-free.dev` (domínio fixo da conta). O celular precisa estar
-na mesma rede Wi-Fi: API (3002) e Keycloak (8180) são acessados pelo IP da máquina (`192.168.0.14` em
-`apps/web/.env.local`; se o IP mudar, atualize lá e em `infra/dev/realm-fixer-dev.json`).
+na mesma rede Wi-Fi: API (3002) e Keycloak (8180) são acessados pelo IP da máquina (defina
+`DEV_HOST=<ip>` no `.env` da raiz — veja `.env.example`; se o IP mudar, edite só ali, rode
+`npm run infra:up` de novo para o Keycloak e reinicie `npm run dev`). Sem `DEV_HOST`, tudo usa `localhost`.
 O webhook da Meta (WhatsApp) é outro caso: precisa de um túnel para o serviço `whatsapp` (3006).
 
 Os dados do Postgres/Redis ficam em volumes nomeados e sobrevivem a `infra:down`

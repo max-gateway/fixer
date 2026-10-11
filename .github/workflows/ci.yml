@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [plate-lookup, plate-reader]
+        app: [plate-lookup, plate-reader, cnpj-lookup]
     defaults:
       run:
         working-directory: apps/${{ matrix.app }}
@@ -46,6 +46,7 @@ jobs:
       - run: python -m pytest -q
         env:
           PLATE_LOOKUP_PUXA_PLACA_TOKEN: ci-token
+          CNPJ_LOOKUP_CNPJA_API_KEY: ci-key
 
   compose:
     name: Valida docker-compose de dev

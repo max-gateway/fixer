@@ -4,7 +4,7 @@
 #   npm run infra:logs      segue os logs
 # Com a câmera/leitor de placa: npm run infra:up -- --profile vision
 #
-# Portas: postgres 5432 · redis 6379 · plate-reader 8080 · plate-lookup 8081 · keycloak 8180
+# Portas: postgres 5432 · redis 6379 · plate-reader 8080 · plate-lookup 8081 · cnpj-lookup 8082 · keycloak 8180
 # Keycloak: admin/admin em http://localhost:8180, realm "fixer-dev", usuário dev@fixer.local / dev123.
 # O id do usuário de teste em realm-fixer-dev.json é fixo de propósito: a API liga User.keycloakId ao sub
 # do token, então reimportar o realm com id novo faria o login falhar (e-mail duplicado).
@@ -48,6 +48,10 @@ services:
     <<: *restart
     image: quay.io/keycloak/keycloak:26.0
     command: start-dev --import-realm
+    # DEV_HOST (raiz/.env) é usado como ${DEV_HOST:localhost} no realm-fixer-dev.json.
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
@@ -77,6 +81,23 @@ services:
       - "8081:8081"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8081/readyz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # Consulta de CNPJ + Inscrições Estaduais no CNPJá (paga). A chave vem de apps/cnpj-lookup/.env
+  # (nunca comitado); sem chave o serviço se recusa a subir.
+  cnpj-lookup:
+    <<: *restart
+    build: ../../apps/cnpj-lookup
+    env_file:
+      - path: ../../apps/cnpj-lookup/.env
+        required: false
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8082/readyz')"]
       interval: 10s
       timeout: 5s
       retries: 5

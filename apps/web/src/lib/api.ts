@@ -9,6 +9,12 @@ export type Customer = {
   email: string | null;
 };
 
+export class ApiError extends Error {
+  constructor(readonly status: number, path: string) {
+    super(`API ${status} em ${path}`);
+  }
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
   const token = await getAccessToken();
@@ -17,7 +23,7 @@ export async function apiGet<T>(path: string): Promise<T> {
     cache: 'no-store',
     headers: { authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(`API ${res.status} em ${path}`);
+  if (!res.ok) throw new ApiError(res.status, path);
   return res.json() as Promise<T>;
 }
 

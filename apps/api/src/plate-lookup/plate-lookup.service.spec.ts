@@ -3,14 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PlateLookupClient } from './plate-lookup.client.js';
 import { InvalidPlateError, PlateLookupService } from './plate-lookup.service.js';
-import type { PlateLookupResult } from './schema.js';
 
-const fakeResult: PlateLookupResult = {
+// Resposta crua do provedor: números como string e campos que o schema não conhece.
+const fakeResult = {
   error: false,
   message: 'ok',
   basico: {
     error: false,
-    dados: { marca: 'FIAT', modelo: 'UNO', ano: 2020 },
+    dados: { marca: 'FIAT', modelo: 'UNO', ano: '2020', motor: '1.0', cilindradas: '999', campoFuturo: 'x' },
   },
 };
 
@@ -59,7 +59,8 @@ describe('PlateLookupService', () => {
 
     expect(record.cached).toBe(true);
     expect(record.plate).toBe('ABC1D23');
-    expect(record.result).toEqual(fakeResult);
+    expect(record.result.basico?.dados?.cilindradas).toBe(999);
+    expect(record.result.basico?.dados).toHaveProperty('campoFuturo', 'x');
     expect(client.consultaPlaca).not.toHaveBeenCalled();
     expect(prisma.plateLookup.upsert).not.toHaveBeenCalled();
   });
@@ -78,10 +79,17 @@ describe('PlateLookupService', () => {
     expect(prisma.plateLookup.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { plate: 'ABC1D23' },
-        create: expect.objectContaining({ plate: 'ABC1D23', brand: 'FIAT', model: 'UNO', year: 2020 }),
+        create: expect.objectContaining({
+          plate: 'ABC1D23',
+          brand: 'FIAT',
+          model: 'UNO',
+          year: 2020,
+          rawResponse: fakeResult, // cru, sem conversão nem remoção de campos
+        }),
       }),
     );
     expect(record.cached).toBe(false);
-    expect(record.result).toEqual(fakeResult);
+    expect(record.result.basico?.dados?.potencia).toBeUndefined();
+    expect(record.result.basico?.dados?.cilindradas).toBe(999);
   });
 });

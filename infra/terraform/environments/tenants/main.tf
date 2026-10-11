@@ -134,6 +134,10 @@ resource "helm_release" "tenant" {
     value = module.tenant.keycloak_secret_name
   }
   set {
+    name  = "secrets.fiscalSecretName"
+    value = module.tenant.fiscal_secret_name
+  }
+  set {
     name  = "keycloak.realm"
     value = module.tenant.keycloak_realm
   }

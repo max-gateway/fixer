@@ -14,7 +14,6 @@ from app.core.metrics import (
     puxa_placa_calls_total,
     puxa_placa_errors_total,
 )
-from app.models.schemas import PlateLookupResult
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -31,12 +30,16 @@ _ERROR_TYPE_TO_STATUS = {
 }
 
 
-@router.get("/v1/consulta/{placa}", response_model=PlateLookupResult)
+@router.get("/v1/consulta/{placa}")
 async def consulta_placa(
     placa: str,
     client: PuxaPlacaClient = Depends(get_client),
-) -> PlateLookupResult:
+) -> dict:
     """Consulta dados completos de um veículo pela placa.
+
+    Devolve o JSON da Puxa Placa SEM filtrar campos: quem persiste (Fixer core)
+    guarda a resposta crua, pois a consulta é paga e não deve ser repetida
+    só para obter campos que o schema ainda não conhecia.
 
     Este serviço não tem estado próprio: cada chamada aqui dispara uma
     chamada real (e paga) à API Puxa Placa. Decidir se a placa já foi
@@ -71,15 +74,15 @@ async def consulta_placa(
     puxa_placa_call_duration_seconds.observe(time.monotonic() - started_at)
     puxa_placa_calls_total.labels(status="ok").inc()
 
-    result = PlateLookupResult.model_validate(raw)
+    dados = ((raw.get("basico") or {}).get("dados")) or {}
     logger.info(
         "plate_lookup_completed",
         placa=normalized,
-        error=result.error,
-        marca=result.basico.dados.marca if result.basico and result.basico.dados else None,
-        modelo=result.basico.dados.modelo if result.basico and result.basico.dados else None,
+        error=raw.get("error"),
+        marca=dados.get("marca"),
+        modelo=dados.get("modelo"),
     )
-    return result
+    return raw
 
 
 @router.get("/healthz")

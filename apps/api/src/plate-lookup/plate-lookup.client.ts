@@ -1,6 +1,5 @@
 import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { PlateLookupConfig } from './plate-lookup.config.js';
-import { PlateLookupResultSchema, type PlateLookupResult } from './schema.js';
 
 /**
  * Cliente HTTP do microservice apps/plate-lookup (Python) — que por sua vez
@@ -13,7 +12,8 @@ export class PlateLookupClient {
 
   constructor(private readonly config: PlateLookupConfig) {}
 
-  async consultaPlaca(plate: string): Promise<PlateLookupResult> {
+  /** Devolve o JSON cru do provedor, sem filtrar nem converter campos. */
+  async consultaPlaca(plate: string): Promise<Record<string, unknown>> {
     const url = `${this.config.serviceBaseUrl}/v1/consulta/${encodeURIComponent(plate)}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
@@ -42,7 +42,6 @@ export class PlateLookupClient {
       );
     }
 
-    const json = await response.json();
-    return PlateLookupResultSchema.parse(json);
+    return (await response.json()) as Record<string, unknown>;
   }
 }

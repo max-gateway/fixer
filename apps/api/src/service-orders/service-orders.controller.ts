@@ -2,8 +2,10 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { CurrentUser, type AuthUser } from '../auth/auth.decorators.js';
 import { parse } from '../common/parse.js';
 import {
+  AddServiceLineSchema,
   ChecklistItemSchema,
   CreateServiceOrderSchema,
+  HoursSchema,
   MessageSchema,
   ServiceOrderStatusSchema,
   TransitionSchema,
@@ -35,6 +37,16 @@ export class ServiceOrdersController {
   @Post(':id/status')
   transition(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthUser) {
     return this.orders.transition(id, parse(TransitionSchema, body), user);
+  }
+
+  @Post(':id/service-lines')
+  addServiceLine(@Param('id') id: string, @Body() body: unknown) {
+    return this.orders.addServiceLine(id, parse(AddServiceLineSchema, body));
+  }
+
+  @Post(':id/service-lines/:lineId/hours')
+  recordHours(@Param('id') id: string, @Param('lineId') lineId: string, @Body() body: unknown) {
+    return this.orders.recordHours(id, lineId, parse(HoursSchema, body));
   }
 
   @Post(':id/messages')

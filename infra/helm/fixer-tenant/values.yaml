@@ -80,6 +80,20 @@ secrets:
   redisUrlSecretName: ""      # Secret holding REDIS_URL
   notificationsSecretName: "" # Secret com SMTP_URL e WEBHOOKS (opcionais; só se usados)
   keycloakSecretName: ""      # Secret holding this tenant's Keycloak realm client secret
+  dfeGatewaySecretName: ""   # Secret com DFE_GATEWAY_URL e DFE_GATEWAY_API_KEY (docs/specs/dfe-gateway.md). Preenchido = modo gateway: o certificado vive no gateway
+  fiscalSecretName: ""        # Secret com FISCAL_ENC_KEYS e FISCAL_ACTIVE_KEY_ID (cifra do certificado A1). Vazio = importação de NF-e indisponível
+
+# Importação de NF-e (docs/specs/nfe-import.md). Os endereços vêm da "Relação de Serviços Web" do Portal
+# Nacional da NF-e (produção) e do portal de homologação; não há default no código de propósito.
+fiscal:
+  distUrlProduction: ""
+  distUrlHomologation: ""
+  eventUrlProduction: ""      # NFeRecepcaoEvento (manifestação do destinatário)
+  eventUrlHomologation: ""
+  eventSoap: "1.2"            # "1.1" se o WSDL do ambiente pedir
+  # ConfigMap com a chave `ca.pem`: cadeia ICP-Brasil dos servidores da SEFAZ. O repositório de CAs do
+  # Node não a inclui, e a verificação do servidor nunca é desligada.
+  caBundleConfigMap: ""
 
 keycloak:
   realm: ""
