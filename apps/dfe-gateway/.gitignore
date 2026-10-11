@@ -1,5 +1,0 @@
-.env
-deploy/.env
-deploy/secrets/
-dist/
-*.tsbuildinfo

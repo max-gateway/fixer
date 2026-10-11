@@ -25,32 +25,11 @@ jobs:
       - run: npm ci
       - run: npx turbo run build lint typecheck test
 
-  python:
-    name: Testes (${{ matrix.app }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        app: [plate-lookup, plate-reader, cnpj-lookup]
-    defaults:
-      run:
-        working-directory: apps/${{ matrix.app }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: apps/${{ matrix.app }}/requirements.txt
-      - run: pip install -r requirements.txt pytest
-      - run: python -m pytest -q
-        env:
-          PLATE_LOOKUP_PUXA_PLACA_TOKEN: ci-token
-          CNPJ_LOOKUP_CNPJA_API_KEY: ci-key
-
   compose:
     name: Valida docker-compose de dev
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: docker compose -f infra/dev/docker-compose.yml --profile vision config -q
+        env:
+          MAX_GATEWAY_PLATFORM_DIR: /tmp/max-gateway-platform

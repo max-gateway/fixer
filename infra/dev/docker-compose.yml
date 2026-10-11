@@ -2,6 +2,8 @@
 #   npm run infra:up        sobe tudo e espera os healthchecks
 #   npm run infra:down      para (dados ficam nos volumes nomeados)
 #   npm run infra:logs      segue os logs
+# plate-lookup, cnpj-lookup e plate-reader são serviços da plataforma Max Gateway (repo max-gateway/platform):
+# o compose os constrói a partir de MAX_GATEWAY_PLATFORM_DIR (.env da raiz).
 # Com a câmera/leitor de placa: npm run infra:up -- --profile vision
 #
 # Portas: postgres 5432 · redis 6379 · plate-reader 8080 · plate-lookup 8081 · cnpj-lookup 8082 · keycloak 8180
@@ -69,13 +71,13 @@ services:
       retries: 20
       start_period: 40s
 
-  # Consulta de placa na Puxa Placa (paga). O token vem de apps/plate-lookup/.env (nunca comitado);
+  # Consulta de placa na Puxa Placa (paga). O token vem de <platform>/services/plate-lookup/.env (nunca comitado);
   # sem token o serviço se recusa a subir.
   plate-lookup:
     <<: *restart
-    build: ../../apps/plate-lookup
+    build: ${MAX_GATEWAY_PLATFORM_DIR:?defina MAX_GATEWAY_PLATFORM_DIR no .env da raiz (caminho do repo max-gateway/platform)}/services/plate-lookup
     env_file:
-      - path: ../../apps/plate-lookup/.env
+      - path: ${MAX_GATEWAY_PLATFORM_DIR}/services/plate-lookup/.env
         required: false
     ports:
       - "8081:8081"
@@ -86,13 +88,13 @@ services:
       retries: 5
       start_period: 5s
 
-  # Consulta de CNPJ + Inscrições Estaduais no CNPJá (paga). A chave vem de apps/cnpj-lookup/.env
+  # Consulta de CNPJ + Inscrições Estaduais no CNPJá (paga). A chave vem de <platform>/services/cnpj-lookup/.env
   # (nunca comitado); sem chave o serviço se recusa a subir.
   cnpj-lookup:
     <<: *restart
-    build: ../../apps/cnpj-lookup
+    build: ${MAX_GATEWAY_PLATFORM_DIR:?defina MAX_GATEWAY_PLATFORM_DIR no .env da raiz (caminho do repo max-gateway/platform)}/services/cnpj-lookup
     env_file:
-      - path: ../../apps/cnpj-lookup/.env
+      - path: ${MAX_GATEWAY_PLATFORM_DIR}/services/cnpj-lookup/.env
         required: false
     ports:
       - "8082:8082"
@@ -107,7 +109,7 @@ services:
   plate-reader:
     <<: *restart
     profiles: ["vision"]
-    build: ../../apps/plate-reader
+    build: ${MAX_GATEWAY_PLATFORM_DIR:?defina MAX_GATEWAY_PLATFORM_DIR no .env da raiz (caminho do repo max-gateway/platform)}/services/plate-reader
     environment:
       PLATE_READER_REDIS_URL: redis://redis:6379/0
       PLATE_READER_OCR_ENGINE: opencv_tesseract

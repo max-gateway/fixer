@@ -11,7 +11,8 @@ Pré-requisitos: Node 22+, Docker.
 ```bash
 npm ci
 cp apps/api/.env.example apps/api/.env                 # ajuste se necessário
-cp apps/plate-lookup/.env.example apps/plate-lookup/.env   # preencha PLATE_LOOKUP_PUXA_PLACA_TOKEN
+cp .env.example .env                                   # ajuste MAX_GATEWAY_PLATFORM_DIR (clone de max-gateway/platform)
+# segredos dos serviços compartilhados: <platform>/services/plate-lookup/.env (PLATE_LOOKUP_PUXA_PLACA_TOKEN) e cnpj-lookup/.env
 npm run dev        # sobe a infra (Docker) e depois API + web
 ```
 
@@ -42,8 +43,7 @@ e a reinícios do Docker. Mapa de serviços e portas: [ARCHITECTURE.md](ARCHITEC
 - `apps/api` — NestJS backend (core: OS, clientes, catálogo, placas)
 - `apps/web` — Next.js frontend
 - `apps/notifications`, `apps/whatsapp` — canais de notificação (e-mail, webhooks, WhatsApp)
-- `apps/plate-lookup` — microserviço Python: consulta de placa na Puxa Placa (paga)
-- `apps/plate-reader` — microserviço Python: leitura de placa por imagem (OCR)
+- plate-lookup, plate-reader, cnpj-lookup, dfe-gateway — **plataforma Max Gateway** ([max-gateway/platform](https://github.com/max-gateway/platform)); o Fixer só os consome por URL
 - `apps/control-plane` — provisiona novos tenants (not yet scaffolded)
 - `packages/db` — Prisma schema and client
 - `packages/domain`, `packages/ui`, `packages/config` — código compartilhado
