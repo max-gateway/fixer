@@ -1,3 +1,6 @@
+> **Cópia legada.** A fonte deste serviço agora é [max-gateway/platform](https://github.com/max-gateway/platform) (`services/notifications`). Não edite aqui:
+> o Fixer só mantém esta pasta até consumir a imagem da plataforma (ver `infra/MIGRATION.md` lá).
+
 # @fixer/notifications
 
 Serviço de notificações do Fixer. Recebe **todas as mudanças nas ordens de serviço** e as transforma em
