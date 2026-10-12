@@ -26,6 +26,21 @@ npm run dev        # sobe a infra (Docker) e depois API + web
 | `npm run tunnel` | túnel HTTPS do ngrok para o web (3001), p/ testar no celular |
 | `npm run lint` / `typecheck` / `test` | verificações (as mesmas do CI) |
 
+### Testes de integração (Postgres e Redis reais)
+
+Rodam só com variáveis definidas; sem elas ficam ignorados (48 testes). Use um **banco descartável**, nunca o de dev:
+
+```bash
+docker exec fixer-postgres-1 psql -U fixer_app -d postgres -c "CREATE DATABASE fixer_itest"
+DATABASE_URL=postgresql://fixer_app:password@localhost:5432/fixer_itest npm run migrate:deploy -w @fixer/db
+FISCAL_TEST_DATABASE_URL=postgresql://fixer_app:password@localhost:5432/fixer_itest \
+WHATSAPP_TEST_REDIS_URL=redis://localhost:6379/15 npm test -w @fixer/api          # integração
+DATABASE_URL=postgresql://fixer_app:password@localhost:5432/fixer_itest KEYCLOAK_AUTH_SERVER_URL=http://localhost:8180 \
+KEYCLOAK_REALM=fixer-dev npm run test:e2e -w @fixer/api                            # sobe o AppModule inteiro
+```
+
+Os testes fiscais apagam as tabelas singleton de credencial e de sync (recusam rodar se já houver credencial). Por isso o banco separado.
+
 ### Celular / ngrok
 
 Com `npm run dev` rodando, em outro terminal `npm run tunnel` publica o web em
