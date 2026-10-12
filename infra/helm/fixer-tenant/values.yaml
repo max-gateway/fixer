@@ -39,9 +39,15 @@ web:
       memory: 384Mi
 
 # Serviço de notificações: consome o stream de eventos de ordens (Redis do tenant)
-# e entrega e-mails/webhooks. Imagem própria: "<image.repository>-notifications".
+# e entrega e-mails/webhooks. Imagem: por padrão "<image.repository>-notifications" (legado). Para usar a da plataforma
+# Max Gateway (recomendado em AWS: ECR, sem segredo no cluster; o papel dos nós já lê o ECR), defina repository e tag:
+#   notifications.image.repository: <conta>.dkr.ecr.<região>.amazonaws.com/max-gateway/notifications
+#   notifications.image.tag: "0.1.1"
 notifications:
   enabled: true
+  image:
+    repository: ""
+    tag: ""
   replicaCount: 2
   port: 3002
   email:

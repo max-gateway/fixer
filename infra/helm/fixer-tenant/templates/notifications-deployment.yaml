@@ -21,7 +21,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: notifications
-          image: "{{ .Values.image.repository }}-notifications:{{ .Values.image.tag }}"
+          image: "{{ include "fixer-tenant.notificationsImage" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.notifications.port }}
