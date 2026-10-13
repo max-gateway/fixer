@@ -254,7 +254,13 @@ export class CredentialService {
     const cnpj = settings.cnpj;
     const who = actor.id;
 
-    // Uma chamada: o gateway cria a empresa, instala o certificado só se mudou e retoma do NSU que este tenant já
+    // Mesma regra do modo direto, antes de cadastrar: depois do register o certificado já estaria no gateway.
+    const inspected = await this.viaGateway((g) => g.inspect(input.pfxBase64, input.password));
+    if (cnpjBase(inspected.certCnpj) !== cnpjBase(cnpj)) {
+      throw new BadRequestException('O CNPJ do certificado não pertence à mesma raiz do CNPJ da empresa');
+    }
+
+    // Uma chamada de cadastro: o gateway cria a empresa, instala o certificado só se mudou e retoma do NSU que este tenant já
     // tinha (só vale se o dele estiver zerado). Flags não são enviadas: reenviar o certificado preserva as atuais.
     const existing = await this.prisma.fiscalSyncState.findUnique({ where: { orgId: TenantContext.require() }, select: { lastNsu: true } });
     const gw = await this.viaGateway((g) =>

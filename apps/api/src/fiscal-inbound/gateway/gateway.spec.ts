@@ -194,7 +194,7 @@ describe('CredentialService em modo gateway: upload = UMA chamada de cadastro', 
   const input = { pfxBase64: 'UEZY', password: 'senha', environment: 'PRODUCTION' as const };
   const actor = { id: 'u1', ip: '1.1.1.1' };
 
-  function setup(opts: { lastNsu?: bigint; reply?: unknown } = {}) {
+  function setup(opts: { lastNsu?: bigint; reply?: unknown; certCnpj?: string } = {}) {
     const upserts: Record<string, unknown>[] = [];
     const audits: unknown[] = [];
     const prisma = {
@@ -205,11 +205,25 @@ describe('CredentialService em modo gateway: upload = UMA chamada de cadastro', 
       $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
     };
     const register = vi.fn().mockResolvedValue(opts.reply ?? { credential: gwCred, changed: { credential: true, resumed: false } });
-    const svc = new CredentialService(prisma as never, { available: false } as never, { register } as unknown as GatewayClient);
+    const inspect = vi.fn().mockResolvedValue({ subject: gwCred.subject, certCnpj: opts.certCnpj ?? '67278239000107' });
+    const svc = new CredentialService(prisma as never, { available: false } as never, { register, inspect } as unknown as GatewayClient);
     return { svc, register, upserts, audits };
   }
 
-  it('chama o gateway UMA vez, sem flags, e guarda só o espelho (sem .pfx nem senha)', async () => {
+  it('certificado de outra raiz de CNPJ é recusado antes de cadastrar no gateway', async () => {
+    const { svc, register, upserts } = setup({ certCnpj: '11222333000181' });
+    await expect(svc.upload(input, actor)).rejects.toThrow(/mesma raiz/);
+    expect(register).not.toHaveBeenCalled();
+    expect(upserts).toHaveLength(0);
+  });
+
+  it('certificado de filial da mesma raiz é aceito', async () => {
+    const { svc, register } = setup({ certCnpj: '67278239000298' });
+    await svc.upload(input, actor);
+    expect(register).toHaveBeenCalledTimes(1);
+  });
+
+  it('chama o gateway UMA vez para cadastrar, sem flags, e guarda só o espelho (sem .pfx nem senha)', async () => {
     const { svc, register, upserts } = setup();
     const out = await svc.upload(input, actor);
     expect(register).toHaveBeenCalledTimes(1);
