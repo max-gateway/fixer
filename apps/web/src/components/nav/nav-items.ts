@@ -1,4 +1,4 @@
-import { ClipboardList, FileText, LayoutDashboard, Plus, UserPlus, Users, Bell, Settings, type LucideIcon } from 'lucide-react';
+import { ClipboardList, FileText, Receipt, LayoutDashboard, Plus, UserPlus, Users, Bell, Settings, type LucideIcon } from 'lucide-react';
 
 // Fonte única da navegação: header, tab bar mobile, paleta de comandos e atalhos leem daqui.
 // Para criar uma nova seção basta adicionar um item.
@@ -21,6 +21,7 @@ export const NAV_LINKS: NavLink[] = [
   { id: 'ordens', href: '/ordens', label: 'Ordens', icon: ClipboardList, goKey: 'o', match: 'prefix', keywords: ['os', 'servicos', 'ordens de servico'] },
   { id: 'clientes', href: '/clientes', label: 'Clientes', icon: Users, goKey: 'c', match: 'prefix', keywords: ['cadastro', 'pessoas'] },
   { id: 'notas', href: '/notas', label: 'Notas', icon: FileText, goKey: 'f', match: 'prefix', mobile: false, keywords: ['nfe', 'nf-e', 'compras', 'fornecedor', 'xml', 'entrada', 'estoque', 'fiscal'] },
+  { id: 'contas-a-pagar', href: '/contas-a-pagar', label: 'Contas a pagar', icon: Receipt, goKey: 'b', match: 'prefix', mobile: false, keywords: ['financeiro', 'boleto', 'vencimento', 'duplicata', 'parcela', 'pagamento', 'fornecedor'] },
 ];
 
 export const NOTIFICATIONS_LINK: NavLink = {
@@ -47,6 +48,7 @@ export type NavAction = { id: string; href: string; label: string; short: string
 
 export const NAV_ACTIONS: NavAction[] = [
   { id: 'nova-os', href: '/ordens/nova', label: 'Nova ordem de serviço', short: 'Nova OS', icon: Plus, key: 'n', keywords: ['criar', 'abrir', 'placa', 'os'] },
+  { id: 'nova-conta', href: '/contas-a-pagar?nova=1', label: 'Nova conta a pagar', short: 'Conta a pagar', icon: Receipt, keywords: ['pagar', 'boleto', 'despesa', 'financeiro', 'lancar'] },
   { id: 'novo-cliente', href: '/clientes/novo', label: 'Novo cliente', short: 'Cliente', icon: UserPlus, keywords: ['criar', 'cadastrar'] },
 ];
 
