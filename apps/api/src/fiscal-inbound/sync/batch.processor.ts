@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { TenantContext } from '../../tenancy/tenant-context.js';
 import { gzipSync } from 'node:zlib';
 import type { Prisma } from '@fixer/db';
+import { draftPayables } from '../../payables/installments.js';
 import { matchInvoice } from '../matching/reconcile.js';
 import { schemaKind, type DistDocument } from '../parser/dist-response.parser.js';
 import { assessNfe, parseProcNfe, type ParsedNfe, type ParsedNfeItem } from '../parser/nfe.parser.js';
@@ -16,6 +17,8 @@ export interface BatchContext {
 export interface BatchCounters {
   summaries: number;
   full: number;
+  /** Parcelas a pagar criadas a partir das duplicatas das notas. */
+  payables: number;
   /** Itens ligados sozinhos a uma peça (vínculo aprendido do fornecedor ou GTIN). */
   autoResolved: number;
   canceled: number;
@@ -31,6 +34,7 @@ export interface BatchCounters {
 const emptyCounters = (): BatchCounters => ({
   summaries: 0,
   full: 0,
+  payables: 0,
   autoResolved: 0,
   canceled: 0,
   canceledAfterPosting: 0,
@@ -175,6 +179,15 @@ async function onFullNfe(tx: Prisma.TransactionClient, doc: DistDocument, ctx: B
     // Resolve o que já é conhecido e promove a nota a READY se nada ficou pendente (mesma transação do lote).
     c.autoResolved += (await matchInvoice(tx, invoice.id)).resolved;
     c.full++;
+    // Só nota de compra utilizável gera obrigação; o createMany idempotente (orgId, nota, parcela) cobre o reprocessamento.
+    const drafts = draftPayables(nfe);
+    if (drafts.length > 0) {
+      const { count } = await tx.payable.createMany({
+        data: drafts.map((d) => ({ ...d, invoiceId: invoice.id, supplierCnpj: nfe.issuerId, supplierName: nfe.issuerName, category: 'Compras' })),
+        skipDuplicates: true,
+      });
+      c.payables += count;
+    }
   } else {
     c.ignored++;
   }
@@ -224,6 +237,8 @@ async function onEvent(tx: Prisma.TransactionClient, doc: DistDocument, ctx: Bat
   if (existing.status === 'CANCELED') return;
 
   const posted = existing.exportStatus === 'POSTED';
+  // Nota cancelada não se paga. Parcela já paga fica como está: a devolução do dinheiro é um assunto humano.
+  await tx.payable.updateMany({ where: { invoiceId: existing.id, status: 'OPEN' }, data: { status: 'CANCELED' } });
   await tx.purchaseInvoice.update({
     where: { id: existing.id },
     // Entrada já lançada continua POSTED: o estorno é manual, com guarda de saldo (§8.5).

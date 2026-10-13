@@ -6,6 +6,7 @@ import { ControlPlaneConfig } from './control-plane.config.js';
 import { FeatureGuard } from './feature.guard.js';
 import { LicenseGuard } from './license.guard.js';
 import { LicenseService } from './license.service.js';
+import { PermissionSyncService } from './permission-sync.service.js';
 import { PlanLimits } from './plan-limits.service.js';
 import { ProvisioningService } from './provisioning.service.js';
 import { UsageReporter } from './usage-reporter.service.js';
@@ -22,6 +23,7 @@ import { UsageReporter } from './usage-reporter.service.js';
     ControlPlaneClient,
     LicenseService,
     ProvisioningService,
+    PermissionSyncService,
     PlanLimits,
     UsageReporter,
     ControlPlaneEventsConsumer,

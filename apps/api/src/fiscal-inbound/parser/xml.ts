@@ -15,7 +15,7 @@ const parser = new XMLParser({
   parseAttributeValue: false,
   trimValues: true,
   processEntities: false,
-  isArray: (name) => name === 'det' || name === 'docZip',
+  isArray: (name) => name === 'det' || name === 'docZip' || name === 'dup' || name === 'detPag',
 });
 
 /**

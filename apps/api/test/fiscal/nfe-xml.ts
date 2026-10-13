@@ -16,6 +16,8 @@ export interface NfeOptions {
   number?: number;
   items?: string[];
   key?: string;
+  /** XML de `cobr` e `pag`, inseridos após `total` (ordem do leiaute). */
+  billing?: string;
 }
 
 /** Item no formato do procNFe 4.00: Simples Nacional, com ST cobrado na nota (ICMSSN201). */
@@ -44,6 +46,17 @@ export const ITEM_NO_GTIN = `
     <imposto><ICMS><ICMS60><orig>1</orig><CST>60</CST><vICMSSTRet>9.99</vICMSSTRet></ICMS60></ICMS></imposto>
   </det>`;
 
+export const BILLING_3X = `
+  <cobr>
+    <fat><nFat>001234</nFat><vOrig>434.85</vOrig><vLiq>434.85</vLiq></fat>
+    <dup><nDup>001</nDup><dVenc>2026-11-05</dVenc><vDup>144.95</vDup></dup>
+    <dup><nDup>002</nDup><dVenc>2026-12-05</dVenc><vDup>144.95</vDup></dup>
+    <dup><nDup>003</nDup><dVenc>2027-01-05</dVenc><vDup>144.95</vDup></dup>
+  </cobr>
+  <pag><detPag><indPag>1</indPag><tPag>15</tPag><vPag>434.85</vPag></detPag></pag>`;
+
+export const PAG_CASH = `<pag><detPag><indPag>0</indPag><tPag>01</tPag><vPag>434.85</vPag></detPag></pag>`;
+
 export function makeProcNfe(opts: NfeOptions = {}): { xml: string; key: string } {
   const issuer = opts.issuer ?? '11222333000181';
   const key = opts.key ?? makeAccessKey(issuer, opts.number ?? 1234);
@@ -59,6 +72,7 @@ export function makeProcNfe(opts: NfeOptions = {}): { xml: string; key: string }
       <dest><CNPJ>${opts.recipient ?? '12ABC34501DE35'}</CNPJ><xNome>OFICINA TESTE LTDA</xNome></dest>
       ${(opts.items ?? [ITEM_BRAKE_PAD, ITEM_NO_GTIN]).join('\n')}
       <total><ICMSTot><vProd>425.80</vProd><vNF>434.85</vNF></ICMSTot></total>
+      ${opts.billing ?? ''}
     </infNFe>
   </NFe>
   <protNFe versao="4.00"><infProt><chNFe>${key}</chNFe><cStat>${opts.cStat ?? 100}</cStat></infProt></protNFe>

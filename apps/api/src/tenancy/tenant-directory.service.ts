@@ -21,6 +21,12 @@ export class TenantDirectory {
     return row?.orgId ?? null;
   }
 
+  /** Organizações com papel Admin de sistema (alvo da ressincronização de permissões no boot). */
+  async orgsWithAdminRole(): Promise<string[]> {
+    const rows = await this.system.role.findMany({ where: { name: 'Admin', isSystem: true }, select: { orgId: true } });
+    return rows.map((r) => r.orgId);
+  }
+
   /** Organizações com certificado fiscal habilitado (alvo dos agendadores de NF-e). */
   async orgsWithFiscalCredential(): Promise<string[]> {
     const rows = await this.system.fiscalCredential.findMany({ where: { enabled: true }, select: { orgId: true } });

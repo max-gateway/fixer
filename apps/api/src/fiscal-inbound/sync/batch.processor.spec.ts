@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { FakePrisma } from '../../../test/fiscal/fake-prisma.js';
-import { ITEM_BRAKE_PAD, makeAccessKey, makeEvent, makeProcNfe, makeResNfe } from '../../../test/fiscal/nfe-xml.js';
+import { BILLING_3X, ITEM_BRAKE_PAD, makeAccessKey, makeEvent, makeProcNfe, makeResNfe } from '../../../test/fiscal/nfe-xml.js';
 import type { DistDocument } from '../parser/dist-response.parser.js';
 import { processBatch } from './batch.processor.js';
 
@@ -306,5 +306,34 @@ describe('processBatch: conciliação automática dos itens', () => {
     const { xml, key } = makeProcNfe();
     await run(db, [proc(xml)]);
     expect(db.itemsOf(key)[0]).toMatchObject({ resolution: 'UNRESOLVED' });
+  });
+});
+
+describe('processBatch: contas a pagar', () => {
+  it('cria uma parcela por duplicata; reprocessar o mesmo XML não duplica', async () => {
+    const db = new FakePrisma();
+    const { xml } = makeProcNfe({ billing: BILLING_3X });
+    expect(await run(db, [proc(xml)])).toMatchObject({ full: 1, payables: 3 });
+    expect(db.payables).toHaveLength(3);
+    expect(db.payables[0]).toMatchObject({ supplierCnpj: ISSUER, supplierName: 'AUTO PECAS DISTRIBUIDORA LTDA', installment: 1, amount: '144.95' });
+
+    expect(await run(db, [proc(xml)])).toMatchObject({ full: 0, payables: 0 });
+    expect(db.payables).toHaveLength(3);
+  });
+
+  it('nota ignorada (não somos o destinatário) não gera conta a pagar', async () => {
+    const db = new FakePrisma();
+    const { xml } = makeProcNfe({ billing: BILLING_3X, recipient: '99888777000166' });
+    await run(db, [proc(xml)]);
+    expect(db.payables).toHaveLength(0);
+  });
+
+  it('o cancelamento cancela só as parcelas em aberto; a já paga fica', async () => {
+    const db = new FakePrisma();
+    const { xml, key } = makeProcNfe({ billing: BILLING_3X });
+    await run(db, [proc(xml)]);
+    db.payables[0]!.status = 'PAID';
+    await run(db, [event(key)]);
+    expect(db.payables.map((p) => p.status)).toEqual(['PAID', 'CANCELED', 'CANCELED']);
   });
 });

@@ -11,6 +11,7 @@ export class FakePrisma {
   invoices = new Map<string, Row>();
   items: Row[] = [];
   maps: Row[] = [];
+  payables: Row[] = [];
   parts: Row[] = [];
   state: Row | null = { id: 1, lastNsu: 0n, maxNsu: 0n, consecutiveFailures: 0, lastStatusCode: null, lastError: null, nextPollAt: new Date(0) };
   credential: Row | null = { id: 1, enabled: true, autoManifest: false };
@@ -94,6 +95,26 @@ export class FakePrisma {
     },
   };
 
+  payable = {
+    createMany: async ({ data, skipDuplicates }: { data: Row[]; skipDuplicates?: boolean }) => {
+      let count = 0;
+      for (const d of data) {
+        if (this.payables.some((p) => p.invoiceId === d.invoiceId && p.installment === d.installment)) {
+          if (skipDuplicates) continue;
+          throw new Error('unique violation: invoiceId,installment');
+        }
+        this.payables.push({ id: `pay${++this.seq}`, status: 'OPEN', ...d });
+        count++;
+      }
+      return { count };
+    },
+    updateMany: async ({ where, data }: { where: { invoiceId: string; status: string }; data: Row }) => {
+      const hit = this.payables.filter((p) => p.invoiceId === where.invoiceId && p.status === where.status);
+      hit.forEach((p) => Object.assign(p, data));
+      return { count: hit.length };
+    },
+  };
+
   supplierItemMap = {
     findMany: async ({ where }: { where: { supplierCnpj: string; supplierCode: { in: string[] } } }) =>
       this.maps.filter((m) => m.supplierCnpj === where.supplierCnpj && where.supplierCode.in.includes(m.supplierCode)),
@@ -127,6 +148,7 @@ export class FakePrisma {
   };
 
   fiscalCredential = {
+    findFirst: async () => (this.credential ? { ...this.credential } : null),
     findUnique: async () => (this.credential ? { ...this.credential } : null),
     update: async ({ data }: { data: Row }) => Object.assign(this.credential!, data),
   };

@@ -22,6 +22,15 @@ export interface ParsedNfeItem {
   icmsSt: string;
 }
 
+/** Parcela da cobrança (`cobr/dup`): é o que vira conta a pagar. */
+export interface ParsedInstallment {
+  /** nDup; null quando a nota não numera a parcela. */
+  number: string | null;
+  /** dVenc no formato AAAA-MM-DD (data civil, sem fuso); null quando omitido. */
+  dueDate: string | null;
+  amount: string;
+}
+
 export interface ParsedNfe {
   /** Chave de `infNFe/@Id` (sem o prefixo `NFe`). */
   accessKey: string;
@@ -43,6 +52,13 @@ export interface ParsedNfe {
   recipientId: string | null;
   totalAmount: string;
   items: ParsedNfeItem[];
+  /** Duplicatas da cobrança, na ordem do XML. Vazio quando a nota não traz `cobr`. */
+  installments: ParsedInstallment[];
+  /**
+   * Soma dos pagamentos declarados em `pag/detPag` que geram obrigação (tPag ≠ 90, "sem pagamento"). Serve de
+   * reserva quando não há duplicatas (venda à vista, boleto não declarado); null se a nota não declara nenhum.
+   */
+  declaredPayment: string | null;
 }
 
 /**
@@ -77,7 +93,35 @@ export function parseProcNfe(xml: string): ParsedNfe {
     })(),
     totalAmount: str(inf.total?.ICMSTot?.vNF) ?? '0',
     items: dets.map(parseItem),
+    installments: parseInstallments(inf.cobr?.dup),
+    declaredPayment: declaredPayment(inf.pag?.detPag),
   };
+}
+
+function parseInstallments(dups: unknown): ParsedInstallment[] {
+  if (!Array.isArray(dups)) return [];
+  return dups.map((d: Record<string, any>) => {
+    const due = str(d?.dVenc);
+    return {
+      number: str(d?.nDup) ?? null,
+      dueDate: due && /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null,
+      amount: str(d?.vDup) ?? '0',
+    };
+  });
+}
+
+function declaredPayment(details: unknown): string | null {
+  if (!Array.isArray(details)) return null;
+  // Em centavos inteiros: a soma não pode passar por ponto flutuante.
+  let cents = 0n;
+  for (const d of details as Record<string, any>[]) {
+    const v = str(d?.vPag);
+    if (str(d?.tPag) === '90' || !v || !/^\d+(\.\d{1,2})?$/.test(v)) continue;
+    const [i, f = ''] = v.split('.');
+    cents += BigInt(i!) * 100n + BigInt(f.padEnd(2, '0'));
+  }
+  if (cents === 0n) return null;
+  return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
 }
 
 function parseItem(det: Record<string, any>): ParsedNfeItem {
