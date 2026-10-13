@@ -20,11 +20,13 @@ import { UserMenu } from './user-menu';
 type Props = {
   brand: { name: string; logoUrl?: string | null };
   user: NavUser | null;
+  /** Oficina em uso (multi-tenant). `canSwitch`: o usuário participa de mais de uma. */
+  org?: { name: string; canSwitch: boolean } | null;
   signOutAction: () => Promise<void>;
 };
 
 /** Cabeçalho fixo da área interna: marca, navegação, busca (⌘K), ação principal, sino e conta. */
-export function AppHeader({ brand, user, signOutAction }: Props) {
+export function AppHeader({ brand, user, org, signOutAction }: Props) {
   const router = useRouter();
   const reduce = useReducedMotion();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -90,7 +92,7 @@ export function AppHeader({ brand, user, signOutAction }: Props) {
             <div className="hidden md:block">
               <NotificationBell />
             </div>
-            {user && <UserMenu user={user} signOutAction={signOutAction} onOpenPalette={openPalette} />}
+            {user && <UserMenu user={user} org={org} signOutAction={signOutAction} onOpenPalette={openPalette} />}
           </div>
         </div>
 

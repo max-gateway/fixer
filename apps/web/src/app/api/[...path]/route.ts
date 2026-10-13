@@ -2,6 +2,7 @@
 // URL da API em runtime, já que a imagem é compartilhada entre tenants.
 // Anexa o access token do usuário logado; sem sessão válida responde 401.
 import { getAccessToken } from '@/auth';
+import { orgHeader } from '@/lib/org-server';
 
 const apiUrl = () => process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -19,6 +20,8 @@ async function proxy(req: Request, ctx: Ctx) {
       headers: {
         'content-type': req.headers.get('content-type') ?? 'application/json',
         authorization: `Bearer ${token}`,
+        // Oficina ativa (multi-tenant). A API confere contra o token: o cabeçalho só escolhe entre as oficinas do próprio usuário.
+        ...(await orgHeader()),
       },
       // Bytes crus: o corpo pode ser multipart (upload de foto), não só JSON.
       body: hasBody ? await req.arrayBuffer() : undefined,

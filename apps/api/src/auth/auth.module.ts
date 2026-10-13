@@ -12,6 +12,6 @@ import { PermissionGuard } from './permission.guard.js';
  */
 @Module({
   providers: [AuthConfig, AuthService, { provide: APP_GUARD, useClass: AuthGuard }, { provide: APP_GUARD, useClass: PermissionGuard }],
-  exports: [AuthService],
+  exports: [AuthService, AuthConfig],
 })
 export class AuthModule {}

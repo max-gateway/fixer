@@ -1,12 +1,14 @@
 import { Body, Controller, Delete, Get, Patch, Post, Put, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { CurrentUser, type AuthUser } from '../auth/auth.decorators.js';
+import { RequireFeature } from '../control-plane/feature.guard.js';
 import { RequirePermission } from '../auth/permissions.js';
 import { parse } from '../common/parse.js';
 import { CredentialService, FlagsSchema, InspectCredentialSchema, SettingsSchema, UploadCredentialSchema } from './credentials/credential.service.js';
 
 const actor = (user: AuthUser, req: Request) => ({ id: user.id, ip: req.ip });
 
+@RequireFeature('fiscal')
 @Controller('fiscal')
 export class FiscalInboundController {
   constructor(private readonly credentials: CredentialService) {}

@@ -1,3 +1,4 @@
+import { TenantContext } from '../../tenancy/tenant-context.js';
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -85,14 +86,14 @@ export class CredentialService {
 
   getSettings() {
     return this.prisma.tenantFiscalSettings.findUnique({
-      where: { id: 1 },
+      where: { orgId: TenantContext.require() },
       select: { cnpj: true, legalName: true, ufCode: true },
     });
   }
 
   /** Trocar a raiz do CNPJ com certificado já enviado quebraria a validação do WS (rejeição 593): exige remover antes. */
   async updateSettings(input: z.infer<typeof SettingsSchema>, actor: Actor) {
-    const current = await this.prisma.tenantFiscalSettings.findUnique({ where: { id: 1 }, select: { cnpj: true } });
+    const current = await this.prisma.tenantFiscalSettings.findUnique({ where: { orgId: TenantContext.require() }, select: { cnpj: true } });
     if (current?.cnpj && cnpjBase(current.cnpj) !== cnpjBase(input.cnpj)) {
       const hasCredential = await this.prisma.fiscalCredential.count();
       if (hasCredential > 0) {
@@ -100,8 +101,8 @@ export class CredentialService {
       }
     }
     const saved = await this.prisma.tenantFiscalSettings.upsert({
-      where: { id: 1 },
-      create: { id: 1, ...input },
+      where: { orgId: TenantContext.require() },
+      create: { orgId: TenantContext.require(), ...input },
       update: input,
       select: { cnpj: true, legalName: true, ufCode: true },
     });
@@ -113,7 +114,7 @@ export class CredentialService {
     const [settings, credential] = await Promise.all([
       this.getSettings(),
       this.prisma.fiscalCredential.findUnique({
-        where: { id: 1 },
+        where: { orgId: TenantContext.require() },
         select: {
           environment: true,
           subject: true,
@@ -197,9 +198,9 @@ export class CredentialService {
       uploadedById: actor.id,
     };
     await this.prisma.$transaction(async (tx) => {
-      await tx.fiscalCredential.upsert({ where: { id: 1 }, create: { id: 1, ...data }, update: data });
+      await tx.fiscalCredential.upsert({ where: { orgId: TenantContext.require() }, create: { orgId: TenantContext.require(), ...data }, update: data });
       // Só cria o estado na primeira vez: renovar o certificado não pode zerar o NSU.
-      await tx.fiscalSyncState.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
+      await tx.fiscalSyncState.upsert({ where: { orgId: TenantContext.require() }, create: { orgId: TenantContext.require() }, update: {} });
     });
     await this.audit(actor, 'credential.upload', {
       subject: parsed.subject,
@@ -212,19 +213,19 @@ export class CredentialService {
 
   async updateFlags(input: z.infer<typeof FlagsSchema>, actor: Actor) {
     if (this.gateway) return this.updateFlagsViaGateway(input, actor);
-    const credential = await this.prisma.fiscalCredential.findUnique({ where: { id: 1 }, select: { id: true } });
+    const credential = await this.prisma.fiscalCredential.findUnique({ where: { orgId: TenantContext.require() }, select: { orgId: true } });
     if (!credential) throw new NotFoundException('Nenhum certificado cadastrado');
     const { acknowledgeManifestDuty: _ack, ...persisted } = input;
     const data: Record<string, unknown> = { ...persisted };
     if (input.autoExport !== undefined) data.autoExportById = input.autoExport ? actor.id : null;
-    await this.prisma.fiscalCredential.update({ where: { id: 1 }, data });
+    await this.prisma.fiscalCredential.update({ where: { orgId: TenantContext.require() }, data });
     await this.audit(actor, 'flags.update', input);
     return this.status();
   }
 
   async remove(actor: Actor) {
     if (this.gateway) return this.removeViaGateway(actor);
-    const { count } = await this.prisma.fiscalCredential.deleteMany({ where: { id: 1 } });
+    const { count } = await this.prisma.fiscalCredential.deleteMany({ where: { orgId: TenantContext.require() } });
     if (count === 0) throw new NotFoundException('Nenhum certificado cadastrado');
     await this.audit(actor, 'credential.delete', {});
   }
@@ -244,7 +245,7 @@ export class CredentialService {
 
     // Uma chamada: o gateway cria a empresa, instala o certificado só se mudou e retoma do NSU que este tenant já
     // tinha (só vale se o dele estiver zerado). Flags não são enviadas: reenviar o certificado preserva as atuais.
-    const existing = await this.prisma.fiscalSyncState.findUnique({ where: { id: 1 }, select: { lastNsu: true } });
+    const existing = await this.prisma.fiscalSyncState.findUnique({ where: { orgId: TenantContext.require() }, select: { lastNsu: true } });
     const gw = await this.viaGateway((g) =>
       g.register(
         cnpj,
@@ -274,15 +275,15 @@ export class CredentialService {
       uploadedById: actor.id,
     };
     await this.prisma.$transaction(async (tx) => {
-      await tx.fiscalCredential.upsert({ where: { id: 1 }, create: { id: 1, ...data }, update: data });
-      await tx.fiscalSyncState.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
+      await tx.fiscalCredential.upsert({ where: { orgId: TenantContext.require() }, create: { orgId: TenantContext.require(), ...data }, update: data });
+      await tx.fiscalSyncState.upsert({ where: { orgId: TenantContext.require() }, create: { orgId: TenantContext.require() }, update: {} });
     });
     await this.audit(actor, 'credential.upload', { subject: cred.subject, certCnpj: cred.cert_cnpj, notAfter: cred.not_after, environment: input.environment, via: 'gateway', changed: gw.changed?.credential });
     return { subject: cred.subject, certCnpj: cred.cert_cnpj, notBefore: new Date(cred.not_before), notAfter: new Date(cred.not_after) };
   }
 
   private async updateFlagsViaGateway(input: z.infer<typeof FlagsSchema>, actor: Actor) {
-    const cred = await this.prisma.fiscalCredential.findUnique({ where: { id: 1 }, select: { id: true } });
+    const cred = await this.prisma.fiscalCredential.findUnique({ where: { orgId: TenantContext.require() }, select: { orgId: true } });
     const settings = await this.getSettings();
     if (!cred || !settings?.cnpj) throw new NotFoundException('Nenhum certificado cadastrado');
     const cnpj = settings.cnpj;
@@ -298,7 +299,7 @@ export class CredentialService {
       data.autoExport = input.autoExport;
       data.autoExportById = input.autoExport ? actor.id : null;
     }
-    await this.prisma.fiscalCredential.update({ where: { id: 1 }, data });
+    await this.prisma.fiscalCredential.update({ where: { orgId: TenantContext.require() }, data });
     await this.audit(actor, 'flags.update', input);
     return this.status();
   }
@@ -314,14 +315,14 @@ export class CredentialService {
       // registro local veio do modo direto). O objetivo, "sem certificado", já vale: limpa o espelho local e segue.
       if (!(err instanceof NotFoundException)) throw err;
     }
-    await this.prisma.fiscalCredential.deleteMany({ where: { id: 1 } });
+    await this.prisma.fiscalCredential.deleteMany({ where: { orgId: TenantContext.require() } });
     await this.audit(actor, 'credential.delete', { via: 'gateway' });
   }
 
   /** Decifra o certificado para uma rodada de sincronização. O retorno vive só na memória do chamador. */
   async openMaterial(): Promise<CredentialMaterial> {
     this.requireKeys();
-    const row = await this.prisma.fiscalCredential.findUnique({ where: { id: 1 } });
+    const row = await this.prisma.fiscalCredential.findUnique({ where: { orgId: TenantContext.require() } });
     if (!row) throw new NotFoundException('Nenhum certificado cadastrado');
     const pfx = await open(this.keys, row.keyId, Buffer.from(row.pfxCiphertext), CTX_PFX);
     const password = (await open(this.keys, row.keyId, Buffer.from(row.pfxPassCiphertext), CTX_PASS)).toString('utf8');

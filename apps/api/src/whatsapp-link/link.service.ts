@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { emitOrderEvent } from '../outbox/order-events.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { SystemPrismaService } from '../prisma/system-prisma.service.js';
 import { appendEvent } from '../service-orders/events.js';
 import type { OrderCodeReceived } from './inbound-event.js';
 import { decideLink } from './link.policy.js';
@@ -30,7 +31,11 @@ export type LinkOutcome =
 export class WhatsappLinkService {
   private readonly logger = new Logger(WhatsappLinkService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    /** A limpeza do inbox atravessa organizações: usa o cliente de sistema. */
+    @Optional() @Inject(SystemPrismaService) private readonly system: SystemPrismaService | null = null,
+  ) {}
 
   handle(event: OrderCodeReceived): Promise<LinkOutcome> {
     const { from, code } = event.data;
@@ -120,7 +125,7 @@ export class WhatsappLinkService {
   /** O inbox só precisa cobrir a janela de reentrega do stream; o resto é lixo. */
   async purgeProcessed(olderThanDays = 14): Promise<number> {
     const cutoff = new Date(Date.now() - olderThanDays * 86_400_000);
-    const { count } = await this.prisma.processedInboundEvent.deleteMany({ where: { processedAt: { lt: cutoff } } });
+    const { count } = await (this.system ?? this.prisma).processedInboundEvent.deleteMany({ where: { processedAt: { lt: cutoff } } });
     return count;
   }
 }

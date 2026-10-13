@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { ConflictException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { TenantContext } from '../tenancy/tenant-context.js';
+import { ConflictException, Inject, Injectable, NotFoundException, Optional, BadRequestException } from '@nestjs/common';
+import { PlanLimits } from '../control-plane/plan-limits.service.js';
 import type { EstimateSource, Prisma, Service, ServiceOrderStatus, VariantResolution } from '@fixer/db';
 import type { AuthUser } from '../auth/auth.decorators.js';
 import { emitOrderEvent } from '../outbox/order-events.js';
@@ -44,6 +46,8 @@ export class ServiceOrdersService {
     private readonly prisma: PrismaService,
     private readonly variants: VehicleVariantsService,
     private readonly learning: LearningService,
+    /** Limite de ordens por mês do plano. Ausente em testes unitários. */
+    @Optional() @Inject(PlanLimits) private readonly limits: PlanLimits | null = null,
   ) {}
 
   list(filter: { status?: ServiceOrderStatus; search?: string }) {
@@ -74,13 +78,14 @@ export class ServiceOrdersService {
     return withNext(order);
   }
 
-  create(input: CreateServiceOrderInput, user: AuthUser) {
+  async create(input: CreateServiceOrderInput, user: AuthUser) {
+    await this.limits?.assertOrderSlot();
     return this.prisma.$transaction(async (tx) => {
       const customer = await this.resolveCustomer(tx, input);
 
       const { plate, brand, model, year, color } = input.vehicle;
       const vehicle = await tx.vehicle.upsert({
-        where: { plate },
+        where: { orgId_plate: { orgId: TenantContext.require(), plate } },
         create: { plate, brand, model, year, color, mileage: input.mileageAtEntry },
         update: {
           brand,
@@ -156,7 +161,7 @@ export class ServiceOrdersService {
     variantResolution: VariantResolution | null,
   ) {
     const hourlyRate = inputs.some((l) => serviceById.get(l.serviceId)?.pricingMode === 'HOURLY')
-      ? Number((await tx.tenantFiscalSettings.findUnique({ where: { id: 1 } }))?.hourlyRate ?? 0) || null
+      ? Number((await tx.tenantFiscalSettings.findUnique({ where: { orgId: TenantContext.require() } }))?.hourlyRate ?? 0) || null
       : null;
 
     const lines = [];

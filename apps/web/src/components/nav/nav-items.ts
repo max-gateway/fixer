@@ -1,4 +1,4 @@
-import { ClipboardList, FileText, LayoutDashboard, Plus, UserPlus, Users, Bell, type LucideIcon } from 'lucide-react';
+import { ClipboardList, FileText, LayoutDashboard, Plus, UserPlus, Users, Bell, Settings, type LucideIcon } from 'lucide-react';
 
 // Fonte única da navegação: header, tab bar mobile, paleta de comandos e atalhos leem daqui.
 // Para criar uma nova seção basta adicionar um item.
@@ -31,6 +31,16 @@ export const NOTIFICATIONS_LINK: NavLink = {
   goKey: 'n',
   match: 'prefix',
   keywords: ['alertas', 'avisos', 'inbox'],
+};
+
+export const SETTINGS_LINK: NavLink = {
+  id: 'configuracoes',
+  href: '/configuracoes',
+  label: 'Cadastro da oficina',
+  icon: Settings,
+  goKey: 'a',
+  match: 'prefix',
+  keywords: ['configuracoes', 'ajustes', 'cadastro', 'empresa', 'cnpj', 'certificado', 'fiscal', 'oficina'],
 };
 
 export type NavAction = { id: string; href: string; label: string; short: string; icon: LucideIcon; key?: string; keywords: string[] };

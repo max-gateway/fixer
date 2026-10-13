@@ -1,4 +1,5 @@
 import { gunzipSync } from 'node:zlib';
+import { TenantContext } from '../tenancy/tenant-context.js';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@fixer/db';
 import { z } from 'zod';
@@ -69,7 +70,7 @@ export class InvoicesService {
         ...(digits.length > 0 && digits.length <= 9 ? [{ number: Number(digits) }] : []),
       ];
     }
-    const [rows, total] = await this.prisma.$transaction([
+    const [rows, total] = await Promise.all([
       this.prisma.purchaseInvoice.findMany({
         where,
         orderBy: [{ issuedAt: { sort: 'desc', nulls: 'last' } }, { receivedAt: 'desc' }],
@@ -109,7 +110,7 @@ export class InvoicesService {
 
   /** Contagem por aba, para os selos da lista. */
   async summary(): Promise<Record<View, number>> {
-    const counts = await this.prisma.$transaction(VIEWS.map((v) => this.prisma.purchaseInvoice.count({ where: VIEW_WHERE[v] })));
+    const counts = await Promise.all(VIEWS.map((v) => this.prisma.purchaseInvoice.count({ where: VIEW_WHERE[v] })));
     return Object.fromEntries(VIEWS.map((v, i) => [v, counts[i]!])) as Record<View, number>;
   }
 
@@ -205,7 +206,7 @@ export class InvoicesService {
 
   private async learn(tx: Prisma.TransactionClient, invoice: { id: string; issuerCnpj: string }, supplierCode: string, partId: string, unitFactor: number) {
     await tx.supplierItemMap.upsert({
-      where: { supplierCnpj_supplierCode: { supplierCnpj: invoice.issuerCnpj, supplierCode } },
+      where: { orgId_supplierCnpj_supplierCode: { orgId: TenantContext.require(), supplierCnpj: invoice.issuerCnpj, supplierCode } },
       create: { supplierCnpj: invoice.issuerCnpj, supplierCode, partId, unitFactor: String(unitFactor) },
       // Decisão explícita do usuário vence o que estava aprendido.
       update: { partId, unitFactor: String(unitFactor), lastUsedAt: new Date() },

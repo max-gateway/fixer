@@ -1,11 +1,13 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { RequirePermission } from '../auth/permissions.js';
+import { RequireFeature } from '../control-plane/feature.guard.js';
 import { parse } from '../common/parse.js';
 import { CreatePartSchema, InvoicesService, ItemActionSchema, ListQuerySchema } from './invoices.service.js';
 import { ManifestService } from './sync/manifest.service.js';
 
 /** Notas de compra recebidas da SEFAZ e a conciliação dos itens (docs/specs/nfe-import.md §8 e §11). */
+@RequireFeature('fiscal')
 @Controller('invoices')
 export class InvoicesController {
   constructor(

@@ -106,8 +106,8 @@ function Header() {
         <h1 className="text-2xl font-semibold tracking-tight">Notas de compra</h1>
         <p className="text-sm text-muted-foreground">NF-e emitidas contra o CNPJ da oficina, buscadas automaticamente na SEFAZ.</p>
       </div>
-      <Link href="/configuracoes/notas" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-        <Settings aria-hidden /> Importação
+      <Link href="/configuracoes" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+        <Settings aria-hidden /> Cadastro
       </Link>
     </header>
   );

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { TenantContext } from '../../tenancy/tenant-context.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CredentialService } from '../credentials/credential.service.js';
 import type { CredentialMaterial } from '../credentials/credential.service.js';
@@ -36,8 +37,8 @@ export class SyncRunner {
 
   async runOnce(now: Date = new Date(), random: () => number = Math.random): Promise<RunResult> {
     const [state, settings] = await Promise.all([
-      this.prisma.fiscalSyncState.findUnique({ where: { id: 1 } }),
-      this.prisma.tenantFiscalSettings.findUnique({ where: { id: 1 }, select: { cnpj: true, ufCode: true } }),
+      this.prisma.fiscalSyncState.findUnique({ where: { orgId: TenantContext.require() } }),
+      this.prisma.tenantFiscalSettings.findUnique({ where: { orgId: TenantContext.require() }, select: { cnpj: true, ufCode: true } }),
     ]);
     if (!state) return { outcome: 'IDLE', cStat: null }; // sem certificado cadastrado: nada a fazer
 
@@ -92,7 +93,7 @@ export class SyncRunner {
         // O NSU só anda para a frente, e só na mesma transação que gravou os documentos.
         const advance = res.ultNsu !== null && (res.cStat === 138 || res.cStat === 137) && !invalid138;
         if (advance) {
-          await tx.fiscalSyncState.updateMany({ where: { id: 1, lastNsu: { lte: res.ultNsu! } }, data: { lastNsu: res.ultNsu! } });
+          await tx.fiscalSyncState.updateMany({ where: { orgId: TenantContext.require(), lastNsu: { lte: res.ultNsu! } }, data: { lastNsu: res.ultNsu! } });
         }
         await this.applyDecision(tx, decision, res.cStat, res.maxNsu, now);
         return batch;
@@ -120,7 +121,7 @@ export class SyncRunner {
    */
   private async manifestPending(material: CredentialMaterial, cnpj: string, now: Date): Promise<void> {
     try {
-      const flags = await this.prisma.fiscalCredential.findUnique({ where: { id: 1 }, select: { autoManifest: true } });
+      const flags = await this.prisma.fiscalCredential.findUnique({ where: { orgId: TenantContext.require() }, select: { autoManifest: true } });
       if (flags?.autoManifest) await this.manifest.runPending(material, cnpj, now);
     } catch (err) {
       this.logger.error(`Falha ao dar ciência às notas: ${(err as Error).message}`);
@@ -136,7 +137,7 @@ export class SyncRunner {
   ) {
     const ok = d.outcome === 'MORE' || d.outcome === 'IDLE';
     await tx.fiscalSyncState.update({
-      where: { id: 1 },
+      where: { orgId: TenantContext.require() },
       data: {
         nextPollAt: d.nextPollAt,
         consecutiveFailures: d.failures,
@@ -147,7 +148,7 @@ export class SyncRunner {
         ...(maxNsu !== null ? { maxNsu } : {}),
       },
     });
-    if (d.outcome === 'DISABLE') await tx.fiscalCredential.update({ where: { id: 1 }, data: { enabled: false } });
+    if (d.outcome === 'DISABLE') await tx.fiscalCredential.update({ where: { orgId: TenantContext.require() }, data: { enabled: false } });
   }
 
   private async fail(d: Decision, cStat: number | null, now: Date): Promise<RunResult> {

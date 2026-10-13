@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { describedBy, Field } from '@/components/ui/field';
 import { Input, Select } from '@/components/ui/input';
-import { UF_CODES } from '@/lib/cnpj';
+import { lookupCompany, settingsFromHints } from '@/lib/company-autofill';
 import { deleteJson, postJson, putJson } from '@/lib/client-api';
 import { daysUntil, type FiscalStatus } from '@/lib/fiscal-import';
 import { formatCnpj, shortDate } from '@/lib/invoices';
@@ -144,15 +144,6 @@ function CurrentCertificate({ cred, onReplace, replacing }: { cred: NonNullable<
   );
 }
 
-/** Titular do certificado → dados da empresa. A consulta de CNPJ é só conveniência: se falhar, salva só o CNPJ. */
-async function companyFromCertificate(cnpj: string): Promise<{ cnpj: string; legalName?: string; ufCode?: number }> {
-  const res = await fetch(`/api/customers/cnpj-lookup/${encodeURIComponent(cnpj)}`).catch(() => null);
-  const data = res?.ok ? ((await res.json().catch(() => null)) as { razao_social?: string | null; endereco?: { uf?: string | null } | null } | null) : null;
-  const ufCode = UF_CODES.find((u) => u.sigla === data?.endereco?.uf?.toUpperCase())?.code;
-  const legalName = data?.razao_social?.trim().slice(0, 200);
-  return { cnpj, ...(legalName ? { legalName } : {}), ...(ufCode ? { ufCode } : {}) };
-}
-
 function UploadForm({ hasCredential, enroll, savedCnpj, onDone, onCancel }: { hasCredential: boolean; enroll?: boolean; savedCnpj?: string; onDone: () => void; onCancel?: () => void }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -173,7 +164,11 @@ function UploadForm({ hasCredential, enroll, savedCnpj, onDone, onCancel }: { ha
       if (enroll) {
         const cert = await postJson<{ certCnpj: string }>('/api/fiscal/credentials/inspect', { pfxBase64, password }, 'Não foi possível ler o certificado.');
         if (cert.certCnpj !== savedCnpj) {
-          await putJson('/api/fiscal/company', await companyFromCertificate(cert.certCnpj), 'Não foi possível salvar os dados da empresa.');
+          // O certificado manda: empresa, município e regime vêm da consulta do CNPJ dele. ISS e código municipal
+          // dependem do município e ficam para o usuário (a tela avisa).
+          const { company, hints } = await lookupCompany(cert.certCnpj);
+          await putJson('/api/fiscal/company', company, 'Não foi possível salvar os dados da empresa.');
+          await putJson('/api/fiscal/settings', settingsFromHints(hints, true), 'Não foi possível salvar a configuração fiscal.');
         }
       }
       return postJson('/api/fiscal/credentials', { pfxBase64, password, environment }, 'Não foi possível enviar o certificado.');

@@ -1,3 +1,4 @@
+import { TEST_ORG } from '../../test/setup.js';
 import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { FiscalSettingsService } from './fiscal-settings.service.js';
@@ -54,7 +55,7 @@ describe('FiscalSettingsService.updateSettings', () => {
     const { prisma, service } = setup();
     await service.updateSettings({ taxRegime: 'SIMPLES', issRate: 2.5 });
     const call = prisma.tenantFiscalSettings.upsert.mock.calls[0][0];
-    expect(call.where).toEqual({ id: 1 });
+    expect(call.where).toEqual({ orgId: TEST_ORG });
     expect(call.update).toEqual({ taxRegime: 'SIMPLES', issRate: 2.5 });
     expect(Object.keys(call.create)).not.toContain('cnpj');
     expect(Object.keys(call.update)).not.toContain('cnpj');

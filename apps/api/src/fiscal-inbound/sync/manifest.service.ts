@@ -1,4 +1,5 @@
 import { BadGatewayException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { TenantContext } from '../../tenancy/tenant-context.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CredentialService, type CredentialMaterial } from '../credentials/credential.service.js';
 import type { EventResult } from '../parser/event-response.parser.js';
@@ -98,7 +99,7 @@ export class ManifestService {
     if (!invoice) throw new NotFoundException('Nota não encontrada');
     if (invoice.status !== 'SUMMARY') throw new ConflictException(`A nota já está ${invoice.status}; não há ciência a dar`);
 
-    const settings = await this.prisma.tenantFiscalSettings.findUnique({ where: { id: 1 }, select: { cnpj: true } });
+    const settings = await this.prisma.tenantFiscalSettings.findUnique({ where: { orgId: TenantContext.require() }, select: { cnpj: true } });
     if (!settings?.cnpj) throw new ServiceUnavailableException('CNPJ da empresa não cadastrado');
     if (this.gateway) return this.queueViaGateway(settings.cnpj, invoice.accessKey);
     const material = await this.credentials.openMaterial();

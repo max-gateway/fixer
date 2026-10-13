@@ -15,6 +15,11 @@ export class AuthGuard implements CanActivate {
       return true;
     }
     const req = ctx.switchToHttp().getRequest();
+    // O TenantMiddleware já validou o token e abriu a organização da requisição.
+    if (req.jwt) {
+      req.user = await this.auth.authenticatePayload(req.jwt);
+      return true;
+    }
     const [scheme, token] = (req.headers.authorization ?? '').split(' ');
     if (scheme?.toLowerCase() !== 'bearer' || !token) {
       throw new UnauthorizedException('Token ausente');

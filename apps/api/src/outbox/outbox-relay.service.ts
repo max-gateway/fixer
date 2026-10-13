@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { PrismaService } from '../prisma/prisma.service.js';
+import { SystemPrismaService } from '../prisma/system-prisma.service.js';
 
 /** Chave do advisory lock: só uma réplica da API publica por vez, o que preserva a ordem do outbox. */
 const RELAY_LOCK_KEY = 7_201_001;
@@ -30,7 +30,8 @@ export class OutboxRelay implements OnModuleInit, OnApplicationShutdown {
   private loop: Promise<void> | null = null;
   private lastCleanup = 0;
 
-  constructor(private readonly prisma: PrismaService) {}
+  /** Cliente de sistema (ignora RLS): o relay publica a outbox de TODAS as organizações, em ordem de `seq`. */
+  constructor(private readonly prisma: SystemPrismaService) {}
 
   onModuleInit(): void {
     if (process.env.OUTBOX_RELAY_ENABLED === 'false') return;

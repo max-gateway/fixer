@@ -39,7 +39,10 @@ DATABASE_URL=postgresql://fixer_app:password@localhost:5432/fixer_itest KEYCLOAK
 KEYCLOAK_REALM=fixer-dev npm run test:e2e -w @fixer/api                            # sobe o AppModule inteiro
 ```
 
+Os testes de integração conectam como `fixer_rls` (papel sujeito a RLS, como em produção); os papéis são criados sozinhos pelo `globalSetup` do vitest
+(espelham `infra/dev/rls-roles.sql`). O superusuário `fixer_app` só é usado para preparar e inspecionar: **nunca** use um superusuário como `DATABASE_URL` da API, ele ignora a RLS.
 Os testes fiscais apagam as tabelas singleton de credencial e de sync (recusam rodar se já houver credencial). Por isso o banco separado.
+O isolamento entre organizações é provado em `apps/api/src/tenancy/isolation.integration.spec.ts`.
 
 ### Celular / ngrok
 

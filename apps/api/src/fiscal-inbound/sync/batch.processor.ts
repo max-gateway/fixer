@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { TenantContext } from '../../tenancy/tenant-context.js';
 import { gzipSync } from 'node:zlib';
 import type { Prisma } from '@fixer/db';
 import { matchInvoice } from '../matching/reconcile.js';
@@ -88,7 +89,7 @@ async function onSummary(tx: Prisma.TransactionClient, doc: DistDocument, ctx: B
     c.invalid++;
     return;
   }
-  const existing = await tx.purchaseInvoice.findUnique({ where: { accessKey: res.accessKey }, select: { id: true } });
+  const existing = await tx.purchaseInvoice.findUnique({ where: { orgId_accessKey: { orgId: TenantContext.require(), accessKey: res.accessKey } }, select: { id: true } });
   if (existing) return; // o resumo nunca rebaixa nem altera uma nota já conhecida
 
   let status: 'SUMMARY' | 'IGNORED' | 'CANCELED' = 'SUMMARY';
@@ -132,7 +133,7 @@ async function onFullNfe(tx: Prisma.TransactionClient, doc: DistDocument, ctx: B
   }
 
   const existing = await tx.purchaseInvoice.findUnique({
-    where: { accessKey: nfe.accessKey },
+    where: { orgId_accessKey: { orgId: TenantContext.require(), accessKey: nfe.accessKey } },
     select: { id: true, status: true },
   });
   // Nota já completa, lançada, cancelada ou ignorada: o procNFe repetido é no-op (idempotência).
@@ -198,7 +199,7 @@ async function onEvent(tx: Prisma.TransactionClient, doc: DistDocument, ctx: Bat
   }
 
   const existing = await tx.purchaseInvoice.findUnique({
-    where: { accessKey: event.accessKey },
+    where: { orgId_accessKey: { orgId: TenantContext.require(), accessKey: event.accessKey } },
     select: { id: true, status: true, exportStatus: true },
   });
 

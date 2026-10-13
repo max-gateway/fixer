@@ -2,14 +2,18 @@
 -- (@RequirePermission). As rotas protegidas falham fechado: sem isto, respondem 403 para todo mundo,
 -- porque ainda não existe tela nem seed de provisionamento para papéis e permissões.
 --
--- Idempotente. Uso (o usuário precisa já ter feito login uma vez, para existir em "User"):
+-- Multi-tenant: o usuário e o papel pertencem a UMA organização (:'org'). Rode com um papel que ignora RLS (o dono do banco
+-- em dev), ou o INSERT é barrado pela política da tabela. Idempotente. O usuário precisa já ter feito login uma vez
+-- nessa organização, para existir em "User".
+--
 --   docker compose -f infra/dev/docker-compose.yml exec -T postgres \
---     psql -U fixer_app -d fixer -v email=dev@fixer.local < infra/dev/grant-admin.sql
+--     psql -U fixer_app -d fixer -v email=dev@fixer.local -v org=<uuid-da-organizacao> < infra/dev/grant-admin.sql
 --
 -- Ao criar uma nova rota com @RequirePermission, acrescente a chave na lista abaixo.
 
 BEGIN;
 
+-- Permission é referência compartilhada (sem organização).
 INSERT INTO "Permission" ("id", "key", "label") VALUES
   ('perm-fiscal-manage',     'fiscal.manage',     'Configurar a importação fiscal (certificado, CNPJ, automações)'),
   ('perm-fiscal-verify',     'fiscal.verify',     'Confirmar dados fiscais (contador)'),
@@ -18,24 +22,29 @@ INSERT INTO "Permission" ("id", "key", "label") VALUES
   ('perm-learning-manage',   'learning.manage',   'Gerenciar o aprendizado de tempos')
 ON CONFLICT ("key") DO NOTHING;
 
-INSERT INTO "Role" ("id", "name", "description", "isSystem")
-VALUES ('role-admin', 'Admin', 'Acesso total', true)
-ON CONFLICT ("name") DO NOTHING;
+-- Dali em diante tudo é da organização informada.
+SELECT set_config('app.org_id', :'org', true);
 
-INSERT INTO "RolePermission" ("roleId", "permissionId")
-SELECT r."id", p."id" FROM "Role" r CROSS JOIN "Permission" p WHERE r."name" = 'Admin'
+-- Um papel "Admin" por organização (o id leva o prefixo da organização para não colidir).
+INSERT INTO "Role" ("id", "orgId", "name", "description", "isSystem")
+VALUES ('role-admin-' || :'org', :'org'::uuid, 'Admin', 'Acesso total', true)
+ON CONFLICT ("orgId", "name") DO NOTHING;
+
+INSERT INTO "RolePermission" ("orgId", "roleId", "permissionId")
+SELECT r."orgId", r."id", p."id" FROM "Role" r CROSS JOIN "Permission" p WHERE r."name" = 'Admin' AND r."orgId" = :'org'::uuid
 ON CONFLICT DO NOTHING;
 
-INSERT INTO "UserRole" ("userId", "roleId")
-SELECT u."id", r."id" FROM "User" u CROSS JOIN "Role" r WHERE u."email" = :'email' AND r."name" = 'Admin'
+INSERT INTO "UserRole" ("orgId", "userId", "roleId")
+SELECT u."orgId", u."id", r."id" FROM "User" u JOIN "Role" r ON r."orgId" = u."orgId"
+WHERE u."email" = :'email' AND u."orgId" = :'org'::uuid AND r."name" = 'Admin'
 ON CONFLICT DO NOTHING;
 
--- Confere: quantas permissões o usuário passou a ter (0 = e-mail não encontrado; faça login e rode de novo).
+-- Confere: quantas permissões o usuário passou a ter (0 = e-mail não encontrado nessa organização; faça login e rode de novo).
 SELECT u."email", count(rp."permissionId") AS permissoes
 FROM "User" u
 LEFT JOIN "UserRole" ur ON ur."userId" = u."id"
 LEFT JOIN "RolePermission" rp ON rp."roleId" = ur."roleId"
-WHERE u."email" = :'email'
+WHERE u."email" = :'email' AND u."orgId" = :'org'::uuid
 GROUP BY u."email";
 
 COMMIT;

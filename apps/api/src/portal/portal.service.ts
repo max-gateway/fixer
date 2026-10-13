@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { TenantContext } from '../tenancy/tenant-context.js';
 import type { Prisma } from '@fixer/db';
 import { emitOrderEvent } from '../outbox/order-events.js';
 import { RateLimiter } from '../common/rate-limit.js';
@@ -210,7 +211,7 @@ export class PortalService {
     if (!order) throw new NotFoundException('Link inválido ou expirado');
     if (order.customer.document !== null || isTerminal(order.status)) return { found: false as const };
 
-    const existing = await this.prisma.customer.findUnique({ where: { document } });
+    const existing = await this.prisma.customer.findUnique({ where: { orgId_document: { orgId: TenantContext.require(), document } } });
     if (!existing || !samePhone(existing.phone, order.customer.phone)) return { found: false as const };
     const { name, phone, email, zipCode, street, number, complement, district, city, state } = existing;
     return {
@@ -240,7 +241,7 @@ export class PortalService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const existing = await tx.customer.findUnique({ where: { document: document! } });
+        const existing = await tx.customer.findUnique({ where: { orgId_document: { orgId: TenantContext.require(), document: document! } } });
         let changed: string[];
         if (existing && existing.id !== order.customerId) {
           // Já tem cadastro com este documento: a ordem passa a ser dele e o cadastro pendente some.

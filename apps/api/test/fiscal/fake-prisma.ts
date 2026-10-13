@@ -20,9 +20,9 @@ export class FakePrisma {
   private seq = 0;
 
   purchaseInvoice = {
-    findUnique: async ({ where }: { where: { accessKey?: string; id?: string } }) =>
-      where.accessKey
-        ? (this.invoices.get(where.accessKey) ?? null)
+    findUnique: async ({ where }: { where: { orgId_accessKey?: { accessKey: string }; id?: string } }) =>
+      where.orgId_accessKey
+        ? (this.invoices.get(where.orgId_accessKey.accessKey) ?? null)
         : ([...this.invoices.values()].find((r) => r.id === where.id) ?? null),
     create: async ({ data }: { data: Row }) => {
       this.onInvoiceCreate?.(data);
@@ -97,8 +97,8 @@ export class FakePrisma {
   supplierItemMap = {
     findMany: async ({ where }: { where: { supplierCnpj: string; supplierCode: { in: string[] } } }) =>
       this.maps.filter((m) => m.supplierCnpj === where.supplierCnpj && where.supplierCode.in.includes(m.supplierCode)),
-    upsert: async ({ where, create, update }: { where: { supplierCnpj_supplierCode: Row }; create: Row; update: Row }) => {
-      const key = where.supplierCnpj_supplierCode;
+    upsert: async ({ where, create, update }: { where: { orgId_supplierCnpj_supplierCode: Row }; create: Row; update: Row }) => {
+      const key = where.orgId_supplierCnpj_supplierCode;
       const row = this.maps.find((m) => m.supplierCnpj === key.supplierCnpj && m.supplierCode === key.supplierCode);
       if (row) return Object.assign(row, update);
       const made = { id: `m${++this.seq}`, ...create };

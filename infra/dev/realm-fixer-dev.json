@@ -2,6 +2,7 @@
   "realm": "fixer-dev",
   "displayName": "Fixer",
   "enabled": true,
+  "organizationsEnabled": true,
   "loginTheme": "fixer",
   "internationalizationEnabled": true,
   "supportedLocales": ["pt-BR"],
@@ -21,7 +22,7 @@
       "directAccessGrantsEnabled": false,
       "redirectUris": ["http://localhost:3001/*", "http://${DEV_HOST:localhost}:3001/*", "https://unturpentined-lichtly-delena.ngrok-free.dev/*"],
       "webOrigins": ["http://localhost:3001", "http://${DEV_HOST:localhost}:3001", "https://unturpentined-lichtly-delena.ngrok-free.dev"],
-      "defaultClientScopes": ["basic", "web-origins", "profile", "email", "roles"]
+      "defaultClientScopes": ["basic", "web-origins", "profile", "email", "roles", "organization"]
     }
   ],
   "users": [

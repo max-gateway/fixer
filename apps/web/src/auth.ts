@@ -46,6 +46,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => ({
       issuer: issuer(),
       clientId: process.env.KEYCLOAK_WEB_CLIENT_ID,
       clientSecret: process.env.KEYCLOAK_WEB_CLIENT_SECRET,
+      // Multi-tenant: o Keycloak só coloca TODAS as organizações do usuário no token se o login pedir `organization:*`
+      // (com o escopo comum, quem participa de mais de uma fica sem o claim). Só liga onde o realm tem o recurso Organizations;
+      // num realm sem ele, pedir o escopo faria o login falhar com invalid_scope.
+      ...(process.env.KEYCLOAK_ORGANIZATIONS === 'true' && {
+        authorization: { params: { scope: 'openid profile email organization:*' } },
+      }),
     }),
   ],
   pages: { signIn: '/login', error: '/login' },

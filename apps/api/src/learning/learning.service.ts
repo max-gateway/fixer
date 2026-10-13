@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { TenantContext } from '../tenancy/tenant-context.js';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@fixer/db';
 import { computeEstimate, pickEstimate, type NodeEstimate, type PickedEstimate } from '@fixer/domain';
@@ -116,7 +117,7 @@ export class LearningService {
         where: { serviceDefinitionId: definitionId, variantId: { in: subtree }, excluded: false },
       });
       const computed = computeEstimate(rows.map((r) => ({ id: r.id, hours: Number(r.hoursActual), weight: Number(r.weight) })));
-      const key = { serviceDefinitionId_variantId: { serviceDefinitionId: definitionId, variantId: node.id } };
+      const key = { orgId_serviceDefinitionId_variantId: { orgId: TenantContext.require(), serviceDefinitionId: definitionId, variantId: node.id } };
       const existing = await tx.serviceEstimate.findUnique({ where: key });
 
       if (!computed) {

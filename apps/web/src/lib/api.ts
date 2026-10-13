@@ -1,4 +1,5 @@
 import { getAccessToken } from '@/auth';
+import { orgHeader } from './org-server';
 
 // Chamadas server-side direto à API (Server Components). Do navegador, usar /api/*.
 export type Customer = {
@@ -21,7 +22,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   if (!token) throw new Error('Não autenticado');
   const res = await fetch(`${base}${path}`, {
     cache: 'no-store',
-    headers: { authorization: `Bearer ${token}` },
+    headers: { authorization: `Bearer ${token}`, ...(await orgHeader()) },
   });
   if (!res.ok) throw new ApiError(res.status, path);
   return res.json() as Promise<T>;

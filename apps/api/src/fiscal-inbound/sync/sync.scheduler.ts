@@ -1,6 +1,8 @@
 import { hostname } from 'node:os';
 import { Inject, Injectable, Logger, Optional, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { TenantContext } from '../../tenancy/tenant-context.js';
+import { TenantDirectory } from '../../tenancy/tenant-directory.service.js';
 import { KEY_PROVIDER } from '../credentials/credential.service.js';
 import type { KeyProvider } from '../crypto/key-provider.js';
 import { FISCAL_CONFIG, type FiscalConfig } from '../fiscal.config.js';
@@ -34,6 +36,8 @@ export class SyncScheduler implements OnModuleInit, OnApplicationShutdown {
     @Inject(KEY_PROVIDER) private readonly keys: KeyProvider,
     @Inject(FISCAL_CONFIG) private readonly config: FiscalConfig,
     @Optional() @Inject(GatewayClient) private readonly gateway: GatewayClient | null = null,
+    /** Descobre as organizações com sincronização a fazer. Sem ele (testes), o tick roda na organização do contexto. */
+    @Optional() @Inject(TenantDirectory) private readonly directory: TenantDirectory | null = null,
   ) {}
 
   onModuleInit(): void {
@@ -54,7 +58,7 @@ export class SyncScheduler implements OnModuleInit, OnApplicationShutdown {
   private async run(): Promise<void> {
     while (this.running) {
       try {
-        await this.tick();
+        await this.tickAll();
       } catch (err) {
         this.logger.error('Falha no ciclo da sincronização fiscal', err as Error);
       }
@@ -62,7 +66,20 @@ export class SyncScheduler implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /** Um tick: tenta o lease e, se conquistou, roda até a fila esgotar ou algo mandar esperar. */
+  /** Percorre as organizações com sincronização vencida; a falha de uma não atrapalha as outras. */
+  async tickAll(now: Date = new Date()): Promise<void> {
+    if (!this.directory) return this.tick();
+    for (const orgId of await this.directory.orgsDueForFiscalSync(now)) {
+      if (this.stopping) return;
+      try {
+        await TenantContext.run(orgId, () => this.tick());
+      } catch (err) {
+        this.logger.error(`Sincronização fiscal da organização ${orgId} falhou`, err as Error);
+      }
+    }
+  }
+
+  /** Um tick DA ORGANIZAÇÃO DO CONTEXTO: tenta o lease e, se conquistou, roda até a fila esgotar ou algo mandar esperar. */
   async tick(): Promise<void> {
     if (!(await this.acquireLease())) return;
     try {
@@ -77,20 +94,20 @@ export class SyncScheduler implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async acquireLease(): Promise<boolean> {
-    const rows = await this.prisma.$queryRaw<{ id: number }[]>`
+    const rows = await this.prisma.$queryRaw<{ orgId: string }[]>`
       UPDATE "FiscalSyncState" AS s
       SET "leaseUntil" = now() + interval '5 minutes', "leaseOwner" = ${this.owner}
       FROM "FiscalCredential" AS c
-      WHERE c."id" = s."id" AND c."enabled" = true
+      WHERE c."orgId" = s."orgId" AND c."enabled" = true
         AND s."nextPollAt" <= now()
         AND (s."leaseUntil" IS NULL OR s."leaseUntil" < now())
-      RETURNING s."id"`;
+      RETURNING s."orgId"`;
     return rows.length > 0;
   }
 
   private async renewLease(): Promise<boolean> {
     const { count } = await this.prisma.fiscalSyncState.updateMany({
-      where: { id: 1, leaseOwner: this.owner },
+      where: { orgId: TenantContext.require(), leaseOwner: this.owner },
       data: { leaseUntil: new Date(Date.now() + LEASE_MS) },
     });
     return count > 0;
@@ -98,7 +115,7 @@ export class SyncScheduler implements OnModuleInit, OnApplicationShutdown {
 
   private async releaseLease(): Promise<void> {
     await this.prisma.fiscalSyncState.updateMany({
-      where: { id: 1, leaseOwner: this.owner },
+      where: { orgId: TenantContext.require(), leaseOwner: this.owner },
       data: { leaseUntil: null, leaseOwner: null },
     });
   }

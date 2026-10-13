@@ -49,12 +49,12 @@ function fakeDb() {
       findUnique: async ({ where }: any) =>
         estimates.find(
           (e) =>
-            e.serviceDefinitionId === where.serviceDefinitionId_variantId.serviceDefinitionId &&
-            e.variantId === where.serviceDefinitionId_variantId.variantId,
+            e.serviceDefinitionId === where.orgId_serviceDefinitionId_variantId.serviceDefinitionId &&
+            e.variantId === where.orgId_serviceDefinitionId_variantId.variantId,
         ) ?? null,
       upsert: async ({ where, create, update }: any) => {
         stats.estimateWrites++;
-        const key = where.serviceDefinitionId_variantId;
+        const key = where.orgId_serviceDefinitionId_variantId;
         const existing = estimates.find((e) => e.serviceDefinitionId === key.serviceDefinitionId && e.variantId === key.variantId);
         if (existing) return Object.assign(existing, update);
         const row = { id: `est${++seq}`, ...create };
@@ -65,8 +65,8 @@ function fakeDb() {
         stats.estimateDeletes++;
         const i = estimates.findIndex(
           (e) =>
-            e.serviceDefinitionId === where.serviceDefinitionId_variantId.serviceDefinitionId &&
-            e.variantId === where.serviceDefinitionId_variantId.variantId,
+            e.serviceDefinitionId === where.orgId_serviceDefinitionId_variantId.serviceDefinitionId &&
+            e.variantId === where.orgId_serviceDefinitionId_variantId.variantId,
         );
         if (i >= 0) estimates.splice(i, 1);
       },

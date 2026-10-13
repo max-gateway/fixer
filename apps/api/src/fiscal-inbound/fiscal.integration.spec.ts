@@ -1,3 +1,5 @@
+import { TEST_ORG } from '../../test/setup.js';
+import { tenantClient } from '../../test/db.js';
 import { PrismaClient } from '@fixer/db';
 import { acquireDbLock } from '../../test/fiscal/db-lock.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -41,8 +43,8 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
 
   beforeAll(async () => {
     release = await acquireDbLock(URL!);
-    db = new PrismaClient({ datasourceUrl: URL });
-    other = new PrismaClient({ datasourceUrl: URL });
+    db = tenantClient(URL!);
+    other = tenantClient(URL!);
     if ((await db.fiscalCredential.count()) > 0) throw new Error('Há credencial fiscal no banco: recusando rodar o teste de integração');
     await cleanup();
   }, 60_000);
@@ -58,10 +60,10 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
     await cleanup();
     keys.clear();
     await db.user.create({ data: { id: USER, keycloakId: USER, name: 'Teste', email: 'itest-fiscal@x.test' } });
-    await db.tenantFiscalSettings.upsert({ where: { id: 1 }, create: { id: 1, cnpj: TENANT, ufCode: 35 }, update: { cnpj: TENANT, ufCode: 35 } });
+    await db.tenantFiscalSettings.upsert({ where: { orgId: TEST_ORG }, create: { orgId: TEST_ORG, cnpj: TENANT, ufCode: 35 }, update: { cnpj: TENANT, ufCode: 35 } });
     await db.fiscalCredential.create({
       data: {
-        id: 1,
+        orgId: TEST_ORG,
         enabled: true,
         pfxCiphertext: Buffer.from('x'),
         pfxPassCiphertext: Buffer.from('y'),
@@ -73,7 +75,7 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
         uploadedById: USER,
       },
     });
-    await db.fiscalSyncState.create({ data: { id: 1, nextPollAt: new Date(0) } });
+    await db.fiscalSyncState.create({ data: { orgId: TEST_ORG, nextPollAt: new Date(0) } });
   });
 
   const nfe = (number: number) => {
@@ -114,17 +116,17 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
       });
     const runner = runnerFor(db, [batch(), batch()]);
     await runner.runOnce();
-    await db.fiscalSyncState.update({ where: { id: 1 }, data: { lastNsu: 0n } }); // reentrega do mesmo lote
+    await db.fiscalSyncState.update({ where: { orgId: TEST_ORG }, data: { lastNsu: 0n } }); // reentrega do mesmo lote
     await runner.runOnce();
 
     expect(await db.purchaseInvoice.count({ where: { accessKey: { in: [a.key, b.key] } } })).toBe(2);
-    const inv = await db.purchaseInvoice.findUniqueOrThrow({ where: { accessKey: a.key }, include: { items: { orderBy: { itemNumber: 'asc' } } } });
+    const inv = await db.purchaseInvoice.findFirstOrThrow({ where: { accessKey: a.key }, include: { items: { orderBy: { itemNumber: 'asc' } } } });
     expect(inv).toMatchObject({ status: 'FULL', exportStatus: 'PENDING_MATCH', recipientCnpj: TENANT, issuerCnpj: '11222333000181' });
     expect(inv.items).toHaveLength(2);
     expect(inv.items[0]!.quantity.toString()).toBe('2');
     expect(inv.items[0]!.resolution).toBe('UNRESOLVED'); // default do banco
     expect(inv.xmlGz).toBeInstanceOf(Buffer);
-    expect(await db.fiscalSyncState.findUniqueOrThrow({ where: { id: 1 } })).toMatchObject({ lastNsu: 2n, consecutiveFailures: 0 });
+    expect(await db.fiscalSyncState.findUniqueOrThrow({ where: { orgId: TEST_ORG } })).toMatchObject({ lastNsu: 2n, consecutiveFailures: 0 });
   });
 
   it('falha no meio do lote: a 1ª nota é desfeita no banco real e o NSU não anda', async () => {
@@ -173,13 +175,13 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
     expect(r.outcome).toBe('RETRY');
     expect(await db.purchaseInvoice.count({ where: { accessKey: { in: [first.key, second.key] } } })).toBe(0);
     expect(await db.purchaseInvoiceItem.count({ where: { invoice: { accessKey: first.key } } })).toBe(0);
-    expect(await db.fiscalSyncState.findUniqueOrThrow({ where: { id: 1 } })).toMatchObject({ lastNsu: 0n, consecutiveFailures: 1 });
+    expect(await db.fiscalSyncState.findUniqueOrThrow({ where: { orgId: TEST_ORG } })).toMatchObject({ lastNsu: 0n, consecutiveFailures: 1 });
 
     // Sem a falha, a rodada seguinte grava tudo e o NSU avança.
     const ok = await runnerFor(db, [response]).runOnce();
     expect(ok.outcome).toBe('IDLE');
     expect(await db.purchaseInvoice.count({ where: { accessKey: { in: [first.key, second.key] } } })).toBe(2);
-    expect(await db.fiscalSyncState.findUniqueOrThrow({ where: { id: 1 } })).toMatchObject({ lastNsu: 2n, consecutiveFailures: 0 });
+    expect(await db.fiscalSyncState.findUniqueOrThrow({ where: { orgId: TEST_ORG } })).toMatchObject({ lastNsu: 2n, consecutiveFailures: 0 });
   });
 
   it('cancelamento antes da nota: a nota que chega depois continua cancelada', async () => {
@@ -190,7 +192,7 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
     ]);
     await runner.runOnce();
     await runner.runOnce();
-    const inv = await db.purchaseInvoice.findUniqueOrThrow({ where: { accessKey: n.key }, include: { items: true } });
+    const inv = await db.purchaseInvoice.findFirstOrThrow({ where: { accessKey: n.key }, include: { items: true } });
     expect(inv).toMatchObject({ status: 'CANCELED', exportStatus: 'VOIDED' });
     expect(inv.items).toHaveLength(0);
   });
@@ -202,10 +204,10 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
       makeDistResponse({ cStat: 138, ultNSU: '2', maxNSU: '2', docs: [{ nsu: '2', schema: 'procNFe_v4.00.xsd', xml: n.xml }] }),
     ]);
     await runner.runOnce();
-    expect((await db.purchaseInvoice.findUniqueOrThrow({ where: { accessKey: n.key } })).status).toBe('SUMMARY');
+    expect((await db.purchaseInvoice.findFirstOrThrow({ where: { accessKey: n.key } })).status).toBe('SUMMARY');
     await runner.runOnce();
     expect(await db.purchaseInvoice.count({ where: { accessKey: n.key } })).toBe(1);
-    expect((await db.purchaseInvoice.findUniqueOrThrow({ where: { accessKey: n.key } })).status).toBe('FULL');
+    expect((await db.purchaseInvoice.findFirstOrThrow({ where: { accessKey: n.key } })).status).toBe('FULL');
   });
 
   it('duas réplicas disputando o mesmo tick: só uma consulta a SEFAZ', async () => {
@@ -233,7 +235,7 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
     // Terminou em 137: próxima consulta só em ≥ 1 h, então um novo tick não consulta.
     await s1.tick();
     expect(calls).toBe(1);
-    const state = await db.fiscalSyncState.findUniqueOrThrow({ where: { id: 1 } });
+    const state = await db.fiscalSyncState.findUniqueOrThrow({ where: { orgId: TEST_ORG } });
     expect(state.leaseUntil).toBeNull();
     expect(state.nextPollAt.getTime()).toBeGreaterThan(Date.now() + 59 * 60_000);
   });
@@ -244,14 +246,14 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
     const cfg = testConfig({ tickMs: 1000, requestTimeoutMs: 1000 });
     const s = new SyncScheduler(db as never, runner as never, { available: true } as never, cfg);
 
-    await db.fiscalCredential.update({ where: { id: 1 }, data: { enabled: false } });
+    await db.fiscalCredential.update({ where: { orgId: TEST_ORG }, data: { enabled: false } });
     await s.tick();
-    await db.fiscalCredential.update({ where: { id: 1 }, data: { enabled: true } });
-    await db.fiscalSyncState.update({ where: { id: 1 }, data: { nextPollAt: new Date(Date.now() + 3_600_000) } });
+    await db.fiscalCredential.update({ where: { orgId: TEST_ORG }, data: { enabled: true } });
+    await db.fiscalSyncState.update({ where: { orgId: TEST_ORG }, data: { nextPollAt: new Date(Date.now() + 3_600_000) } });
     await s.tick();
     expect(calls).toBe(0);
 
-    await db.fiscalSyncState.update({ where: { id: 1 }, data: { nextPollAt: new Date(0) } });
+    await db.fiscalSyncState.update({ where: { orgId: TEST_ORG }, data: { nextPollAt: new Date(0) } });
     await s.tick();
     expect(calls).toBe(1);
   });
@@ -262,18 +264,18 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
     const cfg = testConfig({ tickMs: 1000, requestTimeoutMs: 1000 });
     const s = new SyncScheduler(db as never, runner as never, { available: true } as never, cfg);
 
-    await db.fiscalSyncState.update({ where: { id: 1 }, data: { leaseOwner: 'morta', leaseUntil: new Date(Date.now() + 60_000) } });
+    await db.fiscalSyncState.update({ where: { orgId: TEST_ORG }, data: { leaseOwner: 'morta', leaseUntil: new Date(Date.now() + 60_000) } });
     await s.tick();
     expect(calls).toBe(0); // lease ainda válido
 
-    await db.fiscalSyncState.update({ where: { id: 1 }, data: { leaseUntil: new Date(Date.now() - 1_000) } });
+    await db.fiscalSyncState.update({ where: { orgId: TEST_ORG }, data: { leaseUntil: new Date(Date.now() - 1_000) } });
     await s.tick();
     expect(calls).toBe(1);
   });
 
   it('NSU de 15 dígitos cabe e volta como BigInt', async () => {
-    await db.fiscalSyncState.update({ where: { id: 1 }, data: { lastNsu: 999999999999999n } });
-    expect((await db.fiscalSyncState.findUniqueOrThrow({ where: { id: 1 } })).lastNsu).toBe(999999999999999n);
+    await db.fiscalSyncState.update({ where: { orgId: TEST_ORG }, data: { lastNsu: 999999999999999n } });
+    expect((await db.fiscalSyncState.findUniqueOrThrow({ where: { orgId: TEST_ORG } })).lastNsu).toBe(999999999999999n);
   });
 
   describe('ciência da operação (Postgres real)', () => {
@@ -300,8 +302,8 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
 
     it('escolhe só SUMMARY elegíveis e grava o resultado de cada uma', async () => {
       const [ok, ignored, rejected, waiting, exhausted] = [await seedSummary(10), await seedSummary(11), await seedSummary(12), await seedSummary(13), await seedSummary(14)];
-      await db.purchaseInvoice.update({ where: { accessKey: waiting }, data: { manifestNextAt: new Date(NOW.getTime() + 3_600_000) } });
-      await db.purchaseInvoice.update({ where: { accessKey: exhausted }, data: { manifestAttempts: MAX_MANIFEST_ATTEMPTS } });
+      await db.purchaseInvoice.update({ where: { orgId_accessKey: { orgId: TEST_ORG, accessKey: waiting } }, data: { manifestNextAt: new Date(NOW.getTime() + 3_600_000) } });
+      await db.purchaseInvoice.update({ where: { orgId_accessKey: { orgId: TEST_ORG, accessKey: exhausted } }, data: { manifestAttempts: MAX_MANIFEST_ATTEMPTS } });
 
       const seen: string[][] = [];
       const service = serviceWith((keys) => (seen.push(keys), lote([[ok, 135], [ignored, 650], [rejected, 572]])));
@@ -309,7 +311,7 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
 
       expect(seen[0]!.sort()).toEqual([ok, ignored, rejected].sort()); // fora: em espera e esgotada
       expect(s).toMatchObject({ manifested: 1, ignored: 1, rejected: 1 });
-      const row = (k: string) => db.purchaseInvoice.findUniqueOrThrow({ where: { accessKey: k } });
+      const row = (k: string) => db.purchaseInvoice.findFirstOrThrow({ where: { accessKey: k } });
       expect(await row(ok)).toMatchObject({ status: 'MANIFESTED', manifestError: null, manifestNextAt: null });
       expect((await row(ok)).manifestedAt).toBeInstanceOf(Date);
       expect(await row(ignored)).toMatchObject({ status: 'IGNORED', ignoredReason: 'CANCELED_OR_DENIED' });
@@ -323,16 +325,16 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
       const key = await seedSummary(20);
       const service = serviceWith(async (keys) => {
         // o procNFe completo chega por outra conexão (e confirma) enquanto a ciência está em voo
-        await other.purchaseInvoice.update({ where: { accessKey: key }, data: { status: 'FULL' } });
+        await other.purchaseInvoice.update({ where: { orgId_accessKey: { orgId: TEST_ORG, accessKey: key } }, data: { status: 'FULL' } });
         return lote(keys.map((k) => [k, 135] as [string, number]));
       });
       await service.runPending(material, TENANT, NOW);
-      expect((await db.purchaseInvoice.findUniqueOrThrow({ where: { accessKey: key } })).status).toBe('FULL');
+      expect((await db.purchaseInvoice.findFirstOrThrow({ where: { accessKey: key } })).status).toBe('FULL');
     });
 
     it('de ponta a ponta: resumo → ciência (autoManifest) → XML completo na rodada seguinte', async () => {
       const n = nfe(30);
-      await db.fiscalCredential.update({ where: { id: 1 }, data: { autoManifest: true } });
+      await db.fiscalCredential.update({ where: { orgId: TEST_ORG }, data: { autoManifest: true } });
       const manifestSeen: string[] = [];
       const source = {
         distribute: async () => parseDistResponse(responses.shift()!),
@@ -347,10 +349,10 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
 
       await runner.runOnce();
       expect(manifestSeen).toEqual([n.key]);
-      expect((await db.purchaseInvoice.findUniqueOrThrow({ where: { accessKey: n.key } })).status).toBe('MANIFESTED');
+      expect((await db.purchaseInvoice.findFirstOrThrow({ where: { accessKey: n.key } })).status).toBe('MANIFESTED');
 
       await runner.runOnce(); // uma hora depois, o XML completo chega pela distribuição
-      const inv = await db.purchaseInvoice.findUniqueOrThrow({ where: { accessKey: n.key }, include: { items: true } });
+      const inv = await db.purchaseInvoice.findFirstOrThrow({ where: { accessKey: n.key }, include: { items: true } });
       expect(inv).toMatchObject({ status: 'FULL', exportStatus: 'PENDING_MATCH' });
       expect(inv.items).toHaveLength(2);
       expect(manifestSeen).toEqual([n.key]); // não repete a ciência

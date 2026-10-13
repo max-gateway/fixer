@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { NAV_ACTIONS, NAV_LINKS, NOTIFICATIONS_LINK } from './nav-items';
+import { NAV_ACTIONS, NAV_LINKS, NOTIFICATIONS_LINK, SETTINGS_LINK } from './nav-items';
 
 function isTyping(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
@@ -46,7 +46,7 @@ export function useNavShortcuts({ navigate, togglePalette, openPalette }: Option
       const k = e.key.toLowerCase();
 
       if (pendingRef.current) {
-        const hit = [...NAV_LINKS, NOTIFICATIONS_LINK].find((l) => l.goKey === k);
+        const hit = [...NAV_LINKS, NOTIFICATIONS_LINK, SETTINGS_LINK].find((l) => l.goKey === k);
         setP(false);
         if (hit) {
           e.preventDefault();

@@ -40,3 +40,32 @@ export const CnpjLookupResultSchema = z.object({
 });
 
 export type CnpjLookupResult = z.infer<typeof CnpjLookupResultSchema>;
+
+/**
+ * Dados fiscais que o contrato do serviço ainda não expõe, mas que vêm no `raw` (resposta do CNPJá):
+ * código IBGE do município e opção pelo Simples/MEI. Sem o dado, `null` (nunca um palpite).
+ */
+export interface CnpjFiscalHints {
+  /** Código IBGE do município (7 dígitos). */
+  municipalityIbge: string | null;
+  /** true = optante pelo Simples Nacional (inclui MEI); false = não optante; null = a consulta não informou. */
+  simples: boolean | null;
+}
+
+const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' ? (v as Record<string, unknown>) : null);
+
+export function fiscalHintsFromRaw(raw: unknown): CnpjFiscalHints {
+  const root = obj(raw);
+  const company = obj(root?.company);
+  const ibge = String(obj(root?.address)?.municipality ?? '').replace(/\D/g, '');
+  const optant = (node: unknown) => {
+    const v = obj(node)?.optant;
+    return typeof v === 'boolean' ? v : null;
+  };
+  const simples = optant(company?.simples);
+  const mei = optant(company?.simei);
+  return {
+    municipalityIbge: /^\d{7}$/.test(ibge) ? ibge : null,
+    simples: simples === true || mei === true ? true : simples === false || mei === false ? false : null,
+  };
+}

@@ -1,7 +1,9 @@
 import { hostname } from 'node:os';
-import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { EnvelopeSchema, ORDER_CODE_RECEIVED, OrderCodeReceivedSchema } from './inbound-event.js';
+import { TenantContext } from '../tenancy/tenant-context.js';
+import { TenantDirectory } from '../tenancy/tenant-directory.service.js';
 import { WhatsappLinkService } from './link.service.js';
 
 type StreamEntry = [id: string, fields: string[]];
@@ -26,7 +28,8 @@ export class WhatsappInboundConsumer implements OnModuleInit, OnApplicationShutd
   private readonly dlq = `${this.stream}:dlq`;
   private readonly group = process.env.WHATSAPP_INBOUND_GROUP ?? 'fixer-api';
   private readonly consumer = `${hostname()}-${process.pid}`;
-  private readonly tenant = process.env.TENANT_SLUG ?? 'local';
+  /** Instalação legada (uma oficina por instância) só aceita eventos do seu slug; no modo compartilhado vale o código. */
+  private readonly tenant = process.env.TENANT_SLUG;
   private readonly batchSize = 20;
   private readonly blockMs = 5_000;
   private readonly claimIdleMs = 60_000;
@@ -38,7 +41,11 @@ export class WhatsappInboundConsumer implements OnModuleInit, OnApplicationShutd
   private loop: Promise<void> | null = null;
   private lastPurge = 0;
 
-  constructor(private readonly link: WhatsappLinkService) {}
+  constructor(
+    private readonly link: WhatsappLinkService,
+    /** Descobre a organização dona do código da ordem. Sem ele (testes), o evento é tratado na organização do contexto. */
+    @Optional() @Inject(TenantDirectory) private readonly directory: TenantDirectory | null = null,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     if (process.env.WHATSAPP_INBOUND_ENABLED === 'false') return;
@@ -134,12 +141,19 @@ export class WhatsappInboundConsumer implements OnModuleInit, OnApplicationShutd
     const parsed = OrderCodeReceivedSchema.safeParse(json);
     if (!parsed.success) return this.deadLetter([id, fields], `contrato inválido: ${parsed.error.issues[0]?.message}`);
     const event = parsed.data;
-    if (event.tenant !== this.tenant) {
+    if (this.tenant && event.tenant !== this.tenant) {
       return this.deadLetter([id, fields], `tenant "${event.tenant}" não é "${this.tenant}"`);
     }
 
     try {
-      const outcome = await this.link.handle(event);
+      // O código da ordem é único no sistema todo: ele diz de qual organização é a ordem.
+      const orgId = this.directory ? await this.directory.orgForLinkCode(event.data.code) : null;
+      if (this.directory && !orgId) {
+        // Código inexistente: sem organização não há onde registrar nada. Silencioso (não vira oráculo de códigos).
+        this.logger.log(`order_code_received ${event.id} -> unknown_code`);
+        return void (await this.cmd.xack(this.stream, this.group, id));
+      }
+      const outcome = await (orgId ? TenantContext.run(orgId, () => this.link.handle(event)) : this.link.handle(event));
       // Sem telefone nem código no log: PII e (quase) credencial.
       this.logger.log(`order_code_received ${event.id} -> ${outcome}`);
       await this.cmd.xack(this.stream, this.group, id);

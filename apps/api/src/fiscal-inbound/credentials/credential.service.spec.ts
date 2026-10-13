@@ -1,3 +1,4 @@
+import { TEST_ORG } from '../../../test/setup.js';
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { makePfx } from '../../../test/fiscal/make-pfx.js';
@@ -76,7 +77,7 @@ describe('CredentialService.upload', () => {
     const { pfx, password } = makePfx({ cnpj: TENANT_CNPJ });
     const { service, db } = setup();
     await upload(service, pfx, password);
-    expect(db.syncUpserts[0]).toMatchObject({ where: { id: 1 }, create: { id: 1 }, update: {} });
+    expect(db.syncUpserts[0]).toMatchObject({ where: { orgId: TEST_ORG }, create: { orgId: TEST_ORG }, update: {} });
   });
 
   it('o que foi gravado volta intacto por openMaterial (ida e volta completa)', async () => {

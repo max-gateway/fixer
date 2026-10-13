@@ -1,17 +1,18 @@
 'use client';
 
-import { Bell, ChevronDown, Command, LogOut, Search } from 'lucide-react';
+import { Bell, Building2, ChevronDown, Command, LogOut, Repeat, Search, Settings } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useInbox } from '@/components/notifications/inbox-provider';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Kbd } from './kbd';
-import { NOTIFICATIONS_LINK } from './nav-items';
+import { NOTIFICATIONS_LINK, SETTINGS_LINK } from './nav-items';
 import { UserAvatar, type NavUser } from './user-avatar';
 
 type Props = {
   user: NavUser;
+  org?: { name: string; canSwitch: boolean } | null;
   signOutAction: () => Promise<void>;
   onOpenPalette: () => void;
 };
@@ -20,7 +21,7 @@ type Props = {
  * Área do usuário: avatar com anel em gradiente que gira ao abrir, indicador de conexão em tempo real
  * e um card de conta com atalhos úteis e saída.
  */
-export function UserMenu({ user, signOutAction, onOpenPalette }: Props) {
+export function UserMenu({ user, org, signOutAction, onOpenPalette }: Props) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
   const { live, unreadCount } = useInbox();
@@ -81,12 +82,32 @@ export function UserMenu({ user, signOutAction, onOpenPalette }: Props) {
           </p>
         </div>
 
+        {org && (
+          <div className="border-t p-1.5">
+            <p className="flex h-9 items-center gap-2.5 px-2.5 text-sm">
+              <Building2 className="size-4 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate font-medium" title={org.name}>
+                {org.name}
+              </span>
+            </p>
+            {org.canSwitch && (
+              // Link comum (não client-side): a página seguinte decide a oficina e recarrega tudo.
+              <a href="/organizacoes" className={ROW}>
+                <Repeat /> Trocar de oficina
+              </a>
+            )}
+          </div>
+        )}
+
         <div className="border-t p-1.5">
           <MenuLink href={NOTIFICATIONS_LINK.href} onClick={() => setOpen(false)}>
             <Bell /> Notificações
             {unreadCount > 0 && (
               <span className="ml-auto rounded-full bg-brand px-1.5 py-px text-[11px] font-semibold text-white tabular">{unreadCount > 99 ? '99+' : unreadCount}</span>
             )}
+          </MenuLink>
+          <MenuLink href={SETTINGS_LINK.href} onClick={() => setOpen(false)}>
+            <Settings /> {SETTINGS_LINK.label}
           </MenuLink>
           <MenuButton
             onClick={() => {

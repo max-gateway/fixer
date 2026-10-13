@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { isValidCnpj, normalizeCnpj } from '../fiscal-inbound/cnpj.js';
 import { CnpjLookupClient } from './cnpj-lookup.client.js';
-import { CnpjLookupResultSchema, type CnpjLookupResult } from './schema.js';
+import { CnpjLookupResultSchema, fiscalHintsFromRaw, type CnpjFiscalHints, type CnpjLookupResult } from './schema.js';
 
 export class InvalidCnpjError extends Error {
   constructor(input: string) {
@@ -19,9 +19,11 @@ export class InvalidCnpjError extends Error {
 export class CnpjLookupService {
   constructor(private readonly client: CnpjLookupClient) {}
 
-  async lookup(rawCnpj: string): Promise<CnpjLookupResult> {
+  async lookup(rawCnpj: string): Promise<CnpjLookupResult & { fiscal: CnpjFiscalHints }> {
     const cnpj = normalizeCnpj(rawCnpj);
     if (!isValidCnpj(cnpj)) throw new InvalidCnpjError(rawCnpj);
-    return CnpjLookupResultSchema.parse(await this.client.consultaCnpj(cnpj));
+    // `raw` do serviço = resposta original do CNPJá; dele saem o IBGE do município e a opção pelo Simples.
+    const raw = await this.client.consultaCnpj(cnpj);
+    return { ...CnpjLookupResultSchema.parse(raw), fiscal: fiscalHintsFromRaw((raw as { raw?: unknown } | null)?.raw) };
   }
 }

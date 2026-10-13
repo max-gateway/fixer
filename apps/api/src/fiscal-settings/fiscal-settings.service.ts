@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { TenantContext } from '../tenancy/tenant-context.js';
 import {
   partFiscalIssues,
   serviceFiscalIssues,
@@ -36,14 +37,14 @@ export class FiscalSettingsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getSettings() {
-    return this.prisma.tenantFiscalSettings.findUnique({ where: { id: 1 } });
+    return this.prisma.tenantFiscalSettings.findUnique({ where: { orgId: TenantContext.require() } });
   }
 
   updateSettings(input: UpdateSettingsInput) {
     const data = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
     return this.prisma.tenantFiscalSettings.upsert({
-      where: { id: 1 },
-      create: { id: 1, ...data },
+      where: { orgId: TenantContext.require() },
+      create: { orgId: TenantContext.require(), ...data },
       update: data,
     });
   }
@@ -88,7 +89,7 @@ export class FiscalSettingsService {
     });
     if (!order) throw new NotFoundException('Ordem de serviço não encontrada');
 
-    const settings = await this.prisma.tenantFiscalSettings.findUnique({ where: { id: 1 } });
+    const settings = await this.prisma.tenantFiscalSettings.findUnique({ where: { orgId: TenantContext.require() } });
     const regime = (settings?.taxRegime ?? null) as TaxRegimeCode | null;
 
     const nfeItems: ItemReport[] = [];
@@ -124,7 +125,7 @@ export class FiscalSettingsService {
   }
 
   private async regime(): Promise<TaxRegimeCode | null> {
-    const s = await this.prisma.tenantFiscalSettings.findUnique({ where: { id: 1 }, select: { taxRegime: true } });
+    const s = await this.prisma.tenantFiscalSettings.findUnique({ where: { orgId: TenantContext.require() }, select: { taxRegime: true } });
     return (s?.taxRegime ?? null) as TaxRegimeCode | null;
   }
 

@@ -1,4 +1,5 @@
 import type { Prisma } from '@fixer/db';
+import { TenantContext } from '../../tenancy/tenant-context.js';
 import { nextExportStatus, resolveItems, type ExportStatus } from './resolve.js';
 
 type Tx = Prisma.TransactionClient;
@@ -59,7 +60,7 @@ export async function matchInvoice(tx: Tx, invoiceId: string): Promise<{ resolve
       if (r.learn) {
         // O primeiro vínculo vence: se outra nota do fornecedor aprendeu esse código no meio do caminho, não se sobrescreve.
         await tx.supplierItemMap.upsert({
-          where: { supplierCnpj_supplierCode: { supplierCnpj: invoice.issuerCnpj, supplierCode } },
+          where: { orgId_supplierCnpj_supplierCode: { orgId: TenantContext.require(), supplierCnpj: invoice.issuerCnpj, supplierCode } },
           create: { supplierCnpj: invoice.issuerCnpj, supplierCode, partId: r.partId, unitFactor: r.unitFactor },
           update: {},
         });

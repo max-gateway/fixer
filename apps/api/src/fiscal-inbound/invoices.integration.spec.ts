@@ -1,3 +1,5 @@
+import { TEST_ORG } from '../../test/setup.js';
+import { tenantClient } from '../../test/db.js';
 import { PrismaClient } from '@fixer/db';
 import { acquireDbLock } from '../../test/fiscal/db-lock.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -40,7 +42,7 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
 
   beforeAll(async () => {
     release = await acquireDbLock(URL!);
-    db = new PrismaClient({ datasourceUrl: URL });
+    db = tenantClient(URL!);
     if ((await db.fiscalCredential.count()) > 0) throw new Error('Há credencial fiscal no banco: recusando rodar o teste de integração');
     service = new InvoicesService(db as never);
     await cleanup();
@@ -55,10 +57,10 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
     await cleanup();
     keys.clear();
     await db.user.create({ data: { id: USER, keycloakId: USER, name: 'Teste', email: 'itest-invoices@x.test' } });
-    await db.tenantFiscalSettings.upsert({ where: { id: 1 }, create: { id: 1, cnpj: TENANT, ufCode: 35 }, update: { cnpj: TENANT, ufCode: 35 } });
+    await db.tenantFiscalSettings.upsert({ where: { orgId: TEST_ORG }, create: { orgId: TEST_ORG, cnpj: TENANT, ufCode: 35 }, update: { cnpj: TENANT, ufCode: 35 } });
     await db.fiscalCredential.create({
       data: {
-        id: 1,
+        orgId: TEST_ORG,
         enabled: true,
         pfxCiphertext: Buffer.from('x'),
         pfxPassCiphertext: Buffer.from('y'),
@@ -70,7 +72,7 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
         uploadedById: USER,
       },
     });
-    await db.fiscalSyncState.create({ data: { id: 1, nextPollAt: new Date(0) } });
+    await db.fiscalSyncState.create({ data: { orgId: TEST_ORG, nextPollAt: new Date(0) } });
   });
 
   /** Entrega a nota pela rodada de sincronização real (SEFAZ falsa), como acontece em produção. */
@@ -78,7 +80,7 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
     const n = makeProcNfe(opts);
     keys.add(n.key);
     const res = makeDistResponse({ cStat: 138, ultNSU: '1', maxNSU: '1', docs: [{ nsu: '1', schema: 'procNFe_v4.00.xsd', xml: n.xml }] });
-    await db.fiscalSyncState.update({ where: { id: 1 }, data: { lastNsu: 0n } });
+    await db.fiscalSyncState.update({ where: { orgId: TEST_ORG }, data: { lastNsu: 0n } });
     const runner = new SyncRunner(
       db as never,
       { openMaterial: async () => ({ keyPem: '', certPem: '', chainPem: [], subject: '', certCnpj: '', notBefore: new Date(0), notAfter: new Date(Date.now() + 1e10), environment: 'HOMOLOGATION' as const }) } as never,
@@ -86,12 +88,12 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
       { runPending: async () => ({ manifested: 0, rejected: 0, ignored: 0, aborted: null }) } as never,
     );
     await runner.runOnce();
-    const inv = await db.purchaseInvoice.findUniqueOrThrow({ where: { accessKey: n.key } });
+    const inv = await db.purchaseInvoice.findFirstOrThrow({ where: { accessKey: n.key } });
     return { ...n, id: inv.id };
   }
   const part = (sku: string, extra: Record<string, unknown> = {}) =>
     db.part.create({ data: { sku: `ITEST-${sku}`, name: `Peça ${sku}`, costPrice: 1, sellPrice: 2, ...extra } });
-  const state = (id: string) => db.purchaseInvoice.findUniqueOrThrow({ where: { id } });
+  const state = (id: string) => db.purchaseInvoice.findFirstOrThrow({ where: { id } });
   const items = (id: string) => db.purchaseInvoiceItem.findMany({ where: { invoiceId: id }, orderBy: { itemNumber: 'asc' } });
 
   describe('matcher no recebimento', () => {
@@ -99,7 +101,7 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
       const pad = await part('PAD', { ean: '7891234567895' });
       const a = await receive({ number: 1 });
       expect((await items(a.id))[0]).toMatchObject({ resolution: 'AUTO_EAN', partId: pad.id });
-      expect(await db.supplierItemMap.findUnique({ where: { supplierCnpj_supplierCode: { supplierCnpj: SUPPLIER, supplierCode: 'PAST-001' } } })).toMatchObject({ partId: pad.id });
+      expect(await db.supplierItemMap.findFirst({ where: { supplierCnpj: SUPPLIER, supplierCode: 'PAST-001' } })).toMatchObject({ partId: pad.id });
 
       await db.part.update({ where: { id: pad.id }, data: { ean: null } }); // sem GTIN no cadastro, só o código do fornecedor
       const b = await receive({ number: 2 });
@@ -167,7 +169,7 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
       const [p1, p2] = [await part('P1'), await part('P2')];
       await service.setItem(a.id, 1, { action: 'link', partId: p1.id, unitFactor: 1, saveMapping: true });
       await service.setItem(a.id, 1, { action: 'link', partId: p2.id, unitFactor: 3, saveMapping: true });
-      const map = await db.supplierItemMap.findUniqueOrThrow({ where: { supplierCnpj_supplierCode: { supplierCnpj: SUPPLIER, supplierCode: 'PAST-001' } } });
+      const map = await db.supplierItemMap.findFirstOrThrow({ where: { supplierCnpj: SUPPLIER, supplierCode: 'PAST-001' } });
       expect(map.partId).toBe(p2.id);
       expect(map.unitFactor.toString()).toBe('3');
     });
@@ -204,7 +206,7 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
       const inv = await receive();
       const view = await service.createPartFromItem(inv.id, 1, { sku: 'ITEST-NEW', sellPrice: 70, unitFactor: 1, saveMapping: true });
 
-      const created = await db.part.findUniqueOrThrow({ where: { sku: 'ITEST-NEW' } });
+      const created = await db.part.findFirstOrThrow({ where: { sku: 'ITEST-NEW' } });
       expect(created).toMatchObject({
         name: 'PASTILHA DE FREIO DIANTEIRA',
         ean: '7891234567895',
@@ -225,7 +227,7 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
     it('fator de unidade divide o custo e troca a unidade para UN', async () => {
       const inv = await receive();
       await service.createPartFromItem(inv.id, 1, { sku: 'ITEST-BOX', sellPrice: 20, unitFactor: 4, saveMapping: false });
-      const created = await db.part.findUniqueOrThrow({ where: { sku: 'ITEST-BOX' } });
+      const created = await db.part.findFirstOrThrow({ where: { sku: 'ITEST-BOX' } });
       expect(created.costPrice.toString()).toBe('11.5188'); // 92.15 ÷ (2 × 4)
       expect(created.unit).toBe('UN');
     });
@@ -234,10 +236,10 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
       const inv = await receive();
       // O SKU padrão é o código do fornecedor; o teste usa um prefixo próprio para a limpeza achar a peça.
       await service.createPartFromItem(inv.id, 2, { sku: 'ITEST-OLEO', sellPrice: 50, unitFactor: 1, saveMapping: false });
-      expect(await db.part.findUnique({ where: { sku: 'ITEST-OLEO' } })).toBeTruthy();
+      expect(await db.part.findFirst({ where: { sku: 'ITEST-OLEO' } })).toBeTruthy();
       const byCode = await receive({ number: 9, items: [ITEM_CODE_ONLY] });
       await service.createPartFromItem(byCode.id, 1, { sellPrice: 5, unitFactor: 1, saveMapping: false });
-      expect(await db.part.findUnique({ where: { sku: 'ITEST-COD-9' } })).toBeTruthy();
+      expect(await db.part.findFirst({ where: { sku: 'ITEST-COD-9' } })).toBeTruthy();
 
       await part('DUP');
       await expect(service.createPartFromItem(inv.id, 1, { sku: 'ITEST-DUP', sellPrice: 1, unitFactor: 1, saveMapping: true })).rejects.toMatchObject({ status: 409 });

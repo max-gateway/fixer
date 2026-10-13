@@ -1,6 +1,8 @@
 import { hostname } from 'node:os';
+import { TenantContext } from '../../tenancy/tenant-context.js';
 import { Inject, Injectable, Logger, Optional, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { TenantDirectory } from '../../tenancy/tenant-directory.service.js';
 import type { DistDocument } from '../parser/dist-response.parser.js';
 import { processBatch, type BatchCounters } from '../sync/batch.processor.js';
 import { GatewayClient, GatewayError, type GatewayDocument } from './gateway.client.js';
@@ -36,6 +38,8 @@ export class GatewayConsumer implements OnModuleInit, OnApplicationShutdown {
     private readonly prisma: PrismaService,
     @Optional() @Inject(GatewayClient) private readonly gateway: GatewayClient | null,
     @Optional() @Inject(GATEWAY_CONFIG) private readonly cfg: GatewayConfig | null,
+    /** Descobre as organizações com certificado habilitado. Sem ele (testes), o ciclo roda na organização do contexto. */
+    @Optional() @Inject(TenantDirectory) private readonly directory: TenantDirectory | null = null,
   ) {}
 
   onModuleInit(): void {
@@ -53,7 +57,7 @@ export class GatewayConsumer implements OnModuleInit, OnApplicationShutdown {
   private async run(): Promise<void> {
     while (this.running) {
       try {
-        await this.tick();
+        await this.tickAll();
       } catch (err) {
         // Gateway fora do ar ou erro de banco: tenta de novo no próximo ciclo; o cursor não andou.
         this.logger.warn(`Ciclo do gateway falhou: ${(err as Error).message}`);
@@ -62,10 +66,23 @@ export class GatewayConsumer implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /** Um ciclo: conquista o lease, puxa e grava os documentos novos, espelha o estado do gateway. */
+  /** Um ciclo por organização com certificado habilitado; a falha de uma não atrapalha as outras. */
+  async tickAll(now: Date = new Date()): Promise<void> {
+    if (!this.directory) return void (await this.tick(now));
+    for (const orgId of await this.directory.orgsWithFiscalCredential()) {
+      if (!this.running) return;
+      try {
+        await TenantContext.run(orgId, () => this.tick(now));
+      } catch (err) {
+        this.logger.warn(`Ciclo do gateway da organização ${orgId} falhou: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  /** Um ciclo DA ORGANIZAÇÃO DO CONTEXTO: conquista o lease, puxa e grava os documentos novos, espelha o estado do gateway. */
   async tick(now: Date = new Date()): Promise<{ pulled: number; counters: BatchCounters[] } | null> {
-    const cred = await this.prisma.fiscalCredential.findUnique({ where: { id: 1 }, select: { enabled: true } });
-    const settings = await this.prisma.tenantFiscalSettings.findUnique({ where: { id: 1 }, select: { cnpj: true } });
+    const cred = await this.prisma.fiscalCredential.findUnique({ where: { orgId: TenantContext.require() }, select: { enabled: true } });
+    const settings = await this.prisma.tenantFiscalSettings.findUnique({ where: { orgId: TenantContext.require() }, select: { cnpj: true } });
     if (!cred || !settings?.cnpj) return null; // sem certificado cadastrado: nada a consumir
     if (!(await this.acquire(now))) return null;
     try {
@@ -82,7 +99,7 @@ export class GatewayConsumer implements OnModuleInit, OnApplicationShutdown {
 
     try {
       for (let i = 0; i < MAX_PAGES_PER_TICK; i++) {
-        const state = await this.prisma.fiscalSyncState.findUniqueOrThrow({ where: { id: 1 }, select: { lastNsu: true } });
+        const state = await this.prisma.fiscalSyncState.findUniqueOrThrow({ where: { orgId: TenantContext.require() }, select: { lastNsu: true } });
         const page = await gateway.listDocuments(cnpj, state.lastNsu.toString());
         if (page.items.length > 0) {
           const docs = page.items.map(toDistDocument);
@@ -90,7 +107,7 @@ export class GatewayConsumer implements OnModuleInit, OnApplicationShutdown {
           // O lote e o NSU na MESMA transação: se o banco falhar, nada foi gravado e a página volta no próximo ciclo.
           const batch = await this.prisma.$transaction(async (tx) => {
             const c = await processBatch(tx, docs, { tenantCnpj: cnpj, now });
-            await tx.fiscalSyncState.updateMany({ where: { id: 1, lastNsu: { lte: top } }, data: { lastNsu: top } });
+            await tx.fiscalSyncState.updateMany({ where: { orgId: TenantContext.require(), lastNsu: { lte: top } }, data: { lastNsu: top } });
             return c;
           }, TX_OPTIONS);
           counters.push(batch);
@@ -119,7 +136,7 @@ export class GatewayConsumer implements OnModuleInit, OnApplicationShutdown {
     const s = gw.sync;
     if (s) {
       await this.prisma.fiscalSyncState.update({
-        where: { id: 1 },
+        where: { orgId: TenantContext.require() },
         data: {
           maxNsu: BigInt(s.max_nsu),
           nextPollAt: new Date(s.next_poll_at),
@@ -133,7 +150,7 @@ export class GatewayConsumer implements OnModuleInit, OnApplicationShutdown {
     }
     if (gw.credential) {
       await this.prisma.fiscalCredential.update({
-        where: { id: 1 },
+        where: { orgId: TenantContext.require() },
         data: { enabled: gw.credential.enabled, autoManifest: gw.credential.auto_manifest, notAfter: new Date(gw.credential.not_after) },
       });
     }
@@ -151,17 +168,17 @@ export class GatewayConsumer implements OnModuleInit, OnApplicationShutdown {
 
   private async acquire(now: Date): Promise<boolean> {
     const { count } = await this.prisma.fiscalSyncState.updateMany({
-      where: { id: 1, OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }] },
+      where: { orgId: TenantContext.require(), OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }] },
       data: { leaseUntil: new Date(now.getTime() + LEASE_MS), leaseOwner: this.owner },
     });
     return count > 0;
   }
 
   private async renew(): Promise<void> {
-    await this.prisma.fiscalSyncState.updateMany({ where: { id: 1, leaseOwner: this.owner }, data: { leaseUntil: new Date(Date.now() + LEASE_MS) } });
+    await this.prisma.fiscalSyncState.updateMany({ where: { orgId: TenantContext.require(), leaseOwner: this.owner }, data: { leaseUntil: new Date(Date.now() + LEASE_MS) } });
   }
 
   private async release(): Promise<void> {
-    await this.prisma.fiscalSyncState.updateMany({ where: { id: 1, leaseOwner: this.owner }, data: { leaseUntil: null, leaseOwner: null } });
+    await this.prisma.fiscalSyncState.updateMany({ where: { orgId: TenantContext.require(), leaseOwner: this.owner }, data: { leaseUntil: null, leaseOwner: null } });
   }
 }

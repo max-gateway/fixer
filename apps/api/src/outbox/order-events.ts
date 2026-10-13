@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@fixer/db';
+import { TenantContext } from '../tenancy/tenant-context.js';
 
 /**
  * Contrato público (v1) dos eventos de ordem de serviço. É o ÚNICO ponto de
@@ -82,7 +83,8 @@ export async function emitOrderEvent(
     type,
     version: 1,
     occurredAt: occurredAt.toISOString(),
-    tenant: process.env.TENANT_SLUG ?? 'local',
+    // Instalação legada (uma oficina por instância) mantém o slug; no modo compartilhado o tenant é a organização.
+    tenant: process.env.TENANT_SLUG ?? TenantContext.require(),
     aggregate: { type: 'service_order', id: orderId },
     actor,
     order: buildOrderSnapshot(order),

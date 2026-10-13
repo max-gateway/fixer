@@ -1,3 +1,4 @@
+import { tenantClient } from '../../test/db.js';
 import { randomBytes } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import type { CanActivate, ExecutionContext, INestApplication } from '@nestjs/common';
@@ -72,7 +73,7 @@ describe.skipIf(!URL)('Importação de NF-e por HTTP (Postgres, integração)', 
     process.env.FISCAL_ACTIVE_KEY_ID = 'k1';
     process.env.FISCAL_SYNC_ENABLED = 'false'; // sem loop de sincronização no teste
 
-    db = new PrismaClient({ datasourceUrl: URL });
+    db = tenantClient(URL!);
     if ((await db.fiscalCredential.count()) > 0) throw new Error('Há credencial fiscal no banco: recusando rodar o teste de integração');
     await cleanup();
     await db.user.create({ data: { id: USER, keycloakId: USER, name: 'Teste', email: 'itest-http@x.test' } });

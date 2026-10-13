@@ -1,6 +1,10 @@
-// Fixer — schema Prisma (por instância/tenant)
-// Cada tenant tem seu próprio banco Postgres: não há tenant_id nas tabelas,
-// o isolamento é garantido pela infraestrutura (1 banco = 1 oficina).
+// Fixer — schema Prisma (multi-tenant: um banco compartilhado, isolamento por organização)
+//
+// Toda tabela de dados de uma oficina tem `orgId` (UUID da organização no control plane da Max Gateway),
+// preenchido pelo banco a partir de `app.org_id` da sessão (função app_org()) e protegido por Row Level Security:
+// uma consulta só enxerga as linhas da organização da requisição, e sem organização não enxerga nada.
+// Tabelas SEM orgId são referência compartilhada (Permission, PlateLookup, catálogo e variantes de veículo).
+// Ver docs/specs/multi-tenancy.md.
 
 generator client {
   provider = "prisma-client-js"
@@ -17,9 +21,10 @@ datasource db {
 
 model User {
   id         String   @id @default(cuid())
-  keycloakId String   @unique // "sub" claim from the tenant's Keycloak realm
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
+  keycloakId String // "sub" claim from the tenant's Keycloak realm
   name       String
-  email      String   @unique
+  email      String
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -33,17 +38,25 @@ model User {
   fiscalAutoExports         FiscalCredential[]      @relation("FiscalAutoExportBy")
   postedInvoices            PurchaseInvoice[]       @relation("InvoicePostedBy")
   fiscalAuditLogs           FiscalAuditLog[]
+
+  @@index([orgId])
+  @@unique([orgId, keycloakId])
+  @@unique([orgId, email])
 }
 
 model Role {
   id          String   @id @default(cuid())
-  name        String   @unique // e.g. "Admin", "Front desk", "Lead mechanic"
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
+  name        String // e.g. "Admin", "Front desk", "Lead mechanic"
   description String?
   isSystem    Boolean  @default(false) // seeded on tenant provisioning, not deletable
   createdAt   DateTime @default(now())
 
   permissions RolePermission[]
   users       UserRole[]
+
+  @@index([orgId])
+  @@unique([orgId, name])
 }
 
 model Permission {
@@ -55,21 +68,27 @@ model Permission {
 }
 
 model RolePermission {
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   roleId       String
   permissionId String
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
+
+  @@index([orgId])
 }
 
 model UserRole {
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   userId String
   roleId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
+
+  @@index([orgId])
 }
 
 // ============================================================
@@ -97,8 +116,9 @@ model PlateLookup {
 
 model Customer {
   id       String  @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   name     String
-  document String? @unique // CPF/CNPJ; null = cadastro pendente (OS aberta só com o telefone, o cliente completa no portal)
+  document String? // CPF/CNPJ; null = cadastro pendente (OS aberta só com o telefone, o cliente completa no portal)
   phone    String?
   email    String?
 
@@ -122,11 +142,15 @@ model Customer {
 
   vehicleOwnerships VehicleOwner[]
   serviceOrders     ServiceOrder[]
+
+  @@index([orgId])
+  @@unique([orgId, document])
 }
 
 model Vehicle {
   id        String   @id @default(cuid())
-  plate     String   @unique
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
+  plate     String
   brand     String
   model     String
   year      Int?
@@ -142,12 +166,16 @@ model Vehicle {
 
   owners        VehicleOwner[]
   serviceOrders ServiceOrder[]
+
+  @@index([orgId])
+  @@unique([orgId, plate])
 }
 
 // Ownership history: current owner has endedAt = null.
 // Application enforces exactly one open record per vehicle in a transaction.
 model VehicleOwner {
   id         String    @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   vehicleId  String
   customerId String
   startedAt  DateTime  @default(now())
@@ -157,6 +185,8 @@ model VehicleOwner {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
 
   @@index([vehicleId, endedAt])
+
+  @@index([orgId])
 }
 
 // ============================================================
@@ -165,7 +195,8 @@ model VehicleOwner {
 
 model Part {
   id           String  @id @default(cuid())
-  sku          String  @unique
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
+  sku          String
   name         String
   costPrice    Decimal
   sellPrice    Decimal
@@ -193,11 +224,15 @@ model Part {
   invoiceItems     PurchaseInvoiceItem[]
 
   @@index([ean])
+
+  @@index([orgId])
+  @@unique([orgId, sku])
 }
 
 model Service {
   id               String   @id @default(cuid())
-  name             String   @unique // e.g. "Oil change", "Wheel alignment"
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
+  name             String // e.g. "Oil change", "Wheel alignment"
   description      String?
   estimatedMinutes Int? // fallback legado; a estimativa vem de ServiceEstimate (depreciado após a fase 2)
   defaultPrice     Decimal
@@ -213,6 +248,9 @@ model Service {
   fiscalProfile   ServiceFiscalProfile? @relation(fields: [fiscalProfileId], references: [id], onDelete: SetNull)
 
   orderLines ServiceOrderServiceLine[]
+
+  @@index([orgId])
+  @@unique([orgId, name])
 }
 
 enum ServicePricingMode {
@@ -236,7 +274,8 @@ enum ServiceOrderStatus {
 
 model ServiceOrder {
   id             String             @id @default(cuid())
-  number         Int                @unique @default(autoincrement()) // sequential number shown to the customer
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
+  number Int @default(dbgenerated("next_org_seq('service_order'::text)")) // sequential number shown to the customer
   status         ServiceOrderStatus @default(QUOTE)
   description    String? // customer's initial complaint/request
   mileageAtEntry Int? // vehicle odometer at intake
@@ -273,12 +312,16 @@ model ServiceOrder {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   closedAt  DateTime?
+
+  @@index([orgId])
+  @@unique([orgId, number])
 }
 
 // Part line: stock is only debited when the order transitions QUOTE -> APPROVED
 // (application rule, enforced in the service layer, not by the schema).
 model ServiceOrderPartLine {
   id             String       @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   serviceOrderId String
   serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
 
@@ -292,10 +335,13 @@ model ServiceOrderPartLine {
   stockMovements StockMovement[]
 
   createdAt DateTime @default(now())
+
+  @@index([orgId])
 }
 
 model ServiceOrderServiceLine {
   id             String       @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   serviceOrderId String
   serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
 
@@ -319,11 +365,14 @@ model ServiceOrderServiceLine {
   observation ServiceObservation?
 
   createdAt DateTime @default(now())
+
+  @@index([orgId])
 }
 
 // Every status change is appended, never overwritten — audit trail for disputes.
 model ServiceOrderStatusLog {
   id             String       @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   serviceOrderId String
   serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
 
@@ -333,6 +382,8 @@ model ServiceOrderStatusLog {
   changedBy   User                @relation(fields: [changedById], references: [id], onDelete: Restrict)
   note        String?
   createdAt   DateTime            @default(now())
+
+  @@index([orgId])
 }
 
 // ============================================================
@@ -359,6 +410,7 @@ enum EventType {
 // (ex.: de/para do status, label e resultado do item de checklist).
 model ServiceOrderEvent {
   id             String       @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   serviceOrderId String
   serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
 
@@ -371,6 +423,8 @@ model ServiceOrderEvent {
   createdAt    DateTime    @default(now())
 
   @@index([serviceOrderId, createdAt])
+
+  @@index([orgId])
 }
 
 enum ChecklistStatus {
@@ -381,6 +435,7 @@ enum ChecklistStatus {
 
 model ServiceOrderChecklistItem {
   id             String       @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   serviceOrderId String
   serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
 
@@ -392,6 +447,8 @@ model ServiceOrderChecklistItem {
   answeredAt DateTime?
 
   @@index([serviceOrderId, position])
+
+  @@index([orgId])
 }
 
 // ============================================================
@@ -407,6 +464,7 @@ enum StockMovementType {
 
 model StockMovement {
   id     String @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   partId String
   part   Part   @relation(fields: [partId], references: [id], onDelete: Restrict)
 
@@ -430,6 +488,8 @@ model StockMovement {
   createdAt DateTime @default(now())
 
   @@unique([purchaseInvoiceItemId, type])
+
+  @@index([orgId])
 }
 
 // ============================================================
@@ -446,14 +506,18 @@ model StockMovement {
 // transação que aplica o efeito.
 model ProcessedInboundEvent {
   id          String   @id // id do evento (UUID gerado por quem publicou)
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   type        String
   processedAt DateTime @default(now())
 
   @@index([processedAt])
+
+  @@index([orgId])
 }
 
 model OutboxEvent {
   id            String    @id @default(uuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   seq           BigInt    @unique @default(autoincrement()) // ordem global de emissão
   type          String // ex.: "order.status_changed"
   aggregateType String // ex.: "service_order"
@@ -463,6 +527,8 @@ model OutboxEvent {
   publishedAt   DateTime?
 
   @@index([publishedAt, seq])
+
+  @@index([orgId])
 }
 
 // ============================================================
@@ -592,6 +658,7 @@ model VehicleVariant {
 // Fonte da verdade do aprendizado. unique(serviceLineId) garante idempotência.
 model ServiceObservation {
   id                  String                  @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   serviceLineId       String                  @unique
   serviceLine         ServiceOrderServiceLine @relation(fields: [serviceLineId], references: [id], onDelete: Cascade)
   serviceDefinitionId String
@@ -605,11 +672,14 @@ model ServiceObservation {
   excludedReason      String?
 
   @@index([serviceDefinitionId, variantId])
+
+  @@index([orgId])
 }
 
 // Agregado recalculável: função pura das observações (spec §6.4).
 model ServiceEstimate {
   id                  String            @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   serviceDefinitionId String
   serviceDefinition   ServiceDefinition @relation(fields: [serviceDefinitionId], references: [id], onDelete: Cascade)
   variantId           String
@@ -621,7 +691,9 @@ model ServiceEstimate {
   computedAt          DateTime
   inputsDigest        String // hash das observações usadas; igual = não regrava
 
-  @@unique([serviceDefinitionId, variantId])
+  @@unique([orgId, serviceDefinitionId, variantId])
+
+  @@index([orgId])
 }
 
 model ServiceSuggestedPart {
@@ -638,7 +710,7 @@ model ServiceSuggestedPart {
 
 // Singleton por tenant (1 banco = 1 oficina).
 model TenantFiscalSettings {
-  id                   Int        @id @default(1)
+  orgId String @id @default(dbgenerated("app_org()")) @db.Uuid
   cnpj                 String? // 14 caracteres alfanuméricos [A-Z0-9]{12}[0-9]{2}, sem máscara (nfe-import.md D12)
   legalName            String?
   ufCode               Int? // cUFAutor (código IBGE da UF)
@@ -671,7 +743,7 @@ enum FiscalEnvironment {
 
 // Singleton. O .pfx e a senha NUNCA saem do banco em claro nem pela API (envelope AES-256-GCM, §7.2).
 model FiscalCredential {
-  id          Int               @id @default(1)
+  orgId String @id @default(dbgenerated("app_org()")) @db.Uuid
   environment FiscalEnvironment @default(PRODUCTION)
 
   pfxCiphertext     Bytes
@@ -698,8 +770,8 @@ model FiscalCredential {
 }
 
 model FiscalSyncState {
-  id         Int              @id @default(1)
-  credential FiscalCredential @relation(fields: [id], references: [id], onDelete: Cascade)
+  orgId String @id @default(dbgenerated("app_org()")) @db.Uuid
+  credential FiscalCredential @relation(fields: [orgId], references: [orgId], onDelete: Cascade)
 
   lastNsu             BigInt    @default(0) // último NSU consumido (até 15 dígitos)
   maxNsu              BigInt    @default(0)
@@ -715,6 +787,7 @@ model FiscalSyncState {
 
 model FiscalAuditLog {
   id     String   @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   at     DateTime @default(now())
   userId String
   user   User     @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -723,6 +796,8 @@ model FiscalAuditLog {
   ip     String?
 
   @@index([at])
+
+  @@index([orgId])
 }
 
 // Ciclo fiscal: o que a SEFAZ entregou.
@@ -745,7 +820,8 @@ enum InvoiceExportStatus {
 
 model PurchaseInvoice {
   id            String    @id @default(cuid())
-  accessKey     String    @unique // 44 caracteres alfanuméricos
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
+  accessKey     String // 44 caracteres alfanuméricos
   nsu           BigInt? // facultativo na NT
   series        Int?
   number        Int?
@@ -783,6 +859,9 @@ model PurchaseInvoice {
   @@index([exportStatus])
   @@index([status, manifestNextAt])
   @@index([issuedAt])
+
+  @@index([orgId])
+  @@unique([orgId, accessKey])
 }
 
 enum ItemResolution {
@@ -795,6 +874,7 @@ enum ItemResolution {
 
 model PurchaseInvoiceItem {
   id           String          @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   invoiceId    String
   invoice      PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   itemNumber   Int // nItem
@@ -825,11 +905,14 @@ model PurchaseInvoiceItem {
 
   @@unique([invoiceId, itemNumber])
   @@index([supplierCode])
+
+  @@index([orgId])
 }
 
 // Vínculo aprendido: o próximo item do mesmo fornecedor/código resolve sozinho.
 model SupplierItemMap {
   id           String   @id @default(cuid())
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
   supplierCnpj String
   supplierCode String
   partId       String
@@ -838,5 +921,57 @@ model SupplierItemMap {
   createdAt    DateTime @default(now())
   lastUsedAt   DateTime @default(now())
 
-  @@unique([supplierCnpj, supplierCode])
+  @@unique([orgId, supplierCnpj, supplierCode])
+
+  @@index([orgId])
+}
+
+// Contadores por organização (ex.: numeração das ordens de serviço). Usado por next_org_seq(); a API não acessa direto.
+model OrgCounter {
+  orgId String @default(dbgenerated("app_org()")) @db.Uuid
+  name  String
+  value Int
+
+  @@id([orgId, name])
+}
+
+// ============================================================
+// Provisionamento e licença (alimentados pelos eventos do control plane)
+// ============================================================
+
+// Dados da organização enviados pelo control plane ao criá-la. O dono vira Admin no primeiro login.
+model OrgProfile {
+  orgId      String   @id @default(dbgenerated("app_org()")) @db.Uuid
+  slug       String?
+  name       String? // razão social, para o seletor de organização
+  ownerEmail String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// Último estado de licença conhecido (snapshot assinado do control plane). Sem linha = sem restrição (instalação legada).
+// mode: full | readonly | none (docs/specs/control-plane.md §5).
+model OrgLicense {
+  orgId         String    @id @default(dbgenerated("app_org()")) @db.Uuid
+  status        String
+  mode          String
+  version       Int
+  trialEndsAt   DateTime?
+  readonlyUntil DateTime?
+  entitlements  Json      @default("{}")
+  refreshedAt   DateTime  @default(now())
+}
+
+// Quem participa de qual organização (alimentado pelos eventos de identidade do control plane). Fonte de verdade da
+// participação: o claim "organization" do Keycloak 26.0 é intermitente para quem está em várias organizações.
+model OrgMembership {
+  orgId      String   @default(dbgenerated("app_org()")) @db.Uuid
+  keycloakId String // sub do token
+  email      String
+  role       String   @default("member")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@id([orgId, keycloakId])
+  @@index([keycloakId])
 }

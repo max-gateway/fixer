@@ -1,3 +1,4 @@
+import { TEST_ORG } from '../../test/setup.js';
 import { describe, expect, it, vi } from 'vitest';
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
@@ -22,7 +23,7 @@ describe('AuthService.syncUser', () => {
     const { upsert, sync } = setup();
     const user = await sync({ sub: 'kc-1', email: 'ana@x.com', name: 'Ana' });
     expect(upsert).toHaveBeenCalledWith({
-      where: { keycloakId: 'kc-1' },
+      where: { orgId_keycloakId: { orgId: TEST_ORG, keycloakId: 'kc-1' } },
       create: { keycloakId: 'kc-1', email: 'ana@x.com', name: 'Ana' },
       update: { email: 'ana@x.com', name: 'Ana' },
     });
