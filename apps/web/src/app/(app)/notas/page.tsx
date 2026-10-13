@@ -1,15 +1,18 @@
-import { FileDown, FileText, Settings, TriangleAlert } from 'lucide-react';
+import { Building2, FileDown, FileText, RefreshCw, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ApiError, apiGet } from '@/lib/api';
+import { relativeTime, type FiscalCredentialView, type FiscalStatus } from '@/lib/fiscal-import';
 import { describeInvoice, formatCnpj, money, shortDate, VIEW_LABEL, VIEWS, type InvoiceRow, type View } from '@/lib/invoices';
 import { cn } from '@/lib/utils';
+import { AutoRefresh } from './auto-refresh';
 
 export const metadata = { title: 'Notas de compra' };
 
 type Listing = { total: number; items: InvoiceRow[] };
+type Company = FiscalStatus['settings'];
 
 function href(view: View, q?: string) {
   const p = new URLSearchParams();
@@ -26,10 +29,19 @@ export default async function NotasPage({ searchParams }: { searchParams: Promis
 
   let listing: Listing;
   let counts: Record<View, number>;
+  let company: Company = null;
+  let credential: FiscalCredentialView | null = null;
   try {
     const params = new URLSearchParams({ view });
     if (q) params.set('q', q);
-    [listing, counts] = await Promise.all([apiGet<Listing>(`/invoices?${params}`), apiGet<Record<View, number>>('/invoices/summary')]);
+    let status: FiscalStatus | null;
+    [listing, counts, status] = await Promise.all([
+      apiGet<Listing>(`/invoices?${params}`),
+      apiGet<Record<View, number>>('/invoices/summary'),
+      apiGet<FiscalStatus>('/fiscal/status').catch(() => null),
+    ]);
+    company = status?.settings ?? null;
+    credential = status?.credential ?? null;
   } catch (err) {
     const denied = err instanceof ApiError && err.status === 403;
     return (
@@ -48,7 +60,7 @@ export default async function NotasPage({ searchParams }: { searchParams: Promis
 
   return (
     <section className="space-y-5">
-      <Header />
+      <Header company={company} credential={credential} />
 
       <nav aria-label="Filtrar notas" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
         {VIEWS.map((v) => (
@@ -99,16 +111,48 @@ export default async function NotasPage({ searchParams }: { searchParams: Promis
   );
 }
 
-function Header() {
+/** Quando a SEFAZ foi consultada e quando será de novo: explica por que uma nota recém-emitida ainda não chegou. */
+function SyncLine({ credential }: { credential: FiscalCredentialView }) {
+  const s = credential.syncState;
+  const failing = Boolean(s?.lastError);
   return (
-    <header className="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Notas de compra</h1>
-        <p className="text-sm text-muted-foreground">NF-e emitidas contra o CNPJ da oficina, buscadas automaticamente na SEFAZ.</p>
-      </div>
-      <Link href="/configuracoes" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-        <Settings aria-hidden /> Cadastro
-      </Link>
+    <p className={cn('mt-2 flex items-start gap-2 text-xs', failing ? 'text-amber-800' : 'text-muted-foreground')}>
+      <RefreshCw aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+      <span>
+        {!credential.enabled ? (
+          'Busca automática desligada. Novas notas não estão chegando.'
+        ) : (
+          <>
+            Última consulta {relativeTime(s?.lastSuccessAt ?? null)} · próxima {relativeTime(s?.nextPollAt ?? null)}.
+            {failing ? ' A última tentativa falhou.' : ' A SEFAZ limita a consulta a cerca de uma vez por hora, então uma nota recém-emitida pode demorar a aparecer.'}
+          </>
+        )}
+      </span>
+    </p>
+  );
+}
+
+function Header({ company, credential }: { company?: Company; credential?: FiscalCredentialView | null }) {
+  return (
+    <header>
+      <h1 className="text-2xl font-semibold tracking-tight">Notas de compra</h1>
+      <p className="text-sm text-muted-foreground">NF-e emitidas contra o CNPJ da empresa, buscadas automaticamente na SEFAZ.</p>
+      {company?.cnpj ? (
+        <p className="mt-2 inline-flex max-w-full items-center gap-2 rounded-lg border bg-card px-3 py-1.5 text-sm shadow-xs">
+          <Building2 aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+          <span className="text-muted-foreground">Importando de</span>
+          <strong className="truncate font-semibold">{company.legalName || 'Empresa sem razão social'}</strong>
+          <span className="tabular shrink-0 text-muted-foreground">{formatCnpj(company.cnpj)}</span>
+        </p>
+      ) : (
+        company !== undefined && <p className="mt-2 text-sm text-amber-800">Nenhuma empresa cadastrada para importar notas.</p>
+      )}
+      {credential && (
+        <>
+          <SyncLine credential={credential} />
+          <AutoRefresh />
+        </>
+      )}
     </header>
   );
 }
@@ -149,7 +193,7 @@ const EMPTY: Record<View, { title: string; hint: string }> = {
   summary: { title: 'Nenhuma nota sem XML', hint: 'Notas que só chegaram como resumo, aguardando a ciência da operação.' },
   canceled: { title: 'Nenhuma nota cancelada', hint: 'Notas canceladas pelo fornecedor aparecem aqui.' },
   ignored: { title: 'Nenhuma nota ignorada', hint: 'Notas que não são compras para o CNPJ da oficina aparecem aqui.' },
-  all: { title: 'Nenhuma nota ainda', hint: 'Em "Importação", cadastre o CNPJ e envie o certificado digital para buscar as notas automaticamente.' },
+  all: { title: 'Nenhuma nota ainda', hint: 'Quando o certificado digital da empresa estiver configurado, as notas chegam aqui automaticamente.' },
 };
 
 function Empty({ view, filtered }: { view: View; filtered: boolean }) {
