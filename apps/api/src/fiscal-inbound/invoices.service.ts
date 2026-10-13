@@ -5,6 +5,7 @@ import { Prisma } from '@fixer/db';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { unitCost } from './matching/cost.js';
+import { postInvoice } from './matching/posting.js';
 import { matchOpenInvoicesOfSupplier, recomputeExportStatus } from './matching/reconcile.js';
 
 /** Abas da lista de notas (docs/specs/nfe-import.md §11). Cada uma é um filtro sobre os dois eixos de estado. */
@@ -188,6 +189,19 @@ export class InvoicesService {
       if ((err as { code?: string }).code === 'P2002') throw new ConflictException('Já existe uma peça com este SKU');
       throw err;
     }
+    return this.get(invoiceId);
+  }
+
+  /** Confirma a entrada no estoque de uma nota READY (docs/specs/nfe-import.md §8.3). */
+  async confirm(invoiceId: string, userId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const inv = await tx.purchaseInvoice.findUnique({ where: { id: invoiceId }, select: { status: true, exportStatus: true } });
+      if (!inv) throw new NotFoundException('Nota não encontrada');
+      if (inv.exportStatus === 'POSTED') return; // idempotente
+      if (!(await postInvoice(tx, invoiceId, userId))) {
+        throw new ConflictException('Só uma nota completa, sem itens pendentes nem revisão, pode ser lançada');
+      }
+    });
     return this.get(invoiceId);
   }
 

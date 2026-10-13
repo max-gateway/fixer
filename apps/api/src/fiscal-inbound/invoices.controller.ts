@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { CurrentUser, type AuthUser } from '../auth/auth.decorators.js';
 import { RequirePermission } from '../auth/permissions.js';
 import { RequireFeature } from '../control-plane/feature.guard.js';
 import { parse } from '../common/parse.js';
@@ -60,6 +61,13 @@ export class InvoicesController {
   @RequirePermission('invoices.reconcile')
   createPart(@Param('id') id: string, @Param('n', ParseIntPipe) n: number, @Body() body: unknown) {
     return this.invoices.createPartFromItem(id, n, parse(CreatePartSchema, body));
+  }
+
+  /** Lança a entrada no estoque (nota READY). */
+  @Post(':id/confirm')
+  @RequirePermission('invoices.reconcile')
+  confirm(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.invoices.confirm(id, user.id);
   }
 
   @Post(':id/clear-review')

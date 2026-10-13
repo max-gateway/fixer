@@ -1,5 +1,6 @@
 import type { Prisma } from '@fixer/db';
 import { TenantContext } from '../../tenancy/tenant-context.js';
+import { autoPostIfEnabled } from './posting.js';
 import { nextExportStatus, resolveItems, type ExportStatus } from './resolve.js';
 
 type Tx = Prisma.TransactionClient;
@@ -33,7 +34,7 @@ export async function matchInvoice(tx: Tx, invoiceId: string): Promise<{ resolve
   if (!invoice || invoice.status !== 'FULL') return { resolved: 0 };
   const items = await tx.purchaseInvoiceItem.findMany({
     where: { invoiceId },
-    select: { id: true, supplierCode: true, ean: true, resolution: true },
+    select: { id: true, supplierCode: true, ean: true, unit: true, resolution: true },
   });
   const open = items.filter((i) => i.resolution === 'UNRESOLVED');
 
@@ -45,11 +46,15 @@ export async function matchInvoice(tx: Tx, invoiceId: string): Promise<{ resolve
     const maps = new Map(mapRows.map((m) => [m.supplierCode, { partId: m.partId, unitFactor: m.unitFactor.toString() }]));
 
     const eans = [...new Set(open.flatMap((i) => (i.ean ? [i.ean] : [])))];
-    const partRows = eans.length ? await tx.part.findMany({ where: { ean: { in: eans } }, select: { id: true, ean: true } }) : [];
+    const partRows = eans.length ? await tx.part.findMany({ where: { ean: { in: eans } }, select: { id: true, ean: true, unit: true } }) : [];
     const partsByEan = new Map<string, string[]>();
-    for (const p of partRows) partsByEan.set(p.ean!, [...(partsByEan.get(p.ean!) ?? []), p.id]);
+    const partUnits = new Map<string, string | null>();
+    for (const p of partRows) {
+      partsByEan.set(p.ean!, [...(partsByEan.get(p.ean!) ?? []), p.id]);
+      partUnits.set(p.id, p.unit);
+    }
 
-    const resolutions = resolveItems(open.map((i) => ({ ...i })), maps, partsByEan);
+    const resolutions = resolveItems(open.map((i) => ({ ...i })), maps, partsByEan, partUnits);
     const codeOf = new Map(open.map((i) => [i.id, i.supplierCode]));
     for (const r of resolutions) {
       const supplierCode = codeOf.get(r.itemId)!;
@@ -74,6 +79,7 @@ export async function matchInvoice(tx: Tx, invoiceId: string): Promise<{ resolve
     }
   }
   await recomputeExportStatus(tx, invoiceId);
+  await autoPostIfEnabled(tx, invoiceId);
   return { resolved };
 }
 

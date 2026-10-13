@@ -66,7 +66,7 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
           <Info2 label="Sem peça" value={inv.status === 'FULL' ? String(unresolved) : '—'} />
         </dl>
         <p className="tabular text-xs break-all text-muted-foreground">Chave de acesso: {formatKey(inv.accessKey)}</p>
-        <InvoiceActions id={inv.id} hasXml={inv.hasXml} canManifest={canManifest} needsReview={inv.needsReview} editable={editable} />
+        <InvoiceActions id={inv.id} hasXml={inv.hasXml} canManifest={canManifest} needsReview={inv.needsReview} editable={editable} ready={editable && inv.exportStatus === 'READY' && !inv.needsReview} />
       </header>
 
       <Notices inv={inv} />
@@ -166,9 +166,14 @@ function Notices({ inv }: { inv: InvoiceDetail }) {
           <p>O sistema não decide sozinho o efeito dela no estoque. Confira os itens e use “Revisei esta nota” para seguir.</p>
         </Notice>
       )}
+      {inv.exportStatus === 'POSTED' && inv.status === 'FULL' && (
+        <Notice tone="info">
+          <p>Entrada lançada no estoque em {shortDate(inv.postedAt)}.</p>
+        </Notice>
+      )}
       {inv.status === 'FULL' && inv.exportStatus === 'READY' && (
         <Notice tone="info">
-          <p>Todos os itens estão resolvidos. O lançamento da entrada no estoque é a próxima etapa e ainda não está disponível.</p>
+          <p>Todos os itens estão resolvidos. Confira e use “Lançar entrada no estoque” para somar as peças ao estoque e atualizar o custo.</p>
         </Notice>
       )}
     </div>

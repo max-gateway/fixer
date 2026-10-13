@@ -70,6 +70,17 @@ export function SyncCard({ credential }: { credential: FiscalCredentialView }) {
           )}
         </div>
 
+        <div className="border-t pt-4">
+          <Toggle
+            id="sync-export"
+            label="Lançar a entrada no estoque automaticamente"
+            description="Quando todos os itens de uma nota são reconhecidos sozinhos (pelo código do fornecedor ou pelo código de barras) e a nota é uma compra normal, o Fixer soma as peças ao estoque sem pedir confirmação. Notas com item pendente ou em revisão continuam esperando por você."
+            checked={credential.autoExport}
+            disabled={update.isPending}
+            onChange={(v) => update.mutate({ autoExport: v })}
+          />
+        </div>
+
         {update.error && (
           <p role="alert" className="flex items-center gap-2 text-sm font-medium text-destructive">
             {update.isPending && <Loader2 aria-hidden className="size-4 animate-spin" />}

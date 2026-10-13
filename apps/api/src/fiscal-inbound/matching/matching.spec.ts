@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { unitCost } from './cost.js';
 import { nextExportStatus, resolveItems } from './resolve.js';
 
-const item = (id: string, over: Partial<{ supplierCode: string; ean: string | null; resolution: string }> = {}) => ({
+const item = (id: string, over: Partial<{ supplierCode: string; ean: string | null; unit: string; resolution: string }> = {}) => ({
   id,
   supplierCode: `C-${id}`,
   ean: null,
@@ -31,6 +31,13 @@ describe('resolveItems', () => {
 
   it('GTIN ambíguo, desconhecido ou ausente não resolve', () => {
     expect(resolveItems([item('3', { ean: '7892' }), item('4', { ean: '0000' }), item('5')], maps, eans)).toEqual([]);
+  });
+
+  it('GTIN de uma peça com unidade diferente da nota (caixa x unidade) não resolve', () => {
+    const units = new Map([['p-ean', 'UN']]);
+    expect(resolveItems([item('6', { ean: '7891', unit: 'CX' })], maps, eans, units)).toEqual([]);
+    expect(resolveItems([item('7', { ean: '7891', unit: ' un ' })], maps, eans, units)).toHaveLength(1);
+    expect(resolveItems([item('8', { ean: '7891', unit: 'CX' })], maps, eans, new Map([['p-ean', null]]))).toHaveLength(1);
   });
 
   it('item já resolvido (ou ignorado) pelo usuário nunca é sobrescrito', () => {

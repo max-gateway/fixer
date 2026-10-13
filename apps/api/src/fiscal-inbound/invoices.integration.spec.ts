@@ -122,6 +122,62 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
     });
   });
 
+  describe('lançamento', () => {
+    const ready = async () => {
+      const pad = await part('PAD', { unit: 'UN' });
+      const oil = await part('OIL', { unit: 'UN' });
+      await db.supplierItemMap.createMany({
+        data: [
+          { supplierCnpj: SUPPLIER, supplierCode: 'PAST-001', partId: pad.id },
+          { supplierCnpj: SUPPLIER, supplierCode: 'OLEO-5W30', partId: oil.id },
+        ],
+      });
+      return { pad, oil };
+    };
+
+    it('confirm dá entrada no estoque, grava movimento e é idempotente', async () => {
+      const { pad } = await ready();
+      const inv = await receive();
+      expect((await state(inv.id)).exportStatus).toBe('READY');
+      await service.confirm(inv.id, USER);
+      expect(await state(inv.id)).toMatchObject({ exportStatus: 'POSTED', postedById: USER });
+      const mv = await db.stockMovement.findMany({ where: { partId: pad.id } });
+      expect(mv).toHaveLength(1);
+      expect(mv[0]).toMatchObject({ type: 'PURCHASE', createdById: USER });
+      expect((await db.part.findUniqueOrThrow({ where: { id: pad.id } })).stockQty.toString()).toBe(mv[0]!.quantity.toString());
+      await service.confirm(inv.id, USER); // segunda chamada não duplica
+      expect(await db.stockMovement.count({ where: { partId: pad.id } })).toBe(1);
+    });
+
+    it('nota com item pendente não é lançada (409)', async () => {
+      const inv = await receive();
+      await expect(service.confirm(inv.id, USER)).rejects.toMatchObject({ status: 409 });
+      expect(await db.stockMovement.count({ where: { createdById: USER } })).toBe(0);
+    });
+
+    it('autoExport lança sozinho ao receber a nota 100% resolvida; desligado, fica READY', async () => {
+      await ready();
+      const off = await receive({ number: 1 });
+      expect((await state(off.id)).exportStatus).toBe('READY');
+      await db.fiscalCredential.update({ where: { orgId: TEST_ORG }, data: { autoExport: true, autoExportById: USER } });
+      const on = await receive({ number: 2 });
+      expect(await state(on.id)).toMatchObject({ exportStatus: 'POSTED', postedById: USER });
+    });
+
+    it('autoExport nunca lança nota em revisão', async () => {
+      await ready();
+      await db.fiscalCredential.update({ where: { orgId: TEST_ORG }, data: { autoExport: true, autoExportById: USER } });
+      const inv = await receive({ finNFe: 4 });
+      expect((await state(inv.id)).exportStatus).toBe('PENDING_MATCH');
+    });
+
+    it('GTIN com unidade diferente da peça não vincula sozinho', async () => {
+      await part('PAD', { ean: '7891234567895', unit: 'UN' }); // a nota vem em CX
+      const inv = await receive();
+      expect((await items(inv.id))[0]).toMatchObject({ resolution: 'UNRESOLVED' });
+    });
+  });
+
   describe('conciliação manual', () => {
     it('vincular todos os itens leva a nota a READY; desfazer um a devolve a PENDING_MATCH', async () => {
       const inv = await receive();

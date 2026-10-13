@@ -2,13 +2,15 @@
  * Regras puras do matcher (docs/specs/nfe-import.md §8.1), separadas do banco para serem testadas
  * sem ele. Em ordem, o primeiro acerto vence:
  *   1. vínculo aprendido do fornecedor (cProd)  → AUTO_MAP, herda o fator de unidade
- *   2. GTIN igual ao de UMA peça                → AUTO_EAN (e aprende o vínculo)
+ *   2. GTIN igual ao de UMA peça, na mesma unidade → AUTO_EAN (e aprende o vínculo)
  *   3. senão                                    → fica UNRESOLVED
  */
 export interface MatchableItem {
   id: string;
   supplierCode: string;
   ean: string | null;
+  /** uCom da nota; opcional (sem ele a trava de unidade não age). */
+  unit?: string;
   resolution: string;
 }
 
@@ -26,10 +28,18 @@ export interface ItemResolution {
   learn: boolean;
 }
 
+const normUnit = (u: string) => u.trim().toUpperCase();
+function sameUnit(invoiceUnit: string | undefined, partUnit: string | null | undefined): boolean {
+  if (!invoiceUnit || !partUnit) return true;
+  return normUnit(invoiceUnit) === normUnit(partUnit);
+}
+
 export function resolveItems(
   items: MatchableItem[],
   maps: ReadonlyMap<string, LearnedMap>,
   partsByEan: ReadonlyMap<string, string[]>,
+  /** Unidade de estoque de cada peça; peça sem unidade cadastrada não bloqueia. */
+  partUnits: ReadonlyMap<string, string | null> = new Map(),
 ): ItemResolution[] {
   const out: ItemResolution[] = [];
   for (const item of items) {
@@ -40,7 +50,8 @@ export function resolveItems(
       continue;
     }
     const parts = item.ean ? partsByEan.get(item.ean) : undefined;
-    if (parts?.length === 1) {
+    // O GTIN pode ser o da unidade enquanto a nota vem em caixa (fator 1 entraria errado): unidade diferente fica para o usuário.
+    if (parts?.length === 1 && sameUnit(item.unit, partUnits.get(parts[0]!))) {
       out.push({ itemId: item.id, resolution: 'AUTO_EAN', partId: parts[0]!, unitFactor: '1', learn: true });
     }
     // Mais de uma peça com o mesmo GTIN é ambíguo: quem decide é o usuário.
