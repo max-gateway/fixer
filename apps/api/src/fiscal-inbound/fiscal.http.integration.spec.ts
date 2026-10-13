@@ -265,6 +265,28 @@ describe.skipIf(!URL)('Importação de NF-e por HTTP (Postgres, integração)', 
       await http().delete('/fiscal/credentials').expect(404);
     });
 
+    it('alerta de vencimento: exige fiscal.manage, vem null com validade longa e escala perto do vencimento', async () => {
+      await grant(['invoices.read']);
+      await http().get('/fiscal/certificate-alert').expect(403);
+      await grant(PERMS);
+
+      // Sem certificado: objeto com alert null (o corpo nunca vem vazio).
+      expect((await http().get('/fiscal/certificate-alert').expect(200)).body).toEqual({ alert: null });
+
+      await http().put('/fiscal/company').send({ cnpj }).expect(200);
+      await upload().expect(201);
+      expect((await http().get('/fiscal/certificate-alert').expect(200)).body).toEqual({ alert: null });
+
+      const day = 86_400_000;
+      await db.fiscalCredential.updateMany({ data: { notAfter: new Date(Date.now() + 5 * day + 60_000) } });
+      const soon = (await http().get('/fiscal/certificate-alert').expect(200)).body.alert;
+      expect(soon).toMatchObject({ level: 'critical', daysLeft: 5, stale: false });
+      expect(JSON.stringify(soon)).not.toMatch(/Ciphertext|keyId|password/i);
+
+      await db.fiscalCredential.updateMany({ data: { notAfter: new Date(Date.now() - 2 * day - 60_000) } });
+      expect((await http().get('/fiscal/certificate-alert').expect(200)).body.alert).toMatchObject({ level: 'expired', daysLeft: -2 });
+    });
+
     it('ciência automática exige o aceite da obrigação de manifestação conclusiva', async () => {
       await http().put('/fiscal/company').send({ cnpj }).expect(200);
       await upload().expect(201);

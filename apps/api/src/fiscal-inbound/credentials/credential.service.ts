@@ -6,6 +6,7 @@ import { cnpjBase, isValidCnpj, normalizeCnpj } from '../cnpj.js';
 import { type KeyProvider } from '../crypto/key-provider.js';
 import { open, seal } from '../crypto/secret-box.js';
 import { GatewayClient, GatewayError } from '../gateway/gateway.client.js';
+import { certificateAlert, type CertificateAlert } from './certificate-alert.js';
 import { parsePfx, PfxError, type ParsedPfx } from './pfx.js';
 
 export const KEY_PROVIDER = Symbol('FISCAL_KEY_PROVIDER');
@@ -154,6 +155,16 @@ export class CredentialService {
     };
   }
 
+  /** Alerta de vencimento para o banner (leve: uma leitura, sem sync state). `null` = nada a avisar. */
+  async expiryAlert(now: Date = new Date()): Promise<CertificateAlert | null> {
+    const cred = await this.prisma.fiscalCredential.findUnique({
+      where: { orgId: TenantContext.require() },
+      select: { notAfter: true, mirroredAt: true, keyId: true },
+    });
+    if (!cred) return null;
+    return certificateAlert({ notAfter: cred.notAfter, mirroredAt: cred.mirroredAt, viaGateway: cred.keyId === 'gateway' }, now);
+  }
+
   /** Abre o .pfx só para ler titular e CNPJ (cadastro guiado pelo certificado). Não grava nada nem exige CNPJ prévio. */
   inspect(input: z.infer<typeof InspectCredentialSchema>) {
     if (this.gateway) return this.viaGateway((g) => g.inspect(input.pfxBase64, input.password));
@@ -270,6 +281,7 @@ export class CredentialService {
       certCnpj: cred.cert_cnpj,
       notBefore: new Date(cred.not_before),
       notAfter: new Date(cred.not_after),
+      mirroredAt: new Date(),
       enabled: cred.enabled,
       autoManifest: cred.auto_manifest,
       uploadedById: actor.id,

@@ -20,6 +20,16 @@ export class FiscalInboundController {
   }
 
   /**
+   * Alerta de vencimento do certificado para o banner da área interna. Só quem pode renovar (`fiscal.manage`) o vê;
+   * `alert: null` = nada a avisar (objeto, e não `null` puro, para o corpo nunca vir vazio).
+   */
+  @Get('certificate-alert')
+  @RequirePermission('fiscal.manage')
+  async certificateAlert() {
+    return { alert: await this.credentials.expiryAlert() };
+  }
+
+  /**
    * Dados da empresa para a importação de NF-e (CNPJ, razão social, UF). Rota própria (`company`) porque
    * `fiscal/settings` pertence ao módulo fiscal-settings (NFS-e/preço por hora), que nunca escreve estas colunas.
    */

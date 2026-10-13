@@ -1,11 +1,26 @@
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { auth, signOut } from '@/auth';
+import { CertificateBanner } from '@/components/certificate-banner';
 import { AppHeader } from '@/components/nav/app-header';
 import { InboxProvider } from '@/components/notifications/inbox-provider';
 import { QueryProvider } from '@/components/query-provider';
+import { apiGet } from '@/lib/api';
 import { getBranding } from '@/lib/branding';
+import type { CertificateAlert } from '@/lib/certificate-alert';
 import { getOrgContext, listOrganizations, orgLabel } from '@/lib/org-server';
+
+/**
+ * Alerta de vencimento do certificado. Informativo: se a API recusar (sem permissão `fiscal.manage`, plano sem fiscal)
+ * ou estiver fora do ar, a página abre normalmente, só sem o banner.
+ */
+async function loadCertificateAlert(): Promise<CertificateAlert | null> {
+  try {
+    return (await apiGet<{ alert: CertificateAlert | null }>('/fiscal/certificate-alert')).alert;
+  } catch {
+    return null;
+  }
+}
 
 async function signOutAction() {
   'use server';
@@ -21,6 +36,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   if (ctx.needsChoice) redirect('/organizacoes');
   const current = ctx.active ? (await listOrganizations()).find((o) => o.id === ctx.active) : undefined;
   const org = ctx.active ? { name: current ? orgLabel(current) : `Oficina ${ctx.active.slice(0, 8)}`, canSwitch: ctx.orgs.length > 1 } : null;
+  const certAlert = ctx.active ? await loadCertificateAlert() : null;
   const user = session?.user ? { name: session.user.name ?? session.user.email ?? 'Usuário', email: session.user.email } : null;
   return (
     <QueryProvider>
@@ -32,6 +48,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           Pular para o conteúdo
         </a>
         <AppHeader brand={{ name: b.displayName, logoUrl: b.logoUrl }} user={user} org={org} signOutAction={signOutAction} />
+        {certAlert && ctx.active && <CertificateBanner alert={certAlert} orgId={ctx.active} />}
         {/* pb-28 no mobile abre espaço para a tab bar flutuante */}
         <main id="conteudo" className="mx-auto max-w-6xl px-4 py-6 pb-28 sm:px-6 sm:py-8 md:pb-8">
           {children}

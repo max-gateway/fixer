@@ -754,6 +754,7 @@ model FiscalCredential {
   certCnpj  String // CNPJ extraído do certificado (OID 2.16.76.1.3.3)
   notBefore DateTime
   notAfter  DateTime
+  mirroredAt DateTime? // última confirmação do estado com o dfe-gateway (null = nunca / modo direto)
 
   enabled        Boolean @default(false) // liga/desliga a sincronização
   autoManifest   Boolean @default(false) // consente a Ciência da Operação automática

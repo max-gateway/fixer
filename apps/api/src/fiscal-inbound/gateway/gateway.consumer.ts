@@ -151,7 +151,7 @@ export class GatewayConsumer implements OnModuleInit, OnApplicationShutdown {
     if (gw.credential) {
       await this.prisma.fiscalCredential.update({
         where: { orgId: TenantContext.require() },
-        data: { enabled: gw.credential.enabled, autoManifest: gw.credential.auto_manifest, notAfter: new Date(gw.credential.not_after) },
+        data: { enabled: gw.credential.enabled, autoManifest: gw.credential.auto_manifest, notAfter: new Date(gw.credential.not_after), mirroredAt: new Date() },
       });
     }
   }
