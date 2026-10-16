@@ -1,7 +1,9 @@
+import { gzipSync } from 'node:zlib';
 import { PrismaClient } from '@fixer/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { tenantClient } from '../../test/db.js';
 import { acquireDbLock } from '../../test/fiscal/db-lock.js';
+import { BILLING_3X, makeAccessKey, makeProcNfe } from '../../test/fiscal/nfe-xml.js';
 import { addDaysIso, civil, todayIso } from './dates.js';
 import { PayablesService, ListQuerySchema } from './payables.service.js';
 
@@ -19,10 +21,22 @@ describe.skipIf(!URL)('PayablesService (Postgres, integração)', () => {
   let service: PayablesService;
   let release: () => Promise<void>;
   const today = todayIso();
+  const invoiceKeys = new Set<string>();
+
+  /** Nota FULL com o XML original guardado, como a importação da SEFAZ a deixa. */
+  const seedInvoice = async (o: { number: number; billing?: string; status?: 'FULL' | 'CANCELED' | 'IGNORED' }) => {
+    const { xml, key } = makeProcNfe({ number: o.number, billing: o.billing, key: makeAccessKey('11222333000181', o.number) });
+    invoiceKeys.add(key);
+    return db.purchaseInvoice.create({
+      data: { accessKey: key, issuerCnpj: '11222333000181', issuerName: 'AUTO PECAS DISTRIBUIDORA LTDA', totalAmount: '434.85', status: o.status ?? 'FULL', xmlGz: gzipSync(Buffer.from(xml)) },
+    });
+  };
 
   const cleanup = async () => {
     await db.payableEvent.deleteMany();
     await db.payable.deleteMany();
+    await db.purchaseInvoice.deleteMany({ where: { accessKey: { in: [...invoiceKeys] } } });
+    invoiceKeys.clear();
     await db.user.deleteMany({ where: { id: USER } });
   };
 
@@ -187,5 +201,66 @@ describe.skipIf(!URL)('PayablesService (Postgres, integração)', () => {
     const { CreatePayableSchema } = await import('./payables.service.js');
     const r = CreatePayableSchema.safeParse({ supplierName: 'X', dueDate: '2026-12-01', amount: 10, barcode: '123' });
     expect(r.success).toBe(false);
+  });
+
+  describe('importação das notas já recebidas', () => {
+    it('prévia não grava; a importação cria uma parcela por duplicata, em aberto, com a categoria de compras', async () => {
+      await seedInvoice({ number: 9001, billing: BILLING_3X });
+      const preview = await service.importFromInvoices({ dryRun: true }, actor);
+      expect(preview).toMatchObject({ dryRun: true, invoices: 1, installments: 3, alreadyExisting: 0, open: { count: 3, amount: '434.85' }, settled: { count: 0, amount: '0.00' } });
+      expect(await db.payable.count()).toBe(0);
+
+      const done = await service.importFromInvoices({ dryRun: false }, actor);
+      expect(done.open.count).toBe(3);
+      const rows = await db.payable.findMany({ orderBy: { installment: 'asc' } });
+      expect(rows.map((r) => [r.installment, r.installmentCount, r.amount.toFixed(2), r.status, r.category, r.documentNumber])).toEqual([
+        [1, 3, '144.95', 'OPEN', 'Compras', '001'],
+        [2, 3, '144.95', 'OPEN', 'Compras', '002'],
+        [3, 3, '144.95', 'OPEN', 'Compras', '003'],
+      ]);
+      expect(rows[0]).toMatchObject({ supplierCnpj: '11222333000181', supplierName: 'AUTO PECAS DISTRIBUIDORA LTDA', source: 'XML_INSTALLMENT' });
+    });
+
+    it('rodar de novo não duplica; uma nota nova entra sozinha', async () => {
+      await seedInvoice({ number: 9002, billing: BILLING_3X });
+      await service.importFromInvoices({ dryRun: false }, actor);
+      const again = await service.importFromInvoices({ dryRun: false }, actor);
+      expect(again).toMatchObject({ installments: 3, alreadyExisting: 3, open: { count: 0 }, settled: { count: 0 } });
+      expect(await db.payable.count()).toBe(3);
+
+      await seedInvoice({ number: 9003, billing: BILLING_3X });
+      expect((await service.importFromInvoices({ dryRun: false }, actor)).open.count).toBe(3);
+      expect(await db.payable.count()).toBe(6);
+    });
+
+    it('parcelas anteriores à data de corte entram como pagas (histórico), com evento; as demais, em aberto', async () => {
+      await seedInvoice({ number: 9004, billing: BILLING_3X }); // vencimentos 05/11/2026, 05/12/2026, 05/01/2027
+      const r = await service.importFromInvoices({ settleBefore: '2026-12-10', dryRun: false }, actor);
+      expect(r).toMatchObject({ open: { count: 1, amount: '144.95' }, settled: { count: 2, amount: '289.90' } });
+      const rows = await db.payable.findMany({ orderBy: { installment: 'asc' }, include: { events: true } });
+      expect(rows.map((x) => x.status)).toEqual(['PAID', 'PAID', 'OPEN']);
+      expect(rows[0]).toMatchObject({ paidAmount: expect.anything() });
+      expect(rows[0]!.paidAt!.toISOString().slice(0, 10)).toBe('2026-11-05');
+      expect(rows[0]!.events.map((e) => [e.type, e.actorName])).toEqual([['PAID', 'Maria Teste']]);
+      expect(rows[2]!.events).toHaveLength(0);
+    });
+
+    it('nota sem cobrança, cancelada ou ignorada não gera conta; o declarado em pag vira parcela única', async () => {
+      await seedInvoice({ number: 9005 }); // sem cobr nem pag
+      await seedInvoice({ number: 9006, billing: BILLING_3X, status: 'CANCELED' });
+      await seedInvoice({ number: 9007, billing: BILLING_3X, status: 'IGNORED' });
+      await seedInvoice({ number: 9008, billing: '<pag><detPag><indPag>0</indPag><tPag>01</tPag><vPag>434.85</vPag></detPag></pag>' });
+      const r = await service.importFromInvoices({ dryRun: false }, actor);
+      expect(r).toMatchObject({ invoices: 1, withoutBilling: 1, installments: 1, open: { count: 1, amount: '434.85' } });
+      expect((await db.payable.findMany()).map((p) => p.source)).toEqual(['XML_TOTAL']);
+    });
+
+    it('XML corrompido é contado e não derruba a importação', async () => {
+      const bad = await seedInvoice({ number: 9009, billing: BILLING_3X });
+      await db.purchaseInvoice.update({ where: { id: bad.id }, data: { xmlGz: gzipSync(Buffer.from('<nao-e-nfe>')) } });
+      await seedInvoice({ number: 9010, billing: BILLING_3X });
+      const r = await service.importFromInvoices({ dryRun: false }, actor);
+      expect(r).toMatchObject({ unreadable: 1, invoices: 1, open: { count: 3 } });
+    });
   });
 });

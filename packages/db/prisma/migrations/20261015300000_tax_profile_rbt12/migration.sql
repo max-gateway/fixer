@@ -1,0 +1,2 @@
+ALTER TABLE "tenant_tax_profile" ADD COLUMN "rbt12" DECIMAL(65,30),
+  ADD COLUMN "rbt12AsOf" TIMESTAMP(3);

@@ -18,6 +18,16 @@ export interface NfeOptions {
   key?: string;
   /** XML de `cobr` e `pag`, inseridos após `total` (ordem do leiaute). */
   billing?: string;
+  /** emit/CRT (1 Simples, 3 regime normal). */
+  issuerCrt?: number;
+  issuerUf?: string;
+  recipientUf?: string;
+  /** ide/idDest: 1 interna, 2 interestadual. */
+  idDest?: number;
+  /** transp/modFrete. */
+  modFrete?: number;
+  /** Conteúdo de `total/ICMSTot` (padrão: só vProd e vNF). */
+  icmsTot?: string;
 }
 
 /** Item no formato do procNFe 4.00: Simples Nacional, com ST cobrado na nota (ICMSSN201). */
@@ -46,6 +56,54 @@ export const ITEM_NO_GTIN = `
     <imposto><ICMS><ICMS60><orig>1</orig><CST>60</CST><vICMSSTRet>9.99</vICMSSTRet></ICMS60></ICMS></imposto>
   </det>`;
 
+/** Regime normal, ICMS00 com crédito, e PIS/COFINS monofásicos (CST 04, revenda a alíquota zero). */
+export const ITEM_ICMS00_MONOFASICO = `
+  <det nItem="1">
+    <prod>
+      <cProd>BAT-60</cProd><cEAN>SEM GTIN</cEAN><xProd>BATERIA 60AH</xProd>
+      <NCM>85071000</NCM><CFOP>6102</CFOP><uCom>UN</uCom><qCom>3.0000</qCom>
+      <vUnCom>300.0000</vUnCom><vProd>900.00</vProd><cEANTrib>SEM GTIN</cEANTrib><uTrib>UN</uTrib>
+      <qTrib>3.0000</qTrib><vUnTrib>300.0000</vUnTrib><indTot>1</indTot>
+    </prod>
+    <imposto>
+      <ICMS><ICMS00><orig>0</orig><CST>00</CST><modBC>3</modBC><vBC>900.00</vBC><pICMS>12.00</pICMS><vICMS>108.00</vICMS></ICMS00></ICMS>
+      <IPI><cEnq>999</cEnq><IPINT><CST>53</CST></IPINT></IPI>
+      <PIS><PISNT><CST>04</CST></PISNT></PIS>
+      <COFINS><COFINSNT><CST>04</CST></COFINSNT></COFINS>
+    </imposto>
+  </det>`;
+
+/** ICMS10: ST cobrada na nota, com FCP-ST (o fundo de pobreza da ST). */
+export const ITEM_ICMS10_FCP = `
+  <det nItem="2">
+    <prod>
+      <cProd>FILT-AR</cProd><cEAN>SEM GTIN</cEAN><xProd>FILTRO DE AR</xProd>
+      <NCM>84213100</NCM><CEST>0100100</CEST><CFOP>6403</CFOP><uCom>UN</uCom><qCom>10.0000</qCom>
+      <vUnCom>20.0000</vUnCom><vProd>200.00</vProd><cEANTrib>SEM GTIN</cEANTrib><uTrib>UN</uTrib>
+      <qTrib>10.0000</qTrib><vUnTrib>20.0000</vUnTrib><indTot>1</indTot>
+    </prod>
+    <imposto>
+      <ICMS><ICMS10><orig>0</orig><CST>10</CST><modBC>3</modBC><vBC>200.00</vBC><pICMS>12.00</pICMS><vICMS>24.00</vICMS>
+        <modBCST>4</modBCST><pMVAST>40.00</pMVAST><vBCST>280.00</vBCST><pICMSST>18.00</pICMSST><vICMSST>26.40</vICMSST>
+        <vBCFCPST>280.00</vBCFCPST><pFCPST>2.00</pFCPST><vFCPST>5.60</vFCPST></ICMS10></ICMS>
+      <PIS><PISAliq><CST>01</CST><vBC>200.00</vBC><pPIS>0.65</pPIS><vPIS>1.30</vPIS></PISAliq></PIS>
+      <COFINS><COFINSAliq><CST>01</CST><vBC>200.00</vBC><pCOFINS>3.00</pCOFINS><vCOFINS>6.00</vCOFINS></COFINSAliq></COFINS>
+      <IBSCBS><CST>000</CST><cClassTrib>000001</cClassTrib></IBSCBS>
+    </imposto>
+  </det>`;
+
+/** Emitente do Simples com crédito de ICMS destacado para o comprador (CSOSN 101). */
+export const ITEM_CSOSN101 = `
+  <det nItem="1">
+    <prod>
+      <cProd>VEL-01</cProd><cEAN>SEM GTIN</cEAN><xProd>VELA DE IGNICAO</xProd>
+      <NCM>85111000</NCM><CFOP>5102</CFOP><uCom>UN</uCom><qCom>4.0000</qCom>
+      <vUnCom>25.0000</vUnCom><vProd>100.00</vProd><cEANTrib>SEM GTIN</cEANTrib><uTrib>UN</uTrib>
+      <qTrib>4.0000</qTrib><vUnTrib>25.0000</vUnTrib><indTot>1</indTot>
+    </prod>
+    <imposto><ICMS><ICMSSN101><orig>0</orig><CSOSN>101</CSOSN><pCredSN>1.25</pCredSN><vCredICMSSN>1.25</vCredICMSSN></ICMSSN101></ICMS></imposto>
+  </det>`;
+
 export const BILLING_3X = `
   <cobr>
     <fat><nFat>001234</nFat><vOrig>434.85</vOrig><vLiq>434.85</vLiq></fat>
@@ -66,12 +124,13 @@ export function makeProcNfe(opts: NfeOptions = {}): { xml: string; key: string }
     <infNFe Id="NFe${key}" versao="4.00">
       <ide>
         <cUF>35</cUF><mod>55</mod><serie>1</serie><nNF>${opts.number ?? 1234}</nNF>
-        <dhEmi>2026-10-05T10:30:00-03:00</dhEmi><tpNF>${opts.tpNF ?? 1}</tpNF><finNFe>${opts.finNFe ?? 1}</finNFe>
+        <dhEmi>2026-10-05T10:30:00-03:00</dhEmi><tpNF>${opts.tpNF ?? 1}</tpNF><idDest>${opts.idDest ?? 1}</idDest><finNFe>${opts.finNFe ?? 1}</finNFe>
       </ide>
-      <emit><CNPJ>${issuer}</CNPJ><xNome>AUTO PECAS DISTRIBUIDORA LTDA</xNome></emit>
-      <dest><CNPJ>${opts.recipient ?? '12ABC34501DE35'}</CNPJ><xNome>OFICINA TESTE LTDA</xNome></dest>
+      <emit><CNPJ>${issuer}</CNPJ><xNome>AUTO PECAS DISTRIBUIDORA LTDA</xNome><enderEmit><UF>${opts.issuerUf ?? 'SP'}</UF></enderEmit><CRT>${opts.issuerCrt ?? 1}</CRT></emit>
+      <dest><CNPJ>${opts.recipient ?? '12ABC34501DE35'}</CNPJ><xNome>OFICINA TESTE LTDA</xNome><enderDest><UF>${opts.recipientUf ?? 'SP'}</UF></enderDest></dest>
       ${(opts.items ?? [ITEM_BRAKE_PAD, ITEM_NO_GTIN]).join('\n')}
-      <total><ICMSTot><vProd>425.80</vProd><vNF>434.85</vNF></ICMSTot></total>
+      <total><ICMSTot>${opts.icmsTot ?? '<vProd>425.80</vProd><vNF>434.85</vNF>'}</ICMSTot></total>
+      <transp><modFrete>${opts.modFrete ?? 9}</modFrete></transp>
       ${opts.billing ?? ''}
     </infNFe>
   </NFe>

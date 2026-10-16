@@ -4,6 +4,7 @@ import { gzipSync } from 'node:zlib';
 import type { Prisma } from '@fixer/db';
 import { draftPayables } from '../../payables/installments.js';
 import { matchInvoice } from '../matching/reconcile.js';
+import { headerTaxData, saveItemTaxes } from '../tax/persist.js';
 import { schemaKind, type DistDocument } from '../parser/dist-response.parser.js';
 import { assessNfe, parseProcNfe, type ParsedNfe, type ParsedNfeItem } from '../parser/nfe.parser.js';
 import { CANCEL_OK_STATUS, EVENT_CANCEL, parseEvent, parseResNfe } from '../parser/summary.parser.js';
@@ -159,6 +160,7 @@ async function onFullNfe(tx: Prisma.TransactionClient, doc: DistDocument, ctx: B
     totalAmount: DECIMAL.test(nfe.totalAmount) ? nfe.totalAmount : '0',
     finality: nfe.finality,
     operationType: nfe.operationType,
+    ...headerTaxData(nfe),
     // Guarda fiscal: o XML original é guardado mesmo quando a nota é ignorada (§9).
     xmlGz: gzipSync(xml),
     xmlSha256: createHash('sha256').update(xml).digest('hex'),
@@ -175,7 +177,8 @@ async function onFullNfe(tx: Prisma.TransactionClient, doc: DistDocument, ctx: B
 
   if (usable && items) {
     await tx.purchaseInvoiceItem.deleteMany({ where: { invoiceId: invoice.id } });
-    await tx.purchaseInvoiceItem.createMany({ data: items.map((i) => ({ invoiceId: invoice.id, ...i })) });
+    await tx.purchaseInvoiceItem.createMany({ data: items.map(({ tax: _tax, ...i }) => ({ invoiceId: invoice.id, ...i })) });
+    await saveItemTaxes(tx, invoice.id, items);
     // Resolve o que já é conhecido e promove a nota a READY se nada ficou pendente (mesma transação do lote).
     c.autoResolved += (await matchInvoice(tx, invoice.id)).resolved;
     c.full++;

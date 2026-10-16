@@ -13,6 +13,7 @@ import { SefazDfeClient } from './sefaz/sefaz-dfe.client.js';
 import { ManifestService } from './sync/manifest.service.js';
 import { SyncRunner } from './sync/sync.runner.js';
 import { SyncScheduler } from './sync/sync.scheduler.js';
+import { InvoiceTaxBackfill } from './tax/backfill.service.js';
 
 /**
  * Importação automática de NF-e de compra (Distribuição DF-e). Ver docs/specs/nfe-import.md.
@@ -34,7 +35,8 @@ import { SyncScheduler } from './sync/sync.scheduler.js';
     InvoicesService,
     SyncRunner,
     SyncScheduler,
+    InvoiceTaxBackfill,
   ],
-  exports: [CredentialService, ManifestService],
+  exports: [CredentialService, ManifestService, InvoicesService],
 })
 export class FiscalInboundModule {}

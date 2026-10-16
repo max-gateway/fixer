@@ -81,7 +81,9 @@ export class FakePrisma {
     },
     deleteMany: async ({ where }: { where: { invoiceId: string } }) => {
       const before = this.items.length;
+      const gone = new Set(this.items.filter((i) => i.invoiceId === where.invoiceId).map((i) => i.id));
       this.items = this.items.filter((i) => i.invoiceId !== where.invoiceId);
+      this.itemTaxes = this.itemTaxes.filter((t) => !gone.has(t.itemId)); // cascata do banco
       return { count: before - this.items.length };
     },
     createMany: async ({ data }: { data: Row[] }) => {
@@ -91,6 +93,20 @@ export class FakePrisma {
         }
         this.items.push({ id: `it${++this.seq}`, resolution: 'UNRESOLVED', partId: null, unitFactor: '1', ...d });
       }
+      return { count: data.length };
+    },
+  };
+
+  /** Linhas tributárias por item (docs/specs/pricing.md §4.0). */
+  itemTaxes: Row[] = [];
+  purchaseInvoiceItemTax = {
+    deleteMany: async ({ where }: { where: { itemId: { in: string[] } } }) => {
+      const before = this.itemTaxes.length;
+      this.itemTaxes = this.itemTaxes.filter((t) => !where.itemId.in.includes(t.itemId));
+      return { count: before - this.itemTaxes.length };
+    },
+    createMany: async ({ data }: { data: Row[] }) => {
+      this.itemTaxes.push(...data.map((d) => ({ id: `tx${++this.seq}`, ...d })));
       return { count: data.length };
     },
   };

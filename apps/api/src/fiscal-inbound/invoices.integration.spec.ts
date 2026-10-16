@@ -1,11 +1,13 @@
 import { TEST_ORG } from '../../test/setup.js';
 import { tenantClient } from '../../test/db.js';
-import { PrismaClient } from '@fixer/db';
+import { Prisma, PrismaClient } from '@fixer/db';
 import { acquireDbLock } from '../../test/fiscal/db-lock.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { ITEM_BRAKE_PAD, makeDistResponse, makeProcNfe } from '../../test/fiscal/nfe-xml.js';
+import { ITEM_BRAKE_PAD, ITEM_ICMS00_MONOFASICO, ITEM_ICMS10_FCP, makeDistResponse, makeProcNfe } from '../../test/fiscal/nfe-xml.js';
 import { CreatePartSchema, InvoicesService, ItemActionSchema, ListQuerySchema } from './invoices.service.js';
 import { parseDistResponse } from './parser/dist-response.parser.js';
+import { PricingService } from '../pricing/pricing.service.js';
+import { backfillInvoiceTax } from './tax/backfill.js';
 import { SyncRunner } from './sync/sync.runner.js';
 
 /**
@@ -26,6 +28,10 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
   const keys = new Set<string>();
 
   const cleanup = async () => {
+    await db.partPriceHistory.deleteMany({ where: { createdById: USER } });
+    await db.pricingRule.deleteMany();
+    await db.tenantTaxProfile.deleteMany();
+    await db.taxTableReview.deleteMany();
     await db.supplierItemMap.deleteMany({ where: { supplierCnpj: SUPPLIER } });
     await db.stockMovement.deleteMany({ where: { createdById: USER } });
     await db.purchaseInvoiceItem.deleteMany({ where: { invoice: { accessKey: { in: [...keys] } } } });
@@ -355,6 +361,395 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
       await expect(service.xml(s.id)).rejects.toMatchObject({ status: 404 });
     });
   });
+  describe('captura tributária e custo pelo livro (docs/specs/pricing.md §4.0 e §5.1)', () => {
+    const FILTER_INVOICE = {
+      items: [ITEM_ICMS10_FCP],
+      icmsTot: '<vProd>200.00</vProd><vFrete>20.00</vFrete><vNF>252.00</vNF>',
+    };
+    const linked = async (sku: string, code: string) => {
+      const p = await part(sku);
+      await db.supplierItemMap.create({ data: { supplierCnpj: SUPPLIER, supplierCode: code, partId: p.id } });
+      return p;
+    };
+
+    it('grava o cabeçalho e as linhas tributárias do item como vieram no XML', async () => {
+      await linked('FILT', 'FILT-AR');
+      const inv = await receive({ ...FILTER_INVOICE, issuerCrt: 3, issuerUf: 'MG', idDest: 2, modFrete: 1 });
+      expect(await state(inv.id)).toMatchObject({ issuerCrt: 3, issuerUf: 'MG', recipientUf: 'SP', destIndicator: 2, freightMode: 1 });
+      expect((await state(inv.id)).totals).toEqual({ vProd: '200.00', vFrete: '20.00' });
+      const [item] = await items(inv.id);
+      const tax = await db.purchaseInvoiceItemTax.findUniqueOrThrow({ where: { itemId: item!.id } });
+      expect(tax).toMatchObject({ icmsKind: 'CST', icmsCode: '10', pisCst: '01', indTot: 1 });
+      expect(tax.fcpSt?.toString()).toBe('5.6');
+      expect(tax.icmsSt?.toString()).toBe('26.4');
+      expect(tax.ibsCbs).toEqual({ CST: '000', cClassTrib: '000001' });
+    });
+
+    it('a tela e o lançamento usam o mesmo custo: FCP-ST e frete só no total entram', async () => {
+      const filter = await linked('FILT', 'FILT-AR');
+      const inv = await receive(FILTER_INVOICE);
+      expect((await state(inv.id)).exportStatus).toBe('READY');
+
+      // 200 + ST 26,40 + FCP-ST 5,60 + frete rateado 20 = 252 ; ÷ 10 = 25,2 (o custo antigo dava 22,64)
+      const view = await service.get(inv.id);
+      expect(view.items[0]!.cost).toMatchObject({ landed: '25.2', total: '252' });
+      expect(view.items[0]!.cost!.components.find((c) => c.code === 'FRETE')).toMatchObject({ allocated: true, source: 'total/vFrete' });
+      expect(view.costAlerts.map((a) => a.code)).toContain('TOTAIS_DIVERGENTES');
+      expect(view.costRegime).toBe('SIMPLES');
+
+      await service.confirm(inv.id, USER);
+      const after = await db.part.findUniqueOrThrow({ where: { id: filter.id } });
+      expect(after.costPrice.toString()).toBe('25.2');
+      expect(after.stockQty.toString()).toBe('10');
+    });
+
+    it('Presumido: o crédito de ICMS abate o custo gravado e o aviso de antecipação aparece', async () => {
+      await db.tenantFiscalSettings.update({ where: { orgId: TEST_ORG }, data: { taxRegime: 'PRESUMIDO' } });
+      const battery = await linked('BAT', 'BAT-60');
+      const inv = await receive({ items: [ITEM_ICMS00_MONOFASICO], idDest: 2, issuerCrt: 3, issuerUf: 'MG' });
+      const view = await service.get(inv.id);
+      expect(view.costRegime).toBe('PRESUMIDO');
+      expect(view.items[0]!.cost).toMatchObject({ landed: '264' }); // (900 − 108 de crédito) ÷ 3
+      expect(view.costAlerts.find((a) => a.code === 'ANTECIPACAO_ICMS_POSSIVEL')?.itemNumbers).toEqual([1]);
+      await service.confirm(inv.id, USER);
+      expect((await db.part.findUniqueOrThrow({ where: { id: battery.id } })).costPrice.toString()).toBe('264');
+    });
+
+    it('nota anterior à captura (sem linhas tributárias) cai no cálculo antigo e o backfill a completa sem mexer no custo lançado', async () => {
+      const filter = await linked('FILT', 'FILT-AR');
+      const inv = await receive(FILTER_INVOICE);
+      await service.confirm(inv.id, USER);
+      const posted = (await db.part.findUniqueOrThrow({ where: { id: filter.id } })).costPrice.toString();
+
+      // Simula uma nota importada antes da captura.
+      await db.purchaseInvoiceItemTax.deleteMany({ where: { item: { invoiceId: inv.id } } });
+      await db.purchaseInvoice.update({ where: { id: inv.id }, data: { totals: Prisma.DbNull, issuerCrt: null, destIndicator: null } });
+      const legacy = await service.get(inv.id);
+      expect(legacy.items[0]!.cost).toMatchObject({ landed: '22.64' }); // 200 + 26,40 (sem FCP-ST nem rateio) ÷ 10
+
+      const first = await backfillInvoiceTax(db as never);
+      expect(first).toMatchObject({ scanned: 1, updated: 1, failedIds: [] });
+      expect(await db.purchaseInvoiceItemTax.count({ where: { item: { invoiceId: inv.id } } })).toBe(1);
+      expect(await state(inv.id)).toMatchObject({ issuerCrt: 1, destIndicator: 1 });
+
+      const second = await backfillInvoiceTax(db as never);
+      expect(second.scanned).toBe(0); // idempotente
+      expect((await db.part.findUniqueOrThrow({ where: { id: filter.id } })).costPrice.toString()).toBe(posted); // lançada: custo intacto
+    });
+
+    it('backfill não toca nota sem XML guardado nem repete nota que não casa', async () => {
+      await linked('FILT', 'FILT-AR');
+      const inv = await receive(FILTER_INVOICE);
+      await db.purchaseInvoiceItemTax.deleteMany({ where: { item: { invoiceId: inv.id } } });
+      const r = await backfillInvoiceTax(db as never, { skip: new Set([inv.id]) });
+      expect(r.scanned).toBe(0);
+    });
+  });
+  describe('precificação a partir da nota (docs/specs/pricing.md §5 e §6)', () => {
+    let pricing: PricingService;
+    // Alíquota efetiva e repartição hipotéticas, só de teste: o sistema não traz nenhuma por conta própria.
+    const profile = { simplesEffectiveRatePct: 10, icmsSharePct: 30, pisSharePct: 5, cofinsSharePct: 20, requireTaxConfirmation: false };
+    const rule = { method: 'MARGIN' as const, value: 40, taxPctOverride: null, overheadPct: 0, rounding: 'CENTS_90' as const, minMarginPct: 20, maxJumpPct: 25 };
+
+    beforeEach(() => {
+      pricing = new PricingService(db as never);
+    });
+
+    /** Filtro de ar com ST cobrada: custo (200 + 26,40 + 5,60) ÷ 10 = 23,20. */
+    async function setup(opts: { sell?: number; stock?: number; withRule?: boolean; withProfile?: boolean } = {}) {
+      if (opts.withRule !== false) await pricing.saveRule(rule);
+      if (opts.withProfile !== false) await pricing.saveTaxProfile(profile);
+      const p = await part('FILT', { sellPrice: opts.sell ?? 40, costPrice: 10, stockQty: opts.stock ?? 0 });
+      await db.supplierItemMap.create({ data: { supplierCnpj: SUPPLIER, supplierCode: 'FILT-AR', partId: p.id } });
+      const inv = await receive({ items: [ITEM_ICMS10_FCP] });
+      return { p, inv };
+    }
+    const row = async (id: string) => (await pricing.preview(id)).rows[0]!;
+
+    it('sugere pela regra: custo 23,20, ST cobrada tira o ICMS (imposto 7%) e arredonda para cima em ,90', async () => {
+      const { inv } = await setup();
+      const r = await row(inv.id);
+      // 23,20 ÷ (1 − (40 + 7)%) = 43,77 → 43,90
+      expect(r).toMatchObject({ cost: '23.2', suggested: '43.9', proposed: '43.9', currentPrice: '40', locked: false });
+      expect(r.saleTax).toMatchObject({ pct: '7', confidence: 'ESTIMADO' });
+      expect(r.saleTax.components.find((c) => c.code === 'ICMS')?.reason).toMatch(/substituição tributária/);
+      expect(r.flags).toEqual(['COST_SPIKE']); // o custo da peça era 10: o salto aparece como aviso, sem bloquear
+      expect(r.blocking).toEqual([]);
+      expect(Number(r.marginPct)).toBeGreaterThan(40);
+    });
+
+    it('sem regra ou sem alíquota do contador não inventa preço', async () => {
+      const a = await setup({ withRule: false });
+      expect(await row(a.inv.id)).toMatchObject({ suggested: null, proposed: null, flags: ['NO_RULE'] });
+      await cleanup();
+      await db.user.create({ data: { id: USER, keycloakId: USER, name: 'Teste', email: 'itest-invoices@x.test' } });
+      await db.tenantFiscalSettings.upsert({ where: { orgId: TEST_ORG }, create: { orgId: TEST_ORG, cnpj: TENANT, ufCode: 35 }, update: {} });
+      await db.fiscalCredential.create({ data: { orgId: TEST_ORG, enabled: true, pfxCiphertext: Buffer.from('x'), pfxPassCiphertext: Buffer.from('y'), keyId: 'k1', subject: 's', certCnpj: SUPPLIER, notBefore: new Date(0), notAfter: new Date(Date.now() + 365 * 86_400_000), uploadedById: USER } });
+      await db.fiscalSyncState.create({ data: { orgId: TEST_ORG, nextPollAt: new Date(0) } });
+      const b = await setup({ withProfile: false });
+      const r = await row(b.inv.id);
+      expect(r).toMatchObject({ suggested: null, proposed: null, flags: ['TAX_UNAVAILABLE'] });
+      expect(r.saleTax.unavailable).toBe('SEM_ALIQUOTA');
+    });
+
+    it('lançar COM preço grava custo, custo médio, preço, histórico e o snapshot do cálculo', async () => {
+      const { p, inv } = await setup({ stock: 5 });
+      await service.confirm(inv.id, USER, { applyPricing: true });
+      const after = await db.part.findUniqueOrThrow({ where: { id: p.id } });
+      expect(after.sellPrice.toString()).toBe('43.9');
+      expect(after.costPrice.toString()).toBe('23.2');
+      expect(after.stockQty.toString()).toBe('15');
+      expect(after.avgCost?.toString()).toBe('18.8'); // (5 × 10 + 10 × 23,20) ÷ 15, o saldo antes pesa com o custo anterior
+
+      const hist = await db.partPriceHistory.findMany({ where: { partId: p.id } });
+      expect(hist).toHaveLength(1);
+      expect(hist[0]).toMatchObject({ source: 'INVOICE', createdById: USER, taxRulesVersion: expect.any(String) });
+      expect(hist[0]!.sellBefore?.toString()).toBe('40');
+      expect(hist[0]!.sellAfter.toString()).toBe('43.9');
+      expect(hist[0]!.costBefore?.toString()).toBe('10');
+
+      const [item] = await items(inv.id);
+      expect(item!.appliedSellPrice?.toString()).toBe('43.9');
+      expect(item!.suggestedSellPrice?.toString()).toBe('43.9');
+      expect(item!.saleTaxSnapshot).toMatchObject({ pct: '7' });
+      expect((item!.costSnapshot as { landed: string }).landed).toBe('23.2');
+    });
+
+    it('lançar SEM pedir preço nunca muda o preço de venda (comportamento de sempre)', async () => {
+      const { p, inv } = await setup();
+      await service.confirm(inv.id, USER);
+      const after = await db.part.findUniqueOrThrow({ where: { id: p.id } });
+      expect(after.sellPrice.toString()).toBe('40');
+      expect(after.costPrice.toString()).toBe('23.2');
+      expect(await db.partPriceHistory.count({ where: { partId: p.id } })).toBe(0);
+    });
+
+    it('preço escolhido vale no lugar da sugestão; limpar o rascunho volta à sugestão', async () => {
+      const { p, inv } = await setup();
+      const set = await pricing.saveDraft(inv.id, 2, { sellPrice: 45.5 });
+      expect(set.rows[0]).toMatchObject({ draft: '45.5', proposed: '45.5', suggested: '43.9' });
+      await service.confirm(inv.id, USER, { applyPricing: true });
+      expect((await db.part.findUniqueOrThrow({ where: { id: p.id } })).sellPrice.toString()).toBe('45.5');
+
+      const other = await receive({ items: [ITEM_ICMS10_FCP], number: 99 });
+      await pricing.saveDraft(other.id, 2, { sellPrice: 50 });
+      const cleared = await pricing.saveDraft(other.id, 2, { sellPrice: null });
+      expect(cleared.rows[0]).toMatchObject({ draft: null, proposed: '43.9' });
+    });
+
+    it('preço abaixo do custo bloqueia o lançamento inteiro (422) e nada é gravado, nem com ciência', async () => {
+      const { p, inv } = await setup({ stock: 3 });
+      await pricing.saveDraft(inv.id, 2, { sellPrice: 20, ack: true });
+      expect((await row(inv.id)).blocking).toContain('BELOW_COST');
+      await expect(service.confirm(inv.id, USER, { applyPricing: true })).rejects.toMatchObject({ status: 422 });
+      const after = await db.part.findUniqueOrThrow({ where: { id: p.id } });
+      expect(after.stockQty.toString()).toBe('3'); // a entrada também foi desfeita
+      expect(after.sellPrice.toString()).toBe('40');
+      expect((await state(inv.id)).exportStatus).toBe('READY');
+      expect(await db.stockMovement.count({ where: { partId: p.id } })).toBe(0);
+    });
+
+    it('margem abaixo do mínimo e salto grande pedem ciência; com "estou ciente" lança', async () => {
+      const { p, inv } = await setup({ sell: 100 });
+      // sugerido 43,90 contra preço atual 100: queda de 56% e margem líquida ainda boa → só BIG_JUMP e PRICE_DOWN
+      const r = await row(inv.id);
+      expect(r.flags).toEqual(expect.arrayContaining(['BIG_JUMP', 'PRICE_DOWN']));
+      expect(r.blocking).toContain('BIG_JUMP');
+      await expect(service.confirm(inv.id, USER, { applyPricing: true })).rejects.toMatchObject({ status: 422 });
+
+      await pricing.saveDraft(inv.id, 2, { sellPrice: 43.9, ack: true });
+      expect((await row(inv.id)).blocking).toEqual([]);
+      await service.confirm(inv.id, USER, { applyPricing: true });
+      expect((await db.part.findUniqueOrThrow({ where: { id: p.id } })).sellPrice.toString()).toBe('43.9');
+    });
+
+    it('mudar o preço depois do "estou ciente" derruba a ciência', async () => {
+      const { inv } = await setup({ sell: 100 });
+      await pricing.saveDraft(inv.id, 2, { sellPrice: 43.9, ack: true });
+      expect((await row(inv.id)).ack).toBe(true);
+      const again = await pricing.saveDraft(inv.id, 2, { sellPrice: 44.9 });
+      expect(again.rows[0]!.ack).toBe(false);
+    });
+
+    it('peça travada em MANUAL: sem sugestão, preço intocado mesmo lançando com preço', async () => {
+      const { p, inv } = await setup();
+      await pricing.setPricingMode(p.id, 'MANUAL');
+      const r = await row(inv.id);
+      expect(r).toMatchObject({ locked: true, proposed: null });
+      expect(r.flags).toContain('LOCKED');
+      await service.confirm(inv.id, USER, { applyPricing: true });
+      expect((await db.part.findUniqueOrThrow({ where: { id: p.id } })).sellPrice.toString()).toBe('40');
+      expect(await db.partPriceHistory.count({ where: { partId: p.id } })).toBe(0);
+    });
+
+    it('enquadramento confirmado na peça vale mais que o XML e libera o imposto como CONFIRMADO', async () => {
+      const { p, inv } = await setup();
+      await pricing.reviewTaxProfile({ reviewedBy: 'Contador Teste' });
+      await pricing.reviewTaxTable('simples-comercio', { reviewedBy: 'Contador Teste' });
+      expect((await row(inv.id)).saleTax.confidence).toBe('ESTIMADO'); // perfil e tabela revisados, peça ainda não
+      // o contador diz que esta peça NÃO tem ST: o imposto volta para a alíquota cheia
+      await pricing.setTaxFlags(p.id, { icmsStStatus: 'NOT_ST', pisCofinsMonofasico: false });
+      const r = await row(inv.id);
+      expect(r.saleTax).toMatchObject({ pct: '10', confidence: 'CONFIRMADO' });
+      expect(r.suggested).toBe('46.9'); // 23,20 ÷ 0,5 = 46,40 → 46,90
+    });
+
+    it('mudar um percentual do perfil derruba a validação do contador', async () => {
+      await pricing.saveTaxProfile(profile);
+      await pricing.reviewTaxProfile({ reviewedBy: 'Contador Teste' });
+      expect((await pricing.getTaxProfile()).profile?.reviewedBy).toBe('Contador Teste');
+      await pricing.saveTaxProfile({ ...profile, requireTaxConfirmation: true });
+      expect((await pricing.getTaxProfile()).profile?.reviewedBy).toBe('Contador Teste'); // só a opção mudou
+      await pricing.saveTaxProfile({ ...profile, simplesEffectiveRatePct: 12 });
+      expect((await pricing.getTaxProfile()).profile).toMatchObject({ reviewedBy: null, reviewedAt: null });
+    });
+
+    it('o imposto só fica CONFIRMADO com o perfil E a tabela validados; mudou a versão da tabela, o aceite cai', async () => {
+      const { p, inv } = await setup();
+      await pricing.setTaxFlags(p.id, { icmsStStatus: 'NOT_ST', pisCofinsMonofasico: false });
+      await pricing.reviewTaxProfile({ reviewedBy: 'Contador Teste' });
+      expect((await row(inv.id)).saleTax.confidence).toBe('ESTIMADO'); // perfil validado, tabela do Simples ainda não
+      await pricing.reviewTaxTable('simples-comercio', { reviewedBy: 'Contador Teste' });
+      expect((await row(inv.id)).saleTax.confidence).toBe('CONFIRMADO');
+      const listed = await pricing.taxTables();
+      expect(listed.tables.find((t) => t.id === 'simples-comercio')?.review).toMatchObject({ reviewedBy: 'Contador Teste', current: true });
+      expect(listed.tables.find((t) => t.id === 'federal-lucro')?.review).toBeNull();
+      // simula tabela nova: o aceite foi dado para outra versão
+      await db.taxTableReview.updateMany({ data: { version: 'versao-antiga' } });
+      expect((await pricing.taxTables()).tables.find((t) => t.id === 'simples-comercio')?.review).toMatchObject({ current: false });
+      expect((await row(inv.id)).saleTax.confidence).toBe('ESTIMADO');
+      // validar de novo reaproveita a linha em vez de duplicar
+      await pricing.reviewTaxTable('simples-comercio', { reviewedBy: 'Outra Contadora' });
+      expect(await db.taxTableReview.count()).toBe(1);
+      expect((await row(inv.id)).saleTax.confidence).toBe('CONFIRMADO');
+    });
+
+    it('peça monofásica também exige a tabela de monofásico validada', async () => {
+      const { p, inv } = await setup();
+      await pricing.setTaxFlags(p.id, { icmsStStatus: 'NOT_ST', pisCofinsMonofasico: true });
+      await pricing.reviewTaxProfile({ reviewedBy: 'Contador Teste' });
+      await pricing.reviewTaxTable('simples-comercio', { reviewedBy: 'Contador Teste' });
+      expect((await row(inv.id)).saleTax.confidence).toBe('ESTIMADO');
+      await pricing.reviewTaxTable('monofasico-autopecas', { reviewedBy: 'Contador Teste' });
+      expect((await row(inv.id)).saleTax.confidence).toBe('CONFIRMADO');
+    });
+
+    it('tabela de regra desconhecida é recusada', async () => {
+      await expect(pricing.reviewTaxTable('nao-existe', { reviewedBy: 'Contador Teste' })).rejects.toMatchObject({ status: 404 });
+    });
+
+    it('as tabelas de regra em uso são listadas com fonte e vigência', async () => {
+      const t = await pricing.taxTables();
+      expect(t.tables.length).toBeGreaterThanOrEqual(10);
+      for (const x of t.tables) expect(x.sources.length).toBeGreaterThan(0);
+      expect(t.rulesVersion).toContain('simples-comercio@');
+    });
+
+    it('percentuais que somam 100% ou mais são recusados ao salvar a regra', async () => {
+      await expect(pricing.saveRule({ ...rule, value: 90, overheadPct: 10 })).rejects.toMatchObject({ status: 400 });
+      await expect(pricing.saveRule({ ...rule, method: 'MARKUP', taxPctOverride: 70, overheadPct: 30 })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it('nota já lançada não aceita mais rascunho de preço nem prévia', async () => {
+      const { inv } = await setup();
+      await service.confirm(inv.id, USER);
+      await expect(pricing.saveDraft(inv.id, 2, { sellPrice: 50 })).rejects.toMatchObject({ status: 409 });
+      await expect(pricing.preview(inv.id)).rejects.toMatchObject({ status: 409 });
+    });
+
+    it('item sem peça vinculada não recebe preço', async () => {
+      await pricing.saveRule(rule);
+      const inv = await receive({ items: [ITEM_ICMS10_FCP] });
+      await expect(pricing.saveDraft(inv.id, 2, { sellPrice: 50 })).rejects.toMatchObject({ status: 409 });
+      expect((await pricing.preview(inv.id)).rows).toEqual([]);
+    });
+
+    describe('regras por fornecedor, NCM e peça, lote e histórico (fase 2)', () => {
+      const m = (value: number) => ({ ...rule, value });
+
+      it('a regra mais específica vence: fornecedor > padrão; NCM > fornecedor; peça > NCM', async () => {
+        const { p, inv } = await setup();
+        expect((await row(inv.id)).suggested).toBe('43.9'); // padrão: margem 40
+
+        await pricing.saveScopedRule({ ...m(20), scope: 'SUPPLIER', scopeKey: '11.222.333/0001-81' }); // pontuação é normalizada
+        // 23,20 ÷ (1 − (20 + 7)%) = 31,78 → 31,90
+        expect(await row(inv.id)).toMatchObject({ suggested: '31.9', ruleScope: 'SUPPLIER' });
+
+        await pricing.saveScopedRule({ ...m(10), scope: 'NCM', scopeKey: '8421' }); // NCM do item: 84213100
+        // 23,20 ÷ (1 − (10 + 7)%) = 27,95 → 28,90
+        expect(await row(inv.id)).toMatchObject({ suggested: '28.9', ruleScope: 'NCM' });
+
+        await pricing.saveScopedRule({ ...m(30), scope: 'PART', scopeKey: p.sku });
+        // 23,20 ÷ (1 − (30 + 7)%) = 36,83 → 36,90
+        expect(await row(inv.id)).toMatchObject({ suggested: '36.9', ruleScope: 'PART' });
+
+        const list = (await pricing.listRules()).rules;
+        expect(list.map((r) => r.scope).sort()).toEqual(['DEFAULT', 'NCM', 'PART', 'SUPPLIER']);
+        expect(list.find((r) => r.scope === 'PART')?.target).toContain('ITEST-FILT');
+
+        // apagar a exceção devolve a anterior
+        await pricing.deleteRule(list.find((r) => r.scope === 'PART')!.id);
+        expect(await row(inv.id)).toMatchObject({ suggested: '28.9', ruleScope: 'NCM' });
+      });
+
+      it('regra do mesmo escopo e chave é atualizada, não duplicada', async () => {
+        await pricing.saveRule(rule);
+        await pricing.saveScopedRule({ ...m(20), scope: 'NCM', scopeKey: '8421' });
+        await pricing.saveScopedRule({ ...m(25), scope: 'NCM', scopeKey: '8421' });
+        const ncm = (await pricing.listRules()).rules.filter((r) => r.scope === 'NCM');
+        expect(ncm).toHaveLength(1);
+        expect(ncm[0]!.value).toBe('25');
+      });
+
+      it('a padrão não se apaga; chave inválida e peça inexistente são recusadas', async () => {
+        await pricing.saveRule(rule);
+        const def = (await pricing.listRules()).rules.find((r) => r.scope === 'DEFAULT')!;
+        await expect(pricing.deleteRule(def.id)).rejects.toMatchObject({ status: 409 });
+        await expect(pricing.deleteRule('nao-existe')).rejects.toMatchObject({ status: 404 });
+        await expect(pricing.saveScopedRule({ ...m(20), scope: 'SUPPLIER', scopeKey: '123' })).rejects.toMatchObject({ status: 400 });
+        await expect(pricing.saveScopedRule({ ...m(20), scope: 'NCM', scopeKey: 'abc' })).rejects.toMatchObject({ status: 400 });
+        await expect(pricing.saveScopedRule({ ...m(20), scope: 'PART', scopeKey: 'nao-existe' })).rejects.toMatchObject({ status: 404 });
+        await expect(pricing.saveScopedRule({ ...m(95), taxPctOverride: 10, scope: 'NCM', scopeKey: '8421' })).rejects.toMatchObject({ status: 400 });
+      });
+
+      it('exceção com imposto fixo vale no lugar do perfil do contador', async () => {
+        const { inv } = await setup();
+        await pricing.saveScopedRule({ ...m(40), taxPctOverride: 4, scope: 'SUPPLIER', scopeKey: SUPPLIER });
+        const r = await row(inv.id);
+        expect(r.saleTax).toMatchObject({ pct: '4', confidence: 'DEFINIDO' });
+        // 23,20 ÷ (1 − 44%) = 41,43 → 41,90
+        expect(r.suggested).toBe('41.9');
+      });
+
+      it('em lote: aceitar todas as sugestões grava como escolha; limpar volta às sugestões; travadas ficam de fora', async () => {
+        const { p, inv } = await setup();
+        const accepted = await pricing.bulk(inv.id, { action: 'ACCEPT_SUGGESTIONS' });
+        expect(accepted.rows[0]).toMatchObject({ draft: '43.9', proposed: '43.9' });
+        const cleared = await pricing.bulk(inv.id, { action: 'CLEAR_DRAFTS' });
+        expect(cleared.rows[0]).toMatchObject({ draft: null, proposed: '43.9' });
+
+        await pricing.setPricingMode(p.id, 'MANUAL');
+        const locked = await pricing.bulk(inv.id, { action: 'ACCEPT_SUGGESTIONS' });
+        expect(locked.rows[0]).toMatchObject({ draft: null, proposed: null, locked: true });
+      });
+
+      it('em lote numa nota já lançada é recusado', async () => {
+        const { inv } = await setup();
+        await service.confirm(inv.id, USER);
+        await expect(pricing.bulk(inv.id, { action: 'ACCEPT_SUGGESTIONS' })).rejects.toMatchObject({ status: 409 });
+      });
+
+      it('histórico da peça mostra o que o lançamento com preço gravou, mais recente primeiro', async () => {
+        const { p, inv } = await setup();
+        expect((await pricing.history(p.id)).history).toEqual([]);
+        await service.confirm(inv.id, USER, { applyPricing: true });
+        const [h] = (await pricing.history(p.id)).history;
+        expect(h).toMatchObject({ source: 'INVOICE', sellBefore: '40', sellAfter: '43.9', costBefore: '10', costAfter: '23.2', saleTaxPct: '7' });
+        expect(h!.taxRulesVersion).toEqual(expect.any(String));
+      });
+    });
+  });
+
 });
 
 describe('schemas de entrada', () => {
@@ -374,4 +769,5 @@ describe('schemas de entrada', () => {
     expect(() => ListQuerySchema.parse({ take: 1000 })).toThrow();
     expect(() => ListQuerySchema.parse({ view: 'x' })).toThrow();
   });
+
 });

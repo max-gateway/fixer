@@ -1,3 +1,4 @@
+import { gunzipSync } from 'node:zlib';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@fixer/db';
 import { z } from 'zod';
@@ -6,7 +7,9 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { parseBoleto } from './boleto.js';
 import { csvDate, csvMoney, toCsv } from './csv.js';
 import { addDaysIso, addMonths, civil, isoDay, monthStartIso, todayIso } from './dates.js';
-import { buildForecast } from './forecast.js';
+import { parseProcNfe } from '../fiscal-inbound/parser/nfe.parser.js';
+import { buildForecast, toCents } from './forecast.js';
+import { draftPayables } from './installments.js';
 
 /** Abas da lista. `overdue` e `week` são derivadas da data; só `OPEN` entra nelas. */
 export const VIEWS = ['open', 'overdue', 'week', 'paid', 'canceled', 'all'] as const;
@@ -113,6 +116,13 @@ export const BulkSchema = z.object({
   action: z.enum(['pay', 'unpay', 'cancel']),
   paidAt: isoDate.optional(),
   method: z.enum(PAYMENT_METHODS).optional(),
+});
+
+export const ImportSchema = z.object({
+  /** Parcelas com vencimento ANTES desta data entram como já pagas (histórico); as demais, em aberto. Vazio: tudo em aberto. */
+  settleBefore: isoDate.optional(),
+  /** Só conta o que seria importado, sem gravar. */
+  dryRun: z.boolean().default(false),
 });
 
 export const DuplicatesQuerySchema = z.object({
@@ -467,6 +477,84 @@ export class PayablesService {
       }
     });
     return { done, skipped: ids.filter((i) => !done.includes(i)) };
+  }
+
+  /**
+   * Gera as contas a pagar das notas de compra JÁ recebidas, lendo o XML original guardado de cada uma. Idempotente: parcela
+   * que já existe (mesma nota e número) é pulada, então pode rodar de novo depois de importar mais notas. `dryRun` só conta.
+   */
+  async importFromInvoices(input: z.infer<typeof ImportSchema>, actor: Actor) {
+    const settleBefore = input.settleBefore ?? null;
+    const sum = { open: 0n, settled: 0n };
+    const stats = { dryRun: input.dryRun, invoices: 0, withoutBilling: 0, unreadable: 0, installments: 0, alreadyExisting: 0, open: { count: 0, amount: '0.00' }, settled: { count: 0, amount: '0.00' } };
+    const fmt = (c: bigint) => `${c / 100n}.${String(c % 100n).padStart(2, '0')}`;
+
+    let cursor: string | undefined;
+    for (;;) {
+      const batch = await this.prisma.purchaseInvoice.findMany({
+        where: { status: 'FULL', xmlGz: { not: null } },
+        orderBy: { id: 'asc' },
+        take: 100,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: { id: true, xmlGz: true, issuerCnpj: true, issuerName: true },
+      });
+      if (batch.length === 0) break;
+      cursor = batch[batch.length - 1]!.id;
+
+      const existing = await this.prisma.payable.findMany({ where: { invoiceId: { in: batch.map((b) => b.id) } }, select: { invoiceId: true, installment: true } });
+      const have = new Set(existing.map((e) => `${e.invoiceId}:${e.installment}`));
+
+      const open: Prisma.PayableCreateManyInput[] = [];
+      const settled: Prisma.PayableCreateInput[] = [];
+      for (const inv of batch) {
+        let drafts;
+        try {
+          drafts = draftPayables(parseProcNfe(gunzipSync(Buffer.from(inv.xmlGz!)).toString('utf8')));
+        } catch {
+          stats.unreadable++;
+          continue;
+        }
+        if (drafts.length === 0) {
+          stats.withoutBilling++;
+          continue;
+        }
+        stats.invoices++;
+        for (const d of drafts) {
+          stats.installments++;
+          if (have.has(`${inv.id}:${d.installment}`)) {
+            stats.alreadyExisting++;
+            continue;
+          }
+          const base = { ...d, supplierCnpj: inv.issuerCnpj, supplierName: inv.issuerName, category: NFE_CATEGORY };
+          const cents = toCents(d.amount);
+          if (settleBefore && isoDay(d.dueDate) < settleBefore) {
+            stats.settled.count++;
+            sum.settled += cents;
+            settled.push({
+              ...base,
+              invoice: { connect: { id: inv.id } },
+              status: 'PAID',
+              paidAt: d.dueDate,
+              paidAmount: d.amount,
+              events: { create: { type: 'PAID', actorId: actor.id, actorName: actor.name, data: { imported: true, paidAt: isoDay(d.dueDate), paidAmount: d.amount } } },
+            });
+          } else {
+            stats.open.count++;
+            sum.open += cents;
+            open.push({ ...base, invoiceId: inv.id });
+          }
+        }
+      }
+      if (!input.dryRun && (open.length || settled.length)) {
+        await this.prisma.$transaction(async (tx) => {
+          if (open.length) await tx.payable.createMany({ data: open, skipDuplicates: true });
+          for (const data of settled) await tx.payable.create({ data });
+        });
+      }
+    }
+    stats.open.amount = fmt(sum.open);
+    stats.settled.amount = fmt(sum.settled);
+    return stats;
   }
 
   private record(tx: Prisma.TransactionClient, payableId: string, type: 'CREATED' | 'EDITED' | 'PAID' | 'UNPAID' | 'CANCELED', actor: Actor, data?: Prisma.InputJsonValue) {

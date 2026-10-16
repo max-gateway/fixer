@@ -213,6 +213,14 @@ model Part {
 
   ean String? // GTIN; o matcher da importação de NF-e casa o item da nota por aqui
 
+  // Precificação (docs/specs/pricing.md §4.2). `costPrice` é o último custo; `avgCost` é o médio ponderado (só relatório).
+  avgCost     Decimal?
+  pricingMode PricingMode @default(AUTO) // MANUAL: nenhuma nota sugere nem altera o preço
+  // Enquadramento tributário da venda (§5.2): sugerido pelo XML, confirmado pelo contador.
+  icmsStStatus        IcmsStStatus @default(UNKNOWN)
+  pisCofinsMonofasico Boolean?
+  taxFlagsSource      TaxFlagsSource?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -220,6 +228,7 @@ model Part {
   stockMovements   StockMovement[]
   supplierItemMaps SupplierItemMap[]
   invoiceItems     PurchaseInvoiceItem[]
+  priceHistory     PartPriceHistory[]
 
   @@unique([orgId, sku])
   @@index([ean])
@@ -841,6 +850,15 @@ model PurchaseInvoice {
   postedById   String?
   postedBy     User?               @relation("InvoicePostedBy", fields: [postedById], references: [id], onDelete: Restrict)
 
+  // Captura tributária do XML (docs/specs/pricing.md §4.0). Tudo nullable: notas antigas são preenchidas pelo backfill.
+  issuerCrt     Int? // emit/CRT: 1 Simples, 2 Simples (excesso de sublimite), 3 regime normal, 4 MEI
+  issuerUf      String? // emit/enderEmit/UF
+  recipientUf   String? // dest/enderDest/UF
+  destIndicator Int? // ide/idDest: 1 interna, 2 interestadual, 3 exterior
+  freightMode   Int? // transp/modFrete: 0 emitente (CIF), 1 destinatário (FOB), 2 terceiros, 3/4 próprio, 9 sem frete
+  totals        Json? // ICMSTot como string: vProd, vDesc, vFrete, vSeg, vOutro, vICMS, vST, vFCPST, vIPI, vPIS, vCOFINS
+  extraFreight  Decimal? // "frete por fora" informado à mão (CT-e à parte), rateado por vProd no custo
+
   receivedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -892,9 +910,173 @@ model PurchaseInvoiceItem {
   unitFactor Decimal        @default(1) // unidades de estoque por unidade da nota (caixa de 4 = 4)
 
   stockMovements StockMovement[]
+  tax            PurchaseInvoiceItemTax?
+
+  // Rascunho de precificação (docs/specs/pricing.md §4.2): sobrevive a recarregar a página.
+  suggestedSellPrice Decimal? // o que a regra sugeriu no último cálculo
+  draftSellPrice     Decimal? // o que a pessoa escolheu (null = aceitar a sugestão)
+  pricingRuleId      String?
+  priceAck           Boolean  @default(false) // "estou ciente" de alerta que bloqueia o lançamento
+  appliedSellPrice   Decimal? // preenchido no lançamento: o que foi de fato aplicado
+  costSnapshot       Json? // livro de custo do último cálculo
+  saleTaxSnapshot    Json? // perfil de imposto sobre a venda do último cálculo
 
   @@unique([invoiceId, itemNumber])
   @@index([supplierCode])
+  @@index([orgId])
+}
+
+enum PricingMethod {
+  MARGIN // margem sobre a venda
+  MARKUP // markup sobre o custo
+}
+
+enum PricingScope {
+  DEFAULT
+  SUPPLIER
+  NCM
+  PART
+}
+
+enum RoundingMode {
+  NONE
+  CENTS_90
+  CENTS_00
+  MULTIPLE_5
+  MULTIPLE_10
+}
+
+enum PricingMode {
+  AUTO
+  MANUAL
+}
+
+enum IcmsStStatus {
+  UNKNOWN
+  NOT_ST
+  ST_CHARGED // ST cobrada na compra
+  ST_PAID_BEFORE // ST já retida antes (CST 60 / CSOSN 500)
+}
+
+enum TaxFlagsSource {
+  XML
+  TABELA
+  MANUAL
+}
+
+enum PriceChangeSource {
+  INVOICE
+  MANUAL
+  AUTO
+  REVERSAL
+}
+
+// Regra de preço da oficina (docs/specs/pricing.md §4.1). Na fase 1 só existe a regra DEFAULT.
+model PricingRule {
+  id             String        @id @default(cuid())
+  orgId          String        @default(dbgenerated("app_org()")) @db.Uuid
+  scope          PricingScope
+  scopeKey       String        @default("") // CNPJ do fornecedor, prefixo de NCM ou partId; "" para DEFAULT
+  method         PricingMethod @default(MARGIN)
+  value          Decimal // % (35 = 35%)
+  taxPctOverride Decimal? // % de imposto s/ venda definido pela oficina; null = calculado do perfil tributário
+  overheadPct    Decimal       @default(0) // % do preço de despesa variável (taxa de cartão...)
+  rounding       RoundingMode  @default(CENTS_90)
+  minMarginPct   Decimal       @default(0) // abaixo disso o confirmar exige ciência
+  maxJumpPct     Decimal       @default(25) // variação máxima de preço sem confirmação explícita
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([orgId, scope, scopeKey])
+  @@index([orgId])
+}
+
+// Perfil tributário da oficina para precificar (docs/specs/pricing.md §4.1.1). Singleton por organização.
+// Os percentuais são informados pelo contador: o sistema não traz alíquota nenhuma por padrão.
+model TenantTaxProfile {
+  orgId                   String    @id @default(dbgenerated("app_org()")) @db.Uuid
+  rbt12                   Decimal? // receita bruta dos últimos 12 meses; com ela a alíquota efetiva vem do Anexo I (packages/tax-rules)
+  rbt12AsOf               DateTime? // data de referência da RBT12 informada
+  icmsSalePct             Decimal? // alíquota de ICMS que a oficina cobra na venda (Lucro Presumido): o ICMS é estadual e não vem de tabela federal
+  simplesEffectiveRatePct Decimal? // override manual da alíquota efetiva (vale mais que a calculada da RBT12)
+  icmsSharePct            Decimal? // parte da alíquota efetiva que é ICMS (% da própria alíquota efetiva)
+  pisSharePct             Decimal?
+  cofinsSharePct          Decimal?
+  requireTaxConfirmation  Boolean   @default(false) // item com imposto "estimado" exige ciência
+  reviewedBy              String? // quem validou (contador)
+  reviewedAt              DateTime?
+  updatedAt               DateTime  @updatedAt
+
+  @@map("tenant_tax_profile")
+}
+
+// Aceite do contador por tabela de regra tributária (packages/tax-rules): a versão que ele validou. Mudou a versão da tabela,
+// o aceite deixa de valer e o imposto volta a "estimado".
+model TaxTableReview {
+  orgId      String   @default(dbgenerated("app_org()")) @db.Uuid
+  tableId    String
+  version    String
+  reviewedBy String
+  reviewedAt DateTime @default(now())
+
+  @@id([orgId, tableId])
+  @@map("tax_table_review")
+}
+
+model PartPriceHistory {
+  id                    String            @id @default(cuid())
+  orgId                 String            @default(dbgenerated("app_org()")) @db.Uuid
+  partId                String
+  part                  Part              @relation(fields: [partId], references: [id], onDelete: Restrict)
+  costBefore            Decimal?
+  costAfter             Decimal
+  sellBefore            Decimal?
+  sellAfter             Decimal
+  marginAfter           Decimal? // % líquida sobre a venda no momento
+  saleTaxPct            Decimal?
+  costBreakdown         Json?
+  saleTaxBreakdown      Json?
+  taxRulesVersion       String?
+  source                PriceChangeSource
+  purchaseInvoiceItemId String?
+  pricingRuleId         String?
+  createdById           String
+  createdAt             DateTime          @default(now())
+
+  @@unique([purchaseInvoiceItemId, source])
+  @@index([partId, createdAt])
+  @@index([orgId])
+}
+
+// Campos tributários do item como vieram no XML (docs/specs/pricing.md §4.0). Alimentam o livro de custo
+// (apps/api/src/fiscal-inbound/tax) e, mais adiante, o imposto sobre a venda. Strings decimais viram Decimal aqui.
+model PurchaseInvoiceItemTax {
+  id        String              @id @default(cuid())
+  orgId     String              @default(dbgenerated("app_org()")) @db.Uuid
+  itemId    String              @unique
+  item      PurchaseInvoiceItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  indTot    Int? // 0 = o item não compõe o total da nota
+  icmsKind  String? // 'CST' | 'CSOSN'
+  icmsCode  String? // 00, 10, 60, 101, 500...
+  icmsBase  Decimal? // vBC
+  icmsRate  Decimal? // pICMS
+  icms      Decimal? // vICMS
+  stBase    Decimal? // vBCST
+  stRate    Decimal? // pICMSST
+  icmsSt    Decimal? // vICMSST
+  fcpSt     Decimal? // vFCPST
+  stRet     Decimal? // vICMSSTRet (ST já retido numa etapa anterior)
+  fcpStRet  Decimal? // vFCPSTRet
+  deson     Decimal? // vICMSDeson
+  creditSnRate Decimal? // pCredSN (emitente Simples)
+  creditSn  Decimal? // vCredICMSSN
+  ipiCst    String?
+  pisCst    String? // 02/03/04 indicam PIS monofásico
+  pis       Decimal?
+  cofinsCst String?
+  cofins    Decimal?
+  ibsCbs    Json? // grupo IBSCBS (NT 2025.002) cru; ainda não entra no cálculo
+
   @@index([orgId])
 }
 

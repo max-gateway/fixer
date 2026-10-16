@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@fixer/catalog": "*",
+    "@fixer/tax-rules": "*",
     "@fixer/db": "*",
     "@fixer/domain": "*",
     "@nestjs/common": "^12.0.1",

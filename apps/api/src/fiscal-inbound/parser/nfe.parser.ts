@@ -20,6 +20,36 @@ export interface ParsedNfeItem {
   otherCosts: string;
   ipi: string;
   icmsSt: string;
+  /** Campos tributários do item como vieram no XML (docs/specs/pricing.md §4.0). */
+  tax: ParsedItemTax;
+}
+
+/** Tudo string decimal do XML (ou null quando o campo não existe): nada passa por `Number`. */
+export interface ParsedItemTax {
+  /** indTot: 0 = o item não compõe o total da nota. */
+  indTot: number | null;
+  /** O grupo ICMS do item é CST (regime normal) ou CSOSN (Simples Nacional). */
+  icmsKind: 'CST' | 'CSOSN' | null;
+  icmsCode: string | null;
+  icmsBase: string | null;
+  icmsRate: string | null;
+  icms: string | null;
+  stBase: string | null;
+  stRate: string | null;
+  icmsSt: string | null;
+  fcpSt: string | null;
+  stRet: string | null;
+  fcpStRet: string | null;
+  deson: string | null;
+  creditSnRate: string | null;
+  creditSn: string | null;
+  ipiCst: string | null;
+  pisCst: string | null;
+  pis: string | null;
+  cofinsCst: string | null;
+  cofins: string | null;
+  /** Grupo IBSCBS (NT 2025.002) cru; ainda não entra em nenhum cálculo. */
+  ibsCbs: Record<string, unknown> | null;
 }
 
 /** Parcela da cobrança (`cobr/dup`): é o que vira conta a pagar. */
@@ -51,6 +81,16 @@ export interface ParsedNfe {
   /** CNPJ ou CPF do destinatário; null para estrangeiro/consumidor sem documento. */
   recipientId: string | null;
   totalAmount: string;
+  /** emit/CRT: 1 Simples, 2 Simples (excesso de sublimite), 3 regime normal, 4 MEI. */
+  issuerCrt: number | null;
+  issuerUf: string | null;
+  recipientUf: string | null;
+  /** ide/idDest: 1 interna, 2 interestadual, 3 exterior. */
+  destIndicator: number | null;
+  /** transp/modFrete: 1 = frete por conta do destinatário (CT-e à parte). */
+  freightMode: number | null;
+  /** ICMSTot: as chaves que o custo usa, como string decimal. Vazio quando a nota não traz `total`. */
+  totals: Record<string, string>;
   items: ParsedNfeItem[];
   /** Duplicatas da cobrança, na ordem do XML. Vazio quando a nota não traz `cobr`. */
   installments: ParsedInstallment[];
@@ -92,6 +132,12 @@ export function parseProcNfe(xml: string): ParsedNfe {
       return id ? normalizeCnpj(id) : null;
     })(),
     totalAmount: str(inf.total?.ICMSTot?.vNF) ?? '0',
+    issuerCrt: intOrNull(inf.emit?.CRT),
+    issuerUf: str(inf.emit?.enderEmit?.UF) ?? null,
+    recipientUf: str(inf.dest?.enderDest?.UF) ?? null,
+    destIndicator: intOrNull(inf.ide?.idDest),
+    freightMode: intOrNull(inf.transp?.modFrete),
+    totals: parseTotals(inf.total?.ICMSTot),
     items: dets.map(parseItem),
     installments: parseInstallments(inf.cobr?.dup),
     declaredPayment: declaredPayment(inf.pag?.detPag),
@@ -124,6 +170,17 @@ function declaredPayment(details: unknown): string | null {
   return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
 }
 
+const TOTAL_KEYS = ['vProd', 'vDesc', 'vFrete', 'vSeg', 'vOutro', 'vICMS', 'vST', 'vFCPST', 'vIPI', 'vPIS', 'vCOFINS'] as const;
+
+function parseTotals(tot: Record<string, any> | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of TOTAL_KEYS) {
+    const v = str(tot?.[k]);
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
 function parseItem(det: Record<string, any>): ParsedNfeItem {
   const p = det.prod ?? {};
   const icms = firstChild(det.imposto?.ICMS);
@@ -148,6 +205,41 @@ function parseItem(det: Record<string, any>): ParsedNfeItem {
     // Só o ST cobrado nesta nota (ICMS10/30/70/90, ICMSSN201/202/900). `vICMSSTRet` (ICMS60) é ST já
     // retido numa etapa anterior: informativo, não compõe o custo desta compra.
     icmsSt: str(icms?.vICMSST) ?? '0',
+    tax: parseItemTax(det, icms),
+  };
+}
+
+function parseItemTax(det: Record<string, any>, icms: Record<string, any> | undefined): ParsedItemTax {
+  const groupName = Object.keys(det.imposto?.ICMS ?? {})[0] ?? '';
+  // ICMSSN* é o Simples (CSOSN); ICMS00/10/20/.../90 e ICMSST são o regime normal (CST).
+  const simples = groupName.startsWith('ICMSSN');
+  const code = simples ? str(icms?.CSOSN) : str(icms?.CST);
+  const pis = firstChild(det.imposto?.PIS);
+  const cofins = firstChild(det.imposto?.COFINS);
+  const ipi = det.imposto?.IPI?.IPITrib ?? det.imposto?.IPI?.IPINT;
+  const ibs = det.imposto?.IBSCBS;
+  return {
+    indTot: intOrNull(det.prod?.indTot),
+    icmsKind: code ? (simples ? 'CSOSN' : 'CST') : null,
+    icmsCode: code ?? null,
+    icmsBase: str(icms?.vBC) ?? null,
+    icmsRate: str(icms?.pICMS) ?? null,
+    icms: str(icms?.vICMS) ?? null,
+    stBase: str(icms?.vBCST) ?? null,
+    stRate: str(icms?.pICMSST) ?? null,
+    icmsSt: str(icms?.vICMSST) ?? null,
+    fcpSt: str(icms?.vFCPST) ?? null,
+    stRet: str(icms?.vICMSSTRet) ?? null,
+    fcpStRet: str(icms?.vFCPSTRet) ?? null,
+    deson: str(icms?.vICMSDeson) ?? null,
+    creditSnRate: str(icms?.pCredSN) ?? null,
+    creditSn: str(icms?.vCredICMSSN) ?? null,
+    ipiCst: str(ipi?.CST) ?? null,
+    pisCst: str(pis?.CST) ?? null,
+    pis: str(pis?.vPIS) ?? null,
+    cofinsCst: str(cofins?.CST) ?? null,
+    cofins: str(cofins?.vCOFINS) ?? null,
+    ibsCbs: ibs && typeof ibs === 'object' ? (ibs as Record<string, unknown>) : null,
   };
 }
 

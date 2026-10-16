@@ -4,7 +4,8 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@fixer/db';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { unitCost } from './matching/cost.js';
+import type { LedgerAlert } from './tax/cost-ledger.js';
+import { loadInvoiceLedger } from './tax/invoice-ledger.js';
 import { postInvoice } from './matching/posting.js';
 import { matchOpenInvoicesOfSupplier, recomputeExportStatus } from './matching/reconcile.js';
 
@@ -118,7 +119,26 @@ export class InvoicesService {
   async get(id: string) {
     // `nsu` é BigInt (o JSON puro não o serializa) e a tela não precisa dele; o XML nunca sai por aqui.
     const { xmlGz, xmlSha256: _sha, nsu: _nsu, ...invoice } = await this.require(id, { items: { orderBy: { itemNumber: 'asc' }, include: { part: { select: { id: true, sku: true, name: true, stockQty: true } } } } });
-    return { ...invoice, hasXml: xmlGz !== null };
+    if (invoice.status !== 'FULL' || invoice.items.length === 0) {
+      const empty = { costAlerts: [] as LedgerAlert[], costRegime: null, costRulesVersion: null };
+      return { ...invoice, items: invoice.items.map((i) => ({ ...i, cost: null })), hasXml: xmlGz !== null, ...empty };
+    }
+
+    // Custo real de cada item e avisos do que o XML não traz (docs/specs/pricing.md §5.1): a mesma conta do lançamento.
+    const ledger = await this.prisma.$transaction((tx) => loadInvoiceLedger(tx, id));
+    const items = invoice.items.map((item) => {
+      const l = ledger.items.get(item.itemNumber);
+      return {
+        ...item,
+        cost: l && {
+          landed: l.landedCost?.toString() ?? null,
+          total: l.totalCost.toString(),
+          profile: l.profile,
+          components: l.components.map((c) => ({ code: c.code, treatment: c.treatment, amount: c.amount.toString(), source: c.source, allocated: c.allocated })),
+        },
+      };
+    });
+    return { ...invoice, items, hasXml: xmlGz !== null, costAlerts: ledger.alerts, costRegime: ledger.regime, costRulesVersion: ledger.rulesVersion };
   }
 
   /** XML original (guarda fiscal), exatamente como a SEFAZ entregou. */
@@ -160,7 +180,8 @@ export class InvoicesService {
     try {
       await this.prisma.$transaction(async (tx) => {
         const { invoice, item } = await this.editableItem(tx, invoiceId, itemNumber);
-        const cost = unitCost(item, input.unitFactor);
+        const ledger = await loadInvoiceLedger(tx, invoiceId, new Map([[itemNumber, input.unitFactor]]));
+        const cost = ledger.items.get(itemNumber)?.landedCost;
         if (!cost) throw new BadRequestException('Item sem quantidade: não há custo para calcular');
 
         const part = await tx.part.create({
@@ -193,12 +214,12 @@ export class InvoicesService {
   }
 
   /** Confirma a entrada no estoque de uma nota READY (docs/specs/nfe-import.md §8.3). */
-  async confirm(invoiceId: string, userId: string) {
+  async confirm(invoiceId: string, userId: string, opts: { applyPricing?: boolean } = {}) {
     await this.prisma.$transaction(async (tx) => {
       const inv = await tx.purchaseInvoice.findUnique({ where: { id: invoiceId }, select: { status: true, exportStatus: true } });
       if (!inv) throw new NotFoundException('Nota não encontrada');
       if (inv.exportStatus === 'POSTED') return; // idempotente
-      if (!(await postInvoice(tx, invoiceId, userId))) {
+      if (!(await postInvoice(tx, invoiceId, userId, opts))) {
         throw new ConflictException('Só uma nota completa, sem itens pendentes nem revisão, pode ser lançada');
       }
     });

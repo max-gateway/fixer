@@ -10,6 +10,7 @@ import {
   CreatePayableSchema,
   DuplicatesQuerySchema,
   ExportQuerySchema,
+  ImportSchema,
   ListQuerySchema,
   PaySchema,
   PayablesService,
@@ -79,6 +80,13 @@ export class PayablesController {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="contas-a-pagar-${todayIso()}.csv"`);
     return csv;
+  }
+
+  /** Importa as contas das notas já recebidas (lê o XML guardado). Com `dryRun`, só mostra o que seria criado. */
+  @Post('import')
+  @RequirePermission('payables.manage')
+  importFromInvoices(@Body() body: unknown, @CurrentUser() user: AuthUser) {
+    return this.payables.importFromInvoices(parse(ImportSchema, body ?? {}), user);
   }
 
   @Post('bulk')
