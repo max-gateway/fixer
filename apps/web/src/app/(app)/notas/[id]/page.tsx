@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { ApiError, apiGet } from '@/lib/api';
+import type { CostAlert, WithCost, WithCostAlerts } from '@/lib/invoice-cost';
 import {
   describeInvoice,
   FINALITY_LABEL,
@@ -12,17 +13,19 @@ import {
   money,
   shortDate,
   type InvoiceDetail,
+  type InvoiceItem,
 } from '@/lib/invoices';
 import { InvoiceActions } from './invoice-actions';
+import { PricingPanel } from './pricing-panel';
 import { ItemRow } from './item-row';
 
 export const metadata = { title: 'Nota de compra' };
 
 export default async function NotaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  let inv: InvoiceDetail;
+  let inv: Omit<InvoiceDetail, 'items'> & WithCostAlerts & { items: WithCost<InvoiceItem>[] };
   try {
-    inv = await apiGet<InvoiceDetail>(`/invoices/${encodeURIComponent(id)}`);
+    inv = await apiGet<typeof inv>(`/invoices/${encodeURIComponent(id)}`);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
     const denied = err instanceof ApiError && err.status === 403;
@@ -70,6 +73,7 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
       </header>
 
       <Notices inv={inv} />
+      <CostAlerts alerts={inv.costAlerts ?? []} />
 
       {inv.items.length > 0 ? (
         <div className="space-y-2">
@@ -79,6 +83,11 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
               <ItemRow key={item.id} invoiceId={inv.id} item={item} editable={editable} />
             ))}
           </ul>
+          {editable && inv.items.some((i) => i.resolution !== 'UNRESOLVED' && i.resolution !== 'IGNORED') && (
+            <div className="pt-4">
+              <PricingPanel invoiceId={inv.id} ready={inv.exportStatus === 'READY' && !inv.needsReview} />
+            </div>
+          )}
         </div>
       ) : (
         <p className="rounded-xl border border-dashed bg-card/60 px-6 py-10 text-center text-sm text-muted-foreground">
@@ -86,6 +95,21 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
         </p>
       )}
     </section>
+  );
+}
+
+/** O que o XML não traz ou não fecha (frete por fora, antecipação de ICMS, item que não é revenda), com os itens envolvidos. */
+function CostAlerts({ alerts }: { alerts: CostAlert[] }) {
+  if (alerts.length === 0) return null;
+  return (
+    <div className="space-y-3">
+      {alerts.map((a, i) => (
+        <Notice key={`${a.code}-${i}`} tone={a.severity === 'warning' ? 'warning' : 'info'}>
+          <p>{a.message}</p>
+          {a.itemNumbers.length > 0 && <p className="text-xs">Itens: {a.itemNumbers.join(', ')}</p>}
+        </Notice>
+      ))}
+    </div>
   );
 }
 

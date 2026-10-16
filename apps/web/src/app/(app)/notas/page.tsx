@@ -1,52 +1,30 @@
-import { Building2, FileDown, FileText, RefreshCw, TriangleAlert } from 'lucide-react';
-import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
-import { buttonVariants } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { TriangleAlert } from 'lucide-react';
 import { ApiError, apiGet } from '@/lib/api';
-import { relativeTime, type FiscalCredentialView, type FiscalStatus } from '@/lib/fiscal-import';
-import { describeInvoice, formatCnpj, money, shortDate, VIEW_LABEL, VIEWS, type InvoiceRow, type View } from '@/lib/invoices';
-import { cn } from '@/lib/utils';
-import { AutoRefresh } from './auto-refresh';
+import type { FiscalStatus } from '@/lib/fiscal-import';
+import { VIEWS, type Listing, type View } from '@/lib/invoices';
+import { InvoicesWorkspace } from './invoices-workspace';
 
 export const metadata = { title: 'Notas de compra' };
-
-type Listing = { total: number; items: InvoiceRow[] };
-type Company = FiscalStatus['settings'];
-
-function href(view: View, q?: string) {
-  const p = new URLSearchParams();
-  if (view !== 'pending') p.set('view', view);
-  if (q) p.set('q', q);
-  const s = p.toString();
-  return s ? `/notas?${s}` : '/notas';
-}
 
 export default async function NotasPage({ searchParams }: { searchParams: Promise<{ view?: string; q?: string }> }) {
   const sp = await searchParams;
   const view: View = (VIEWS as readonly string[]).includes(sp.view ?? '') ? (sp.view as View) : 'pending';
-  const q = sp.q?.trim() || undefined;
+  const q = sp.q?.trim() || '';
 
-  let listing: Listing;
-  let counts: Record<View, number>;
-  let company: Company = null;
-  let credential: FiscalCredentialView | null = null;
   try {
-    const params = new URLSearchParams({ view });
+    const params = new URLSearchParams({ view, take: '50' });
     if (q) params.set('q', q);
-    let status: FiscalStatus | null;
-    [listing, counts, status] = await Promise.all([
+    const [listing, counts, status] = await Promise.all([
       apiGet<Listing>(`/invoices?${params}`),
       apiGet<Record<View, number>>('/invoices/summary'),
       apiGet<FiscalStatus>('/fiscal/status').catch(() => null),
     ]);
-    company = status?.settings ?? null;
-    credential = status?.credential ?? null;
+    return <InvoicesWorkspace initial={{ view, q, listing, counts, status }} />;
   } catch (err) {
     const denied = err instanceof ApiError && err.status === 403;
     return (
       <section className="space-y-5">
-        <Header />
+        <h1 className="text-2xl font-semibold tracking-tight">Notas de compra</h1>
         <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
           <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
           <div>
@@ -57,156 +35,4 @@ export default async function NotasPage({ searchParams }: { searchParams: Promis
       </section>
     );
   }
-
-  return (
-    <section className="space-y-5">
-      <Header company={company} credential={credential} />
-
-      <nav aria-label="Filtrar notas" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
-        {VIEWS.map((v) => (
-          <Link
-            key={v}
-            href={href(v, q)}
-            aria-current={v === view ? 'page' : undefined}
-            className={cn(
-              'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
-              v === view ? 'border-brand bg-brand text-white' : 'bg-card hover:bg-muted',
-            )}
-          >
-            {VIEW_LABEL[v]}
-            <span className={cn('tabular text-xs', v === view ? 'text-white/85' : 'text-muted-foreground')}>{counts[v]}</span>
-          </Link>
-        ))}
-      </nav>
-
-      <form action="/notas" className="flex gap-2">
-        {view !== 'pending' && <input type="hidden" name="view" value={view} />}
-        <Input
-          name="q"
-          type="search"
-          defaultValue={q}
-          placeholder="Buscar por fornecedor, CNPJ, número ou chave"
-          aria-label="Buscar notas"
-          className="h-11 text-[15px]"
-        />
-        <button className={buttonVariants({ variant: 'outline', size: 'lg' })}>Buscar</button>
-      </form>
-
-      {listing.items.length === 0 ? (
-        <Empty view={view} filtered={Boolean(q)} />
-      ) : (
-        <div>
-          <p className="mb-2 text-xs text-muted-foreground" aria-live="polite">
-            {listing.total} {listing.total === 1 ? 'nota' : 'notas'}
-            {listing.total > listing.items.length && ` (mostrando ${listing.items.length})`}
-          </p>
-          <ul className="divide-y overflow-hidden rounded-xl border bg-card shadow-xs">
-            {listing.items.map((n) => (
-              <InvoiceItem key={n.id} n={n} />
-            ))}
-          </ul>
-        </div>
-      )}
-    </section>
-  );
-}
-
-/** Quando a SEFAZ foi consultada e quando será de novo: explica por que uma nota recém-emitida ainda não chegou. */
-function SyncLine({ credential }: { credential: FiscalCredentialView }) {
-  const s = credential.syncState;
-  const failing = Boolean(s?.lastError);
-  return (
-    <p className={cn('mt-2 flex items-start gap-2 text-xs', failing ? 'text-amber-800' : 'text-muted-foreground')}>
-      <RefreshCw aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-      <span>
-        {!credential.enabled ? (
-          'Busca automática desligada. Novas notas não estão chegando.'
-        ) : (
-          <>
-            Última consulta {relativeTime(s?.lastSuccessAt ?? null)} · próxima {relativeTime(s?.nextPollAt ?? null)}.
-            {failing ? ' A última tentativa falhou.' : ' A SEFAZ limita a consulta a cerca de uma vez por hora, então uma nota recém-emitida pode demorar a aparecer.'}
-          </>
-        )}
-      </span>
-    </p>
-  );
-}
-
-function Header({ company, credential }: { company?: Company; credential?: FiscalCredentialView | null }) {
-  return (
-    <header>
-      <h1 className="text-2xl font-semibold tracking-tight">Notas de compra</h1>
-      <p className="text-sm text-muted-foreground">NF-e emitidas contra o CNPJ da empresa, buscadas automaticamente na SEFAZ.</p>
-      {company?.cnpj ? (
-        <p className="mt-2 inline-flex max-w-full items-center gap-2 rounded-lg border bg-card px-3 py-1.5 text-sm shadow-xs">
-          <Building2 aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-          <span className="text-muted-foreground">Importando de</span>
-          <strong className="truncate font-semibold">{company.legalName || 'Empresa sem razão social'}</strong>
-          <span className="tabular shrink-0 text-muted-foreground">{formatCnpj(company.cnpj)}</span>
-        </p>
-      ) : (
-        company !== undefined && <p className="mt-2 text-sm text-amber-800">Nenhuma empresa cadastrada para importar notas.</p>
-      )}
-      {credential && (
-        <>
-          <SyncLine credential={credential} />
-          <AutoRefresh />
-        </>
-      )}
-    </header>
-  );
-}
-
-function InvoiceItem({ n }: { n: InvoiceRow }) {
-  const s = describeInvoice(n);
-  return (
-    <li>
-      <Link
-        href={`/notas/${n.id}`}
-        className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 px-4 py-3.5 transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 sm:grid-cols-[minmax(0,1.6fr)_7rem_6rem_auto] sm:py-3"
-      >
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">{n.issuerName || 'Fornecedor não identificado'}</span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {formatCnpj(n.issuerCnpj)}
-            {n.number != null && ` · NF ${n.number}${n.series != null ? `/${n.series}` : ''}`}
-          </span>
-        </span>
-        <Badge variant={s.tone} className="col-start-2 row-start-1 justify-self-end sm:col-start-4">
-          {s.label}
-        </Badge>
-        <span className="tabular text-sm font-medium sm:text-right">{money(n.totalAmount)}</span>
-        <span className="tabular text-xs text-muted-foreground sm:text-sm">
-          {shortDate(n.issuedAt)}
-          {n.status === 'FULL' && n.unresolvedCount > 0 && <span className="ml-2 font-medium text-amber-800">{n.unresolvedCount} sem peça</span>}
-          {n.manifestError && <span className="ml-2 font-medium text-red-800">ciência rejeitada</span>}
-        </span>
-      </Link>
-    </li>
-  );
-}
-
-const EMPTY: Record<View, { title: string; hint: string }> = {
-  pending: { title: 'Nada para conciliar', hint: 'Quando chegar uma nota com itens ainda sem peça, ela aparece aqui.' },
-  ready: { title: 'Nenhuma nota pronta', hint: 'Notas com todos os itens vinculados aparecem aqui, prontas para lançar no estoque.' },
-  posted: { title: 'Nenhuma nota lançada', hint: 'As entradas já lançadas no estoque ficam aqui.' },
-  summary: { title: 'Nenhuma nota sem XML', hint: 'Notas que só chegaram como resumo, aguardando a ciência da operação.' },
-  canceled: { title: 'Nenhuma nota cancelada', hint: 'Notas canceladas pelo fornecedor aparecem aqui.' },
-  ignored: { title: 'Nenhuma nota ignorada', hint: 'Notas que não são compras para o CNPJ da oficina aparecem aqui.' },
-  all: { title: 'Nenhuma nota ainda', hint: 'Quando o certificado digital da empresa estiver configurado, as notas chegam aqui automaticamente.' },
-};
-
-function Empty({ view, filtered }: { view: View; filtered: boolean }) {
-  const e = filtered ? { title: 'Nenhuma nota com essa busca', hint: 'Tente outro termo ou troque de aba.' } : EMPTY[view];
-  return (
-    <div className="grid place-items-center gap-3 rounded-xl border border-dashed bg-card/60 px-6 py-16 text-center">
-      <span className="grid size-12 place-items-center rounded-full bg-muted text-muted-foreground">
-        {view === 'all' ? <FileDown aria-hidden className="size-6" /> : <FileText aria-hidden className="size-6" />}
-      </span>
-      <div>
-        <p className="font-semibold">{e.title}</p>
-        <p className="max-w-md text-sm text-muted-foreground">{e.hint}</p>
-      </div>
-    </div>
-  );
 }

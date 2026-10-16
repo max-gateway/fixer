@@ -1,6 +1,6 @@
 'use client';
 
-import { Keyboard, Plus, TriangleAlert } from 'lucide-react';
+import { FileDown, Keyboard, Plus, TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -21,6 +21,7 @@ import {
 import { BulkBar } from './bulk-bar';
 import { ComposerSheet } from './composer-sheet';
 import { DetailSheet } from './detail-sheet';
+import { ImportDialog } from './import-dialog';
 import { useCategories, useDetail, useForecast, useListing, usePayableActions, useSuppliers, useSummary, type CreateInput, type Initial, type PayInput, type UpdateInput } from './hooks';
 import { Overview } from './overview';
 import { PayDialog } from './pay-dialog';
@@ -58,6 +59,7 @@ function Workspace({ initial, access, openId: initialOpen, compose }: { initial:
   const [composerOpen, setComposerOpen] = useState(compose);
   const [payRows, setPayRows] = useState<PayableRow[] | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -255,12 +257,29 @@ function Workspace({ initial, access, openId: initialOpen, compose }: { initial:
             <Keyboard aria-hidden />
           </Button>
           {access.manage && (
+            <Button variant="outline" onClick={() => setImportOpen(true)} title="Gerar contas a partir das notas de compra já recebidas">
+              <FileDown aria-hidden /> <span className="hidden sm:inline">Importar das notas</span>
+              <span className="sm:hidden">Importar</span>
+            </Button>
+          )}
+          {access.manage && (
             <Button onClick={() => setComposerOpen(true)} title="Nova conta (C)">
               <Plus aria-hidden /> Nova conta
             </Button>
           )}
         </div>
       </header>
+
+      {access.manage && summary.views.all.count === 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand-soft px-4 py-3">
+          <p className="text-sm">
+            <strong>Ainda não há contas.</strong> Se você já recebeu notas de compra, dá para gerar as parcelas lendo o XML guardado de cada uma.
+          </p>
+          <Button size="sm" onClick={() => setImportOpen(true)}>
+            <FileDown aria-hidden /> Importar das notas
+          </Button>
+        </div>
+      )}
 
       <Overview summary={summary} forecast={forecast} filters={filters} onView={changeView} onBucket={pickBucket} />
 
@@ -343,6 +362,20 @@ function Workspace({ initial, access, openId: initialOpen, compose }: { initial:
       <ComposerSheet open={composerOpen} suppliers={suppliers} categories={categories} onClose={() => setComposerOpen(false)} onSubmit={create} />
 
       <PayDialog rows={payRows} onClose={() => setPayRows(null)} onSubmit={submitPay} pending={actions.pay.isPending || actions.bulk.isPending} />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        run={actions.importInvoices.mutateAsync}
+        onDone={(r) => {
+          setImportOpen(false);
+          const n = r.open.count + r.settled.count;
+          toast({
+            title: `${n} ${n === 1 ? 'conta importada' : 'contas importadas'}`,
+            description: r.settled.count ? `${r.open.count} em aberto e ${r.settled.count} já pagas (histórico).` : `${money(r.open.amount)} em aberto.`,
+          });
+        }}
+      />
 
       <ShortcutsDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
 

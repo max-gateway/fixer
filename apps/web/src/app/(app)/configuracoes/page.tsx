@@ -1,4 +1,5 @@
 import { Info, TriangleAlert } from 'lucide-react';
+import Link from 'next/link';
 import { ApiError, apiGet } from '@/lib/api';
 import type { FiscalStatus } from '@/lib/fiscal-import';
 import { CertificateCard } from './certificate-card';
@@ -41,6 +42,13 @@ export default async function CadastroPage() {
           Envie o certificado digital da oficina: o Fixer lê o CNPJ dele e preenche sozinho a empresa, o município e o Simples Nacional. É com o mesmo certificado que as notas de compra são buscadas na SEFAZ.
         </p>
       </header>
+
+      <p className="text-sm">
+        <Link href="/configuracoes/precificacao" className="font-medium underline underline-offset-2">
+          Precificação
+        </Link>
+        <span className="text-muted-foreground"> · regra de preço e perfil tributário usados para sugerir o preço de venda quando uma nota chega.</span>
+      </p>
 
       <Step n={1} title="Certificado digital" done={Boolean(status.credential)}>
         <CertificateCard status={status} cnpjSaved={Boolean(company?.cnpj)} />

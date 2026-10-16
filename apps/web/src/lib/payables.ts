@@ -86,6 +86,17 @@ export type BoletoInfo =
   | { ok: true; kind: 'bank' | 'utility'; digits: string; amount: string | null; dueDate: string | null; bankCode: string | null }
   | { ok: false; reason: 'LENGTH' | 'CHECK_DIGIT' };
 
+export type ImportResult = {
+  dryRun: boolean;
+  invoices: number;
+  withoutBilling: number;
+  unreadable: number;
+  installments: number;
+  alreadyExisting: number;
+  open: { count: number; amount: string };
+  settled: { count: number; amount: string };
+};
+
 export type Sort = 'due' | 'amount' | 'supplier' | 'paid';
 export type GroupBy = 'due' | 'supplier' | 'none';
 

@@ -116,3 +116,79 @@ export function formatCnpj(v: string): string {
 
 /** Chave de acesso em grupos de 4, como no DANFE. */
 export const formatKey = (k: string) => k.replace(/(.{4})/g, '$1 ').trim();
+
+// ---------- Triagem (tela /notas) ----------
+
+/** Etapas do funil, na ordem em que uma nota percorre: chegou só o resumo → conciliar → pronta → lançada. */
+export const STAGES = ['summary', 'pending', 'ready', 'posted'] as const satisfies readonly View[];
+export const SIDE_VIEWS = ['canceled', 'ignored', 'all'] as const satisfies readonly View[];
+
+export const STAGE_HINT: Record<(typeof STAGES)[number], string> = {
+  summary: 'Falta dar ciência para a SEFAZ liberar o XML',
+  pending: 'Itens ainda sem peça vinculada',
+  ready: 'Tudo vinculado, falta lançar no estoque',
+  posted: 'Já entraram no estoque',
+};
+
+export type NextAction = 'manifest' | 'confirm' | 'reconcile' | 'review' | null;
+
+/** O que falta fazer na nota, em uma palavra de ação. Alimenta o botão principal e as ações em lote. */
+export function nextAction(inv: Pick<InvoiceRow, 'status' | 'exportStatus' | 'needsReview'>): NextAction {
+  if (inv.status === 'SUMMARY') return 'manifest';
+  if (inv.status !== 'FULL') return null;
+  if (inv.exportStatus === 'READY') return inv.needsReview ? 'review' : 'confirm';
+  if (inv.exportStatus === 'PENDING_MATCH') return 'reconcile';
+  return null;
+}
+
+/** Fração dos itens já resolvidos (0–1); null quando a nota ainda não tem itens (sem XML). */
+export function resolvedRatio(inv: Pick<InvoiceRow, 'status' | 'itemCount' | 'unresolvedCount'>): number | null {
+  if (inv.status !== 'FULL' || inv.itemCount === 0) return null;
+  return (inv.itemCount - inv.unresolvedCount) / inv.itemCount;
+}
+
+export function initials(name: string): string {
+  const words = name
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !['DE', 'DA', 'DO', 'DAS', 'DOS', 'E', 'LTDA', 'ME', 'EPP', 'SA', 'S/A'].includes(w.toUpperCase()));
+  return ((words[0]?.[0] ?? '?') + (words[1]?.[0] ?? '')).toUpperCase();
+}
+
+/** Matiz estável (0–359) por fornecedor, para o avatar ser reconhecível de relance sem depender de logo. */
+export function hueOf(seed: string): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 360;
+  return h;
+}
+
+const dayKey = (iso: string, tz = 'America/Sao_Paulo') => new Date(iso).toLocaleDateString('en-CA', { timeZone: tz });
+
+/** Rótulo do dia: "Hoje", "Ontem", dia da semana nos últimos 6 dias, senão a data por extenso. */
+export function dayLabel(iso: string | null, now = new Date()): string {
+  if (!iso) return 'Sem data';
+  const today = dayKey(now.toISOString());
+  const key = dayKey(iso);
+  const diff = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${key}T00:00:00Z`)) / 86_400_000);
+  if (diff === 0) return 'Hoje';
+  if (diff === 1) return 'Ontem';
+  const d = new Date(iso);
+  if (diff > 1 && diff < 7) return d.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'America/Sao_Paulo' });
+  return d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: diff > 300 || diff < 0 ? 'numeric' : undefined, timeZone: 'America/Sao_Paulo' });
+}
+
+/** Agrupa mantendo a ordem da API (já vem do mais recente para o mais antigo). */
+export function groupByDay<T extends { issuedAt: string | null }>(rows: readonly T[], now = new Date()): { key: string; label: string; rows: T[] }[] {
+  const out: { key: string; label: string; rows: T[] }[] = [];
+  for (const r of rows) {
+    const key = r.issuedAt ? dayKey(r.issuedAt) : 'none';
+    const last = out[out.length - 1];
+    if (last?.key === key) last.rows.push(r);
+    else out.push({ key, label: dayLabel(r.issuedAt, now), rows: [r] });
+  }
+  return out;
+}
+
+export const sumTotals = (rows: readonly Pick<InvoiceRow, 'totalAmount'>[]) => rows.reduce((s, r) => s + Number(r.totalAmount), 0);
+
+export type Listing = { total: number; items: InvoiceRow[] };

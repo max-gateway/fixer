@@ -12,6 +12,8 @@ import { postJson, putJson } from '@/lib/client-api';
 import type { InvoiceItem } from '@/lib/invoices';
 import { money, qty } from '@/lib/invoices';
 import type { Part } from '@/lib/orders';
+import type { WithCost } from '@/lib/invoice-cost';
+import { CostBreakdown } from './cost-breakdown';
 import { PartPicker } from './part-picker';
 
 type Mode = 'idle' | 'link' | 'create';
@@ -30,7 +32,7 @@ const toNumber = (v: string) => {
 };
 
 /** Um item da nota: dados do XML à esquerda, vínculo com a peça à direita, com as ações da conciliação. */
-export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item: InvoiceItem; editable: boolean }) {
+export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item: WithCost<InvoiceItem>; editable: boolean }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +68,7 @@ export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item
           <p className="tabular mt-1 text-sm">
             {qty(item.quantity)} {item.unit} × {money(item.unitPrice)} = <strong>{money(item.totalPrice)}</strong>
           </p>
+          {item.cost && <CostBreakdown cost={item.cost} />}
         </div>
 
         <div className="min-w-0 space-y-2">

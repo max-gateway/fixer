@@ -1,13 +1,20 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Check, Search } from 'lucide-react';
+import { Check, ChevronsUpDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { Part } from '@/lib/orders';
 import { cn } from '@/lib/utils';
 
-/** Busca de peça por nome ou SKU (com debounce). Selecionar devolve a peça; limpar o texto remove a seleção. */
+type Picked = Pick<Part, 'id' | 'sku' | 'name'>;
+
+/**
+ * Busca de peça por nome ou SKU (no servidor, com debounce). É um combobox: o botão mostra a peça escolhida, abre uma lista
+ * pesquisável com setas e Enter, e a busca começa com o texto da nota (`initialQuery`). Selecionar a peça marcada de novo a limpa.
+ */
 export function PartPicker({
   id,
   value,
@@ -15,14 +22,14 @@ export function PartPicker({
   initialQuery = '',
 }: {
   id: string;
-  value: Pick<Part, 'id' | 'sku' | 'name'> | null;
-  onChange: (part: Pick<Part, 'id' | 'sku' | 'name'> | null) => void;
+  value: Picked | null;
+  onChange: (part: Picked | null) => void;
   /** Texto para já começar a busca (ex.: descrição do item da nota). */
   initialQuery?: string;
 }) {
-  const [text, setText] = useState(value ? `${value.sku} · ${value.name}` : '');
-  const [debounced, setDebounced] = useState(initialQuery);
   const [open, setOpen] = useState(false);
+  const [text, setText] = useState(initialQuery);
+  const [debounced, setDebounced] = useState(initialQuery);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(text.trim()), 250);
@@ -41,59 +48,45 @@ export function PartPicker({
   });
 
   return (
-    <div className="relative">
-      <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        id={id}
-        role="combobox"
-        aria-expanded={open}
-        aria-controls={`${id}-list`}
-        aria-autocomplete="list"
-        autoComplete="off"
-        value={text}
-        placeholder="Buscar peça por nome ou SKU"
-        className="pl-9"
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onChange={(e) => {
-          setText(e.target.value);
-          setOpen(true);
-          if (value) onChange(null); // editar o texto invalida a seleção anterior
-        }}
-      />
-      {open && (
-        <ul
-          id={`${id}-list`}
-          role="listbox"
-          className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md"
-        >
-          {isError && <li className="px-3 py-2 text-destructive">Não foi possível buscar as peças.</li>}
-          {!isError && data?.length === 0 && !isFetching && <li className="px-3 py-2 text-muted-foreground">Nenhuma peça encontrada.</li>}
-          {data?.map((p) => (
-            <li key={p.id} role="option" aria-selected={value?.id === p.id}>
-              <button
-                type="button"
-                // onMouseDown: dispara antes do blur do input fechar a lista.
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onChange({ id: p.id, sku: p.sku, name: p.name });
-                  setText(`${p.sku} · ${p.name}`);
-                  setOpen(false);
-                }}
-                className={cn('flex w-full items-center justify-between gap-3 rounded px-3 py-2 text-left hover:bg-accent', value?.id === p.id && 'bg-accent')}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{p.name}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {p.sku} · estoque {Number(p.stockQty).toLocaleString('pt-BR')}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button id={id} type="button" variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between font-normal">
+          <span className={cn('min-w-0 truncate', !value && 'text-muted-foreground')}>{value ? `${value.sku} · ${value.name}` : 'Buscar peça por nome ou SKU'}</span>
+          <ChevronsUpDown aria-hidden className="opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-(--radix-popover-trigger-width) p-0">
+        {/* A busca é do servidor: o cmdk não filtra de novo (shouldFilter=false). */}
+        <Command shouldFilter={false}>
+          <CommandInput value={text} onValueChange={setText} placeholder="Nome ou SKU" />
+          <CommandList>
+            {isError && <p className="px-3 py-6 text-center text-sm text-destructive">Não foi possível buscar as peças.</p>}
+            {!isError && isFetching && !data && <p className="px-3 py-6 text-center text-sm text-muted-foreground">Buscando…</p>}
+            {!isError && !isFetching && data?.length === 0 && <CommandEmpty>Nenhuma peça encontrada.</CommandEmpty>}
+            <CommandGroup>
+              {data?.map((p) => (
+                <CommandItem
+                  key={p.id}
+                  value={p.id}
+                  onSelect={() => {
+                    onChange(value?.id === p.id ? null : { id: p.id, sku: p.sku, name: p.name });
+                    setOpen(false);
+                  }}
+                  className="justify-between gap-3"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{p.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {p.sku} · estoque {Number(p.stockQty).toLocaleString('pt-BR')}
+                    </span>
                   </span>
-                </span>
-                {value?.id === p.id && <Check aria-hidden className="size-4 shrink-0" />}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+                  {value?.id === p.id && <Check aria-hidden className="size-4 shrink-0" />}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }

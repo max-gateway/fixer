@@ -6,6 +6,7 @@ import {
   filtersToParams,
   type BoletoInfo,
   type Filters,
+  type ImportResult,
   type Forecast,
   type Listing,
   type PayableDetail,
@@ -87,6 +88,11 @@ export function usePayableActions() {
       onSettled: refresh,
     }),
     create: useMutation({ mutationFn: (body: CreateInput) => postJson<{ id: string }[]>('/api/payables', body, 'Não foi possível lançar a conta.'), onSettled: refresh }),
+    importInvoices: useMutation({
+      mutationFn: (body: { settleBefore?: string; dryRun: boolean }) => postJson<ImportResult>('/api/payables/import', body, 'Não foi possível ler as notas.'),
+      // A prévia não altera nada: só a importação de verdade renova as telas.
+      onSettled: (_r, _e, v) => (v.dryRun ? undefined : refresh()),
+    }),
     bulk: useMutation({
       mutationFn: (body: BulkInput) => postJson<{ done: string[]; skipped: string[] }>('/api/payables/bulk', body, 'Não foi possível concluir a ação em lote.'),
       onSettled: refresh,
