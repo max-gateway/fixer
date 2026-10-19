@@ -350,6 +350,23 @@ UI de operador do `tax-engine`, só para o time da plataforma, no mesmo padrão 
 - Alertas de imposto de entrada em PE com "Criar conta a pagar" (§9.1): valor calculado, vencimento informado pela pessoa, nada criado sozinho.
 - Ainda não: aba Histórico fora da nota (o Fixer não tem tela de peça), memória de cálculo em PDF.
 
+### 14.2 Fase B, primeira entrega (2026-10-19)
+
+Aba **Despesas** em `/configuracoes/precificacao?aba=despesas` (a seção "Custos" na navegação vem depois; `nav-items.ts` estava em edição), cliente do `cost-engine` pela API do Fixer (`/costs`, a chave fica no servidor):
+
+- Perfil vigente: estrutura nas peças, despesas de venda, custo da hora, confiança e avisos em português; "Atualizar com as OS e contas pagas" mostra o rascunho com o impacto por canal, e só "Publicar" muda a versão.
+- "Como a oficina recebe e trabalha": mix de pagamento (soma 100%), pessoas vendendo horas, horas por mês e meta de faturamento de peças (`CostSettings`), que o Fixer não registra sozinho.
+- Despesas por categoria com o total fixo do mês; formulário em gaveta pela pergunta "como ela muda?".
+- A sincronização manda os 12 meses fechados: faturamento e unidades de peças e mão de obra e horas reais das OS concluídas, e só as contas pagas lançadas à mão (duplicata de NF-e e ICMS de entrada ficam fora: já estão no custo).
+- Ainda não: assistente em passos (§5), Visão geral (§6.1), preço da nota usando o perfil (cost-engine fase 2), permissões `costs.*` (usa `pricing.read`/`pricing.write`).
+
+### 14.3 Preço da nota com o perfil de custos (2026-10-19)
+
+- A gaveta "Por que esse preço?" separa **despesas de venda** de **estrutura da oficina** e mostra o **equilíbrio** (cobre a estrutura), além do mínimo sem prejuízo e do preço da margem mínima.
+- O seletor de markup ganha a faixa âmbar "não cobre a estrutura" entre o mínimo e o equilíbrio (§9.1), considerando o extra por unidade do perfil.
+- Nova trava `BELOW_BREAK_EVEN` ("Não cobre a estrutura"): pede "estou ciente"; abaixo do mínimo segue bloqueando.
+- Linha discreta no painel de preço com a versão do perfil usado; motor fora do ar, aviso de que valeu a despesa da regra.
+
 ## 15. Decisões
 
 1. **Acesso do contador: convite na organização**, com o papel "Contador" (usuário próprio, login normal). O aceite grava identidade e registro, então precisa de autenticação forte; link sem conta não serve como prova. O e-mail mensal pode ser lido sem login, mas aceitar exige entrar.

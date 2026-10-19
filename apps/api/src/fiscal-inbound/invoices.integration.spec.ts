@@ -480,6 +480,44 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
       expect(Number(r.marginPct)).toBeGreaterThan(40);
     });
 
+    it('com perfil de custos publicado, as despesas vêm dele (estrutura + venda + extra por unidade) e o lançamento grava a versão', async () => {
+      const cp = { status: 'OK' as const, version: 7, channel: 'BALCAO', fixedPct: '10', variablePct: '3', financialPct: '1', extraUnitCost: '0.8', confidence: 'CONFIRMADO' as const };
+      const provider = { forPricing: async () => cp };
+      const withProfile = new PricingService(db as never, provider as never);
+      const { p, inv } = await setup();
+      const plan = await withProfile.preview(inv.id);
+      expect(plan.costProfile).toMatchObject({ status: 'OK', version: 7 });
+      // (23,20 + 0,80) ÷ (1 − (40 + 7 + 4 + 10)%) = 61,54 → 61,90
+      expect(plan.rows[0]).toMatchObject({ cost: '23.2', suggested: '61.9', overhead: { source: 'PROFILE', variablePct: '4', fixedPct: '10', extraUnitCost: '0.8' } });
+      expect(Number(plan.rows[0]!.marginPct)).toBeCloseTo(40.2, 1);
+
+      // 30 cobre custo, imposto e despesas de venda, mas não a estrutura: pede ciência; 26 nem isso: bloqueia
+      const mid = await withProfile.saveDraft(inv.id, 2, { sellPrice: 30 });
+      expect(mid.rows[0]!.flags).toContain('BELOW_BREAK_EVEN');
+      expect(mid.rows[0]!.blocking).toContain('BELOW_BREAK_EVEN');
+      const low = await withProfile.saveDraft(inv.id, 2, { sellPrice: 26 });
+      expect(low.rows[0]!.blocking).toContain('BELOW_COST_AFTER_TAX');
+
+      // 40 → 61,90 é alta de 55%, acima do limite de 25% da regra: a estrutura entrando no preço pede "estou ciente"
+      const big = await withProfile.saveDraft(inv.id, 2, { sellPrice: 61.9 });
+      expect(big.rows[0]!.blocking).toEqual(['BIG_JUMP']);
+      await withProfile.saveDraft(inv.id, 2, { sellPrice: 61.9, ack: true });
+      await new InvoicesService(db as never, provider as never).confirm(inv.id, USER, { applyPricing: true });
+      expect((await db.part.findUniqueOrThrow({ where: { id: p.id } })).sellPrice.toString()).toBe('61.9');
+      expect((await db.part.findUniqueOrThrow({ where: { id: p.id } })).costPrice.toString()).toBe('23.2'); // o extra não vai para o custo da peça
+      const snap = await db.stockEntrySnapshot.findFirstOrThrow({ where: { partId: p.id } });
+      expect(snap.costProfileVersion).toBe(7);
+      expect(snap.context).toMatchObject({ price: { overhead: { source: 'PROFILE', fixedPct: '10' } }, engines: { costProfileVersion: 7 } });
+    });
+
+    it('sem perfil (motor desligado ou fora do ar), vale a despesa da regra como sempre', async () => {
+      const { inv } = await setup();
+      const down = new PricingService(db as never, { forPricing: async () => ({ status: 'UNAVAILABLE' }) } as never);
+      const plan = await down.preview(inv.id);
+      expect(plan.costProfile).toEqual({ status: 'UNAVAILABLE' });
+      expect(plan.rows[0]).toMatchObject({ suggested: '43.9', overhead: { source: 'RULE', fixedPct: '0' } });
+    });
+
     it('sem regra ou sem alíquota do contador não inventa preço', async () => {
       const a = await setup({ withRule: false });
       expect(await row(a.inv.id)).toMatchObject({ suggested: null, proposed: null, flags: ['NO_RULE'] });

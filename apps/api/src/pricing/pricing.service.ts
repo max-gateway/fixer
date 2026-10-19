@@ -1,4 +1,6 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { CostProfileProvider } from '../costs/cost-profile.provider.js';
+import { NO_COST_PROFILE } from './cost-profile.js';
 import { Prisma } from '@fixer/db';
 import { z } from 'zod';
 import { markManual, sameValue, type AutofillField } from '../fiscal-autofill/provenance.js';
@@ -76,7 +78,15 @@ const ruleView = (r: Prisma.PricingRuleGetPayload<object>) => ({
 
 @Injectable()
 export class PricingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly costProfile?: CostProfileProvider,
+  ) {}
+
+  /** Despesas do perfil de custos (cost-engine), buscadas fora da transação: uma chamada HTTP não segura o banco. */
+  private profile() {
+    return this.costProfile?.forPricing() ?? Promise.resolve(NO_COST_PROFILE);
+  }
 
   // ---- regra padrão ----
 
@@ -235,14 +245,16 @@ export class PricingService {
 
   /** Plano de preços de uma nota ainda não lançada: o que a tela mostra e o que o lançamento aplicaria. */
   async preview(invoiceId: string) {
+    const cp = await this.profile();
     return this.prisma.$transaction(async (tx) => {
       await this.requireEditable(tx, invoiceId);
-      return toDto(await buildPricingPlan(tx, invoiceId));
+      return toDto(await buildPricingPlan(tx, invoiceId, undefined, cp));
     });
   }
 
   /** Grava o preço escolhido para um item (null = voltar a aceitar a sugestão) e devolve o plano recalculado. */
   async saveDraft(invoiceId: string, itemNumber: number, input: z.infer<typeof DraftSchema>) {
+    const cp = await this.profile();
     return this.prisma.$transaction(async (tx) => {
       await this.requireEditable(tx, invoiceId);
       const item = await tx.purchaseInvoiceItem.findUnique({ where: { invoiceId_itemNumber: { invoiceId, itemNumber } }, select: { id: true, partId: true, resolution: true } });
@@ -253,15 +265,16 @@ export class PricingService {
         // Mudar o preço invalida o "estou ciente" dado antes: a ciência vale para o preço que a pessoa viu.
         data: { draftSellPrice: input.sellPrice, priceAck: input.sellPrice === null ? false : (input.ack ?? false) },
       });
-      return toDto(await buildPricingPlan(tx, invoiceId));
+      return toDto(await buildPricingPlan(tx, invoiceId, undefined, cp));
     });
   }
 
   /** Ação em lote: aceitar todas as sugestões (grava como escolha) ou largar todas as escolhas e voltar às sugestões. */
   async bulk(invoiceId: string, input: z.infer<typeof BulkSchema>) {
+    const cp = await this.profile();
     return this.prisma.$transaction(async (tx) => {
       await this.requireEditable(tx, invoiceId);
-      const plan = await buildPricingPlan(tx, invoiceId);
+      const plan = await buildPricingPlan(tx, invoiceId, undefined, cp);
       for (const r of plan.rows) {
         if (input.action === 'CLEAR_DRAFTS') {
           if (r.draft) await tx.purchaseInvoiceItem.update({ where: { id: r.itemId }, data: { draftSellPrice: null, priceAck: false } });
@@ -269,7 +282,7 @@ export class PricingService {
           await tx.purchaseInvoiceItem.update({ where: { id: r.itemId }, data: { draftSellPrice: r.suggested, priceAck: false } });
         }
       }
-      return toDto(await buildPricingPlan(tx, invoiceId));
+      return toDto(await buildPricingPlan(tx, invoiceId, undefined, cp));
     });
   }
 

@@ -13,7 +13,7 @@ import { getJson, putJson } from '@/lib/client-api';
 import { breakEvenPrice, changesSince, OUTCOME_LABEL, priceShares, type EntryView } from '@/lib/entries';
 import { COMPONENT_LABEL, type CostComponent } from '@/lib/invoice-cost';
 import { money } from '@/lib/invoices';
-import { FLAG_INFO, moneyCost, pct1, RULE_SCOPE_LABEL, type PriceHistoryEntry, type PricingPlanView, type PricingRowView } from '@/lib/pricing';
+import { FLAG_INFO, moneyCost, pct1, rowExpenses, RULE_SCOPE_LABEL, type PriceHistoryEntry, type PricingPlanView, type PricingRowView } from '@/lib/pricing';
 import { TaxChip } from './tax-banner';
 
 const UNAVAILABLE: Record<NonNullable<PricingRowView['saleTax']['unavailable']>, string> = {
@@ -159,26 +159,29 @@ function CostLines({ components }: { components: CostComponent[] }) {
   );
 }
 
-const SPLIT_TONE = { cost: 'bg-slate-400', tax: 'bg-sky-400', overhead: 'bg-violet-400', margin: 'bg-emerald-500' } as const;
+const SPLIT_TONE = { cost: 'bg-slate-400', tax: 'bg-sky-400', overhead: 'bg-violet-400', structure: 'bg-amber-400', margin: 'bg-emerald-500' } as const;
 
 /**
- * "De cada R$ 100 do preço" (UI §6.1 e §7): quanto do preço proposto vai para o custo, o imposto, as despesas da regra e o
- * que sobra. Abaixo, os preços-limite: o que só cobre custo, imposto e despesas, e o da margem mínima da regra.
+ * "De cada R$ 100 do preço" (UI §6.1 e §7): quanto do preço proposto vai para o custo, o imposto, as despesas de venda, a
+ * estrutura da oficina (com perfil de custos) e o que sobra. Abaixo, os preços-limite: mínimo sem prejuízo (custo, imposto e
+ * despesas de venda), equilíbrio (com a estrutura) e o da margem mínima da regra.
  */
 function PriceSplit({ row: r, rule }: { row: PricingRowView; rule: PricingPlanView['rule'] }) {
   const price = Number(r.proposed ?? r.suggested ?? 0);
-  const cost = Number(r.cost ?? 0);
+  const ex = rowExpenses(r, rule);
+  const cost = ex.priceCost;
   if (price <= 0 || cost <= 0) return null;
   const tax = r.saleTax.pct === null ? 0 : Number(r.saleTax.pct);
-  const overhead = Number(rule?.overheadPct ?? 0);
-  const shares = priceShares(price, cost, tax, overhead)!;
-  const floor = breakEvenPrice(cost, tax, overhead);
-  const minMargin = Number(rule?.minMarginPct ?? 0);
-  const minPrice = minMargin > 0 ? breakEvenPrice(cost, tax, overhead, minMargin) : null;
+  const shares = priceShares(price, cost, tax, ex.variable + ex.fixed)!;
+  const floor = breakEvenPrice(cost, tax, ex.variable);
+  const even = ex.fixed > 0 ? breakEvenPrice(cost, tax, ex.variable + ex.fixed) : null;
+  const minMargin = Number((r.rule ?? rule)?.minMarginPct ?? 0);
+  const minPrice = minMargin > 0 ? breakEvenPrice(cost, tax, ex.variable + ex.fixed, minMargin) : null;
   const parts = [
-    { key: 'cost', label: 'Custo', v: shares.cost },
+    { key: 'cost', label: ex.extra > 0 ? 'Custo + extras' : 'Custo', v: shares.cost },
     { key: 'tax', label: 'Imposto', v: shares.tax },
-    { key: 'overhead', label: 'Despesas', v: shares.overhead },
+    { key: 'overhead', label: 'Despesas de venda', v: ex.variable },
+    ...(ex.fixed > 0 ? [{ key: 'structure', label: 'Estrutura da oficina', v: ex.fixed } as const] : []),
     { key: 'margin', label: shares.margin >= 0 ? 'Margem' : 'Prejuízo', v: shares.margin },
   ] as const;
   const r100 = (v: number) => money(Math.max(0, v));
@@ -206,6 +209,12 @@ function PriceSplit({ row: r, rule }: { row: PricingRowView; rule: PricingPlanVi
           <dt className="text-muted-foreground">Mínimo sem prejuízo</dt>
           <dd className="font-semibold">{floor === null ? 'não há' : money(floor)}</dd>
         </div>
+        {even !== null && (
+          <div>
+            <dt className="text-muted-foreground">Equilíbrio (cobre a estrutura)</dt>
+            <dd className="font-semibold">{money(even)}</dd>
+          </div>
+        )}
         {minPrice !== null && (
           <div>
             <dt className="text-muted-foreground">Margem mínima ({pct1(minMargin)})</dt>
@@ -213,7 +222,11 @@ function PriceSplit({ row: r, rule }: { row: PricingRowView; rule: PricingPlanVi
           </div>
         )}
       </dl>
-      <p className="text-xs text-muted-foreground">As despesas fixas da oficina (aluguel, folha) ainda não entram nesta conta: só as despesas definidas na regra.</p>
+      <p className="text-xs text-muted-foreground">
+        {ex.source === 'PROFILE'
+          ? `Despesas pelo perfil de custos: estrutura ${pct1(ex.fixed)} e despesas de venda ${pct1(ex.variable)} do preço${ex.extra > 0 ? `, mais ${moneyCost(ex.extra)} por peça` : ''}.`
+          : 'As despesas fixas da oficina (aluguel, folha) ainda não entram nesta conta: só as despesas definidas na regra. Publique o perfil em Precificação → Despesas.'}
+      </p>
     </section>
   );
 }

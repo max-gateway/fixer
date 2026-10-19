@@ -18,7 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { ClientApiError, getJson, postJson, putJson } from '@/lib/client-api';
 import { money } from '@/lib/invoices';
-import { ACKABLE, delta, FLAG_INFO, marginOf, moneyCost, parsePrice, pct1, type PricingPlanView, type PricingRowView } from '@/lib/pricing';
+import { ACKABLE, delta, FLAG_INFO, marginOf, moneyCost, parsePrice, pct1, rowExpenses, type PricingPlanView, type PricingRowView } from '@/lib/pricing';
 import { PriceDetails } from './price-details';
 import { MarkupPopover } from './price-slider';
 import { TaxBanner, TaxChip } from './tax-banner';
@@ -132,6 +132,7 @@ export function PricingPanel({ invoiceId, ready }: { invoiceId: string; ready: b
       )}
 
       <TaxBanner readiness={p.taxReadiness} unavailable={p.rows.filter((r) => r.flags.includes('TAX_UNAVAILABLE')).length} />
+      <CostProfileNote status={p.costProfile} />
 
       {showFilter && (
         <ToggleGroup type="single" value={filter} onValueChange={(v) => setFilter((v || 'all') as Filter)} aria-label="Filtrar itens" size="sm">
@@ -270,9 +271,10 @@ function PriceRow({ invoiceId, plan, row: r, index }: { invoiceId: string; plan:
   });
 
   const taxPct = r.saleTax.pct === null ? 0 : Number(r.saleTax.pct);
-  const overhead = Number(plan.rule?.overheadPct ?? 0);
+  const ex = rowExpenses(r, plan.rule);
+  const overhead = ex.variable + ex.fixed;
   const typed = text === null ? null : parsePrice(text);
-  const shownMargin = typed !== null && r.cost ? marginOf(Number(r.cost), typed, taxPct, overhead) : r.marginPct !== null ? Number(r.marginPct) : null;
+  const shownMargin = typed !== null && r.cost ? marginOf(ex.priceCost, typed, taxPct, overhead) : r.marginPct !== null ? Number(r.marginPct) : null;
   const costDelta = delta(r.previousCost, r.cost);
   const needsAck = r.flags.some((f) => ACKABLE.includes(f) && (f !== 'TAX_UNCONFIRMED' || plan.requireTaxConfirmation));
   const changed = r.proposed !== null && r.proposed !== r.currentPrice;
@@ -397,5 +399,30 @@ function PriceRow({ invoiceId, plan, row: r, index }: { invoiceId: string; plan:
         <span className="tabular text-sm font-medium">{shownMargin !== null ? pct1(shownMargin) : '—'}</span>
       </TableCell>
     </TableRow>
+  );
+}
+
+/**
+ * De onde vêm as despesas do preço (docs/specs/cost-engine.md §14, fase 2): com perfil publicado, uma linha discreta diz a
+ * versão; motor fora do ar, avisa que valeu a despesa da regra. Motor desligado ou sem perfil: nada a dizer.
+ */
+export function CostProfileNote({ status }: { status: PricingPlanView['costProfile'] }) {
+  if (!status || status.status !== 'OK') {
+    if (status?.status !== 'UNAVAILABLE') return null;
+    return (
+      <Alert variant="warning">
+        <TriangleAlert aria-hidden />
+        <AlertDescription>O perfil de custos não respondeu agora: os preços usam as despesas da regra. Tente atualizar em instantes.</AlertDescription>
+      </Alert>
+    );
+  }
+  return (
+    <p className="text-xs text-muted-foreground">
+      Despesas pelo perfil de custos v{status.version}: estrutura {pct1(status.fixedPct)} e despesas de venda {pct1(Number(status.variablePct) + Number(status.financialPct))} do preço
+      {Number(status.extraUnitCost) > 0 && <>, mais {moneyCost(status.extraUnitCost)} por peça</>}.{' '}
+      <Link href="/configuracoes/precificacao?aba=despesas" className="underline underline-offset-2">
+        Ver despesas
+      </Link>
+    </p>
   );
 }

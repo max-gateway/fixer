@@ -1,5 +1,6 @@
 import { Prisma } from '@fixer/db';
 import { ConflictException, UnprocessableEntityException } from '@nestjs/common';
+import type { PricingCostProfile } from '../../pricing/cost-profile.js';
 import { buildPricingPlan, type PricingPlan, type PricingRow } from '../../pricing/pricing-plan.js';
 import { nextAvgCost } from '../../stock/avg-cost.js';
 import { loadInvoiceLedger } from '../tax/invoice-ledger.js';
@@ -10,6 +11,8 @@ type Tx = Prisma.TransactionClient;
 export interface PostOptions {
   /** Aplica os preços de venda (rascunho ou sugestão) junto com a entrada (docs/specs/pricing.md §6.2). Sem isto o preço nunca muda. */
   applyPricing?: boolean;
+  /** Perfil de custos (cost-engine) para as despesas do preço; sem ele, vale o `overheadPct` da regra. */
+  costProfile?: PricingCostProfile;
 }
 
 /**
@@ -39,10 +42,10 @@ export async function postInvoice(tx: Tx, invoiceId: string, userId: string, opt
   // Sem pedido de preço o plano só alimenta o snapshot: se não der para montá-lo, o lançamento segue sem ele.
   let plan: PricingPlan | null = null;
   let planError: string | null = null;
-  if (opts.applyPricing) plan = await buildPricingPlan(tx, invoiceId, ledger);
+  if (opts.applyPricing) plan = await buildPricingPlan(tx, invoiceId, ledger, opts.costProfile);
   else {
     try {
-      plan = await buildPricingPlan(tx, invoiceId, ledger);
+      plan = await buildPricingPlan(tx, invoiceId, ledger, opts.costProfile);
     } catch (e) {
       planError = e instanceof Error ? e.message : String(e);
     }
@@ -175,6 +178,7 @@ export async function postInvoice(tx: Tx, invoiceId: string, userId: string, opt
         sellPriceAfter: part.sellPrice,
         priceChanged: snap.priceChanged,
         taxRulesVersion: plan?.rulesVersion ?? ledger.rulesVersion,
+        costProfileVersion: plan?.costProfile.status === 'OK' ? plan.costProfile.version : null,
         context: snap.context as Prisma.InputJsonValue,
         contentHash: snap.contentHash,
         createdById: userId,

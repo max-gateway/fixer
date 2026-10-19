@@ -1087,6 +1087,22 @@ model TenantTaxProfile {
   @@map("tenant_tax_profile")
 }
 
+// O que o motor de custos (platform cost-engine) precisa e o Fixer não registra sozinho (docs/specs/cost-engine.md §14, fase 1):
+// mix de pagamento, horas disponíveis da oficina e meta de faturamento. Singleton por organização.
+model CostSettings {
+  orgId                String    @id @default(dbgenerated("app_org()")) @db.Uuid
+  paymentMix           Json? // % por forma de pagamento: { "PIX": 30, "DINHEIRO": 10, "DEBITO": 10, "CREDITO_1X": 25, "CREDITO_PARCELADO": 25 }
+  mechanics            Int? // pessoas que vendem horas na oficina
+  hoursPerMechanic     Decimal? // horas de trabalho por pessoa no mês
+  partsRevenueGoal     Decimal? // meta mensal de faturamento de peças: base do rateio enquanto não há 3 meses de histórico
+  templateApplied      Boolean   @default(false) // a empresa já recebeu o modelo "oficina" no cost-engine
+  lastSyncAt           DateTime?
+  lastPublishedVersion Int?
+  updatedAt            DateTime  @updatedAt
+
+  @@map("cost_settings")
+}
+
 // Aceite do contador por tabela de regra tributária (packages/tax-rules): a versão que ele validou. Mudou a versão da tabela,
 // o aceite deixa de valer e o imposto volta a "estimado".
 model TaxTableReview {

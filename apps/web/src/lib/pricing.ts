@@ -13,6 +13,7 @@ export type PriceFlag =
   | 'BELOW_COST'
   | 'BELOW_COST_AFTER_TAX'
   | 'BELOW_MIN_MARGIN'
+  | 'BELOW_BREAK_EVEN'
   | 'BIG_JUMP'
   | 'COST_SPIKE'
   | 'PRICE_DOWN';
@@ -72,7 +73,13 @@ export type PricingRowView = {
   ack: boolean;
   error: string | null;
   locked: boolean;
+  /** Despesas que o preço usou: do perfil de custos (estrutura + venda + extra por unidade) ou da regra. */
+  overhead?: { source: 'PROFILE' | 'RULE'; variablePct: string; fixedPct: string; extraUnitCost: string };
 };
+
+export type CostProfileStatus =
+  | { status: 'OK'; version: number; channel: string; fixedPct: string; variablePct: string; financialPct: string; extraUnitCost: string; confidence: 'CONFIRMADO' | 'ESTIMADO' }
+  | { status: 'OFF' | 'NONE' | 'UNAVAILABLE' };
 
 export type PricingPlanView = {
   rulesVersion: string;
@@ -89,6 +96,8 @@ export type PricingPlanView = {
     missing: { id: 'regime' | 'dados' | 'perfil' | 'tabela' | 'tabela-monofasico'; label: string; detail: string; tableId: string | null }[];
   };
   rows: PricingRowView[];
+  /** Perfil de custos usado nas despesas do preço (ou por que não). */
+  costProfile?: CostProfileStatus;
 };
 
 export type FlagInfo = { label: string; hint: string; tone: 'danger' | 'warning' | 'info' };
@@ -103,6 +112,7 @@ export const FLAG_INFO: Record<PriceFlag, FlagInfo> = {
   TAX_UNCONFIRMED: { label: 'Imposto não confirmado', hint: 'O enquadramento (ST, monofásico) desta peça ainda não foi confirmado.', tone: 'warning' },
   BELOW_COST: { label: 'Abaixo do custo', hint: 'O preço é menor que o custo: prejuízo certo. Não dá para lançar assim.', tone: 'danger' },
   BELOW_COST_AFTER_TAX: { label: 'Prejuízo depois do imposto', hint: 'Vende por mais que o custo, mas depois do imposto e das despesas não cobre o custo.', tone: 'danger' },
+  BELOW_BREAK_EVEN: { label: 'Não cobre a estrutura', hint: 'Cobre o custo, o imposto e as despesas de venda, mas não a parte das despesas fixas da oficina. Marque "estou ciente" para seguir.', tone: 'warning' },
   BELOW_MIN_MARGIN: { label: 'Margem abaixo do mínimo', hint: 'A margem líquida é menor que o mínimo da regra. Marque "estou ciente" para seguir.', tone: 'warning' },
   BIG_JUMP: { label: 'Mudança grande', hint: 'O preço muda mais que o limite da regra. Marque "estou ciente" para seguir.', tone: 'warning' },
   COST_SPIKE: { label: 'Custo subiu muito', hint: 'O custo desta compra é bem maior que o anterior. Confira a nota.', tone: 'warning' },
@@ -110,7 +120,19 @@ export const FLAG_INFO: Record<PriceFlag, FlagInfo> = {
 };
 
 /** Alertas que o usuário pode liberar com "estou ciente" (os demais ou são avisos ou não têm liberação). */
-export const ACKABLE: readonly PriceFlag[] = ['BELOW_MIN_MARGIN', 'BIG_JUMP', 'TAX_UNCONFIRMED'];
+export const ACKABLE: readonly PriceFlag[] = ['BELOW_MIN_MARGIN', 'BELOW_BREAK_EVEN', 'BIG_JUMP', 'TAX_UNCONFIRMED'];
+
+/**
+ * Despesas efetivas de uma linha, em % do preço e R$ por unidade: as do perfil de custos quando a API as aplicou, senão o
+ * `overheadPct` da regra (plano antigo ou sem perfil). `priceCost` = custo + extra por unidade, base do preço e da margem.
+ */
+export function rowExpenses(r: Pick<PricingRowView, 'overhead' | 'rule' | 'cost'>, planRule: RuleView | null) {
+  if (r.overhead) {
+    const extra = Number(r.overhead.extraUnitCost);
+    return { source: r.overhead.source, variable: Number(r.overhead.variablePct), fixed: Number(r.overhead.fixedPct), extra, priceCost: Number(r.cost ?? 0) + extra };
+  }
+  return { source: 'RULE' as const, variable: Number((r.rule ?? planRule)?.overheadPct ?? 0), fixed: 0, extra: 0, priceCost: Number(r.cost ?? 0) };
+}
 
 /** "43,90", "43.90" e "1.234,56" viram número; texto vazio ou inválido vira null. */
 export function parsePrice(text: string): number | null {

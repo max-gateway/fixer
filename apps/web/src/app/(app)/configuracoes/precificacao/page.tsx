@@ -2,6 +2,8 @@ import { ArrowLeft, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError, apiGet } from '@/lib/api';
+import type { CostsOverview } from '@/lib/costs';
+import { CostsTab } from './costs-tab';
 import { RuleForm, type RuleSettings } from './pricing-settings-form';
 import { ReadinessCard, type TaxReadiness } from './readiness';
 import { RuleExceptions, type ScopedRule } from './rule-exceptions';
@@ -10,7 +12,7 @@ import { TaxTables, type TaxTableView } from './tax-tables';
 
 export const metadata = { title: 'Precificação' };
 
-const TABS = ['regra', 'imposto', 'tabelas'] as const;
+const TABS = ['regra', 'imposto', 'tabelas', 'despesas'] as const;
 type Tab = (typeof TABS)[number];
 
 export default async function PrecificacaoPage({ searchParams }: { searchParams: Promise<{ aba?: string }> }) {
@@ -46,6 +48,9 @@ export default async function PrecificacaoPage({ searchParams }: { searchParams:
     );
   }
 
+  // Despesas vêm do motor de custos: se ele falhar, só a aba mostra o erro; o resto da página segue.
+  const costs = tab === 'despesas' ? await apiGet<CostsOverview>('/costs').catch(() => null) : null;
+
   const pendingTables = tables.tables.filter((t) => readiness.requiredTables.includes(t.id) && t.review?.current !== true).length;
 
   return (
@@ -71,6 +76,10 @@ export default async function PrecificacaoPage({ searchParams }: { searchParams:
             Tabelas
             {pendingTables > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-xs text-amber-900">{pendingTables}</span>}
           </TabsTrigger>
+          {/* Navega (em vez de só trocar a aba) para o servidor buscar as despesas, que só são carregadas nesta aba. */}
+          <TabsTrigger value="despesas" asChild>
+            <Link href="/configuracoes/precificacao?aba=despesas">Despesas</Link>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="regra" className="space-y-8">
@@ -88,6 +97,11 @@ export default async function PrecificacaoPage({ searchParams }: { searchParams:
           <ReadinessCard readiness={readiness} />
           {/* canReview: a API recusa quem não tem `fiscal.verify`; o botão aparece e o erro explica. */}
           <TaxProfileForm key={JSON.stringify(profile)} initial={profile} readiness={readiness} canReview />
+        </TabsContent>
+
+        <TabsContent value="despesas">
+          {/* canEdit: a API recusa quem não tem `pricing.write`; o botão aparece e o erro explica. */}
+          <CostsTab data={costs} canEdit />
         </TabsContent>
 
         <TabsContent value="tabelas">

@@ -1,6 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { TenantContext } from '../tenancy/tenant-context.js';
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { CostProfileProvider } from '../costs/cost-profile.provider.js';
 import { Prisma } from '@fixer/db';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -58,7 +59,10 @@ const EDITABLE = ['PENDING_MATCH', 'READY'];
 
 @Injectable()
 export class InvoicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly costProfile?: CostProfileProvider,
+  ) {}
 
   async list(query: z.infer<typeof ListQuerySchema>) {
     const where: Prisma.PurchaseInvoiceWhereInput = { ...VIEW_WHERE[query.view] };
@@ -215,11 +219,13 @@ export class InvoicesService {
 
   /** Confirma a entrada no estoque de uma nota READY (docs/specs/nfe-import.md §8.3). */
   async confirm(invoiceId: string, userId: string, opts: { applyPricing?: boolean } = {}) {
+    // Mesmo perfil de custos que a tela mostrou ao precificar; buscado antes da transação (é uma chamada HTTP).
+    const costProfile = opts.applyPricing && this.costProfile ? await this.costProfile.forPricing() : undefined;
     await this.prisma.$transaction(async (tx) => {
       const inv = await tx.purchaseInvoice.findUnique({ where: { id: invoiceId }, select: { status: true, exportStatus: true } });
       if (!inv) throw new NotFoundException('Nota não encontrada');
       if (inv.exportStatus === 'POSTED') return; // idempotente
-      if (!(await postInvoice(tx, invoiceId, userId, opts))) {
+      if (!(await postInvoice(tx, invoiceId, userId, { ...opts, costProfile }))) {
         throw new ConflictException('Só uma nota completa, sem itens pendentes nem revisão, pode ser lançada');
       }
     });

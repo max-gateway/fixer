@@ -59,6 +59,21 @@ describe('buildZones', () => {
     expect(z[2]).toMatchObject({ to: 200, label: 'Na meta' });
   });
 
+  it('com perfil de custos: faixa "não cobre a estrutura" entre o mínimo e o equilíbrio, e o extra por unidade empurra tudo', () => {
+    // imposto 6, venda 4, estrutura 15: mínimo = 100/90 → 11,1%; equilíbrio = 100/75 → 33,3%; margem 10 → 100/65 → 53,8%
+    const z = buildZones({ taxPct: 6, overheadPct: 4, fixedPct: 15, minMarginPct: 10, max: 200 });
+    expect(z.map((x) => [x.tone, x.label])).toEqual([
+      ['danger', 'Prejuízo depois do imposto'],
+      ['warning', 'Não cobre a estrutura'],
+      ['warning', 'Abaixo da margem mínima'],
+      ['ok', 'Na meta'],
+    ]);
+    expect(z[1]!.to).toBeCloseTo(33.33, 2);
+    expect(z[2]!.to).toBeCloseTo(53.85, 2);
+    // custo de preço 2% acima do de aquisição (extra por unidade): o markup do equilíbrio sobe junto
+    expect(buildZones({ taxPct: 6, overheadPct: 4, fixedPct: 15, minMarginPct: 0, max: 200, costRatio: 1.02 })[1]!.to).toBeCloseTo(36, 2);
+  });
+
   it('sem margem mínima não há faixa âmbar', () => {
     expect(buildZones({ taxPct: 10, overheadPct: 5, minMarginPct: 0, max: 200 }).map((x) => x.tone)).toEqual(['danger', 'ok']);
   });

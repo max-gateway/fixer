@@ -111,6 +111,19 @@ describe('guardas', () => {
     expect(evaluatePrice(base())).toEqual([]);
   });
 
+  it('com estrutura (perfil de custos): abaixo do equilíbrio pede ciência; abaixo do mínimo continua bloqueando', () => {
+    // custo 100, imposto 6, despesas de venda 4, estrutura 15: mínimo 111,11; equilíbrio 133,33
+    const at = (p: number) => evaluatePrice(base({ proposed: D(p), taxPct: D(6), overheadPct: D(4), fixedPct: D(15), minMarginPct: D(0), currentPrice: null }));
+    expect(at(120)).toEqual(['BELOW_BREAK_EVEN']);
+    expect(blockingFlags(at(120), false, false)).toEqual(['BELOW_BREAK_EVEN']);
+    expect(blockingFlags(at(120), true, false)).toEqual([]); // "estou ciente" libera
+    expect(at(110)).toContain('BELOW_COST_AFTER_TAX');
+    expect(at(110)).not.toContain('BELOW_BREAK_EVEN');
+    expect(at(140)).toEqual([]);
+    // a margem mínima passa a descontar a estrutura: 140 tem margem líquida de 3,57%
+    expect(evaluatePrice(base({ proposed: D(140), taxPct: D(6), overheadPct: D(4), fixedPct: D(15), minMarginPct: D(5), currentPrice: null }))).toEqual(['BELOW_MIN_MARGIN']);
+  });
+
   it('abaixo do custo bloqueia, mesmo com ciência', () => {
     const f = evaluatePrice(base({ proposed: D(90) }));
     expect(f).toContain('BELOW_COST');

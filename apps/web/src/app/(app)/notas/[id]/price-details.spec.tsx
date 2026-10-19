@@ -13,6 +13,7 @@ vi.mock('@/lib/client-api', async (orig) => ({ ...(await orig<typeof import('@/l
 
 import { entryTaxPayableBody, EntryTaxPayable } from './entry-tax-payable';
 import { PriceDetails } from './price-details';
+import { CostProfileNote } from './pricing-panel';
 
 beforeAll(() => {
   globalThis.ResizeObserver ??= class {
@@ -79,6 +80,19 @@ describe('PriceDetails (gaveta "Por que esse preço?")', () => {
     expect(screen.getByText(/Margem mínima/).nextSibling!.textContent).toMatch(/142,86/);
   });
 
+  it('com perfil de custos: separa estrutura de despesas de venda e mostra o equilíbrio', async () => {
+    await openDrawer(row({ overhead: { source: 'PROFILE', variablePct: '4', fixedPct: '15', extraUnitCost: '2' } }), []);
+    // custo + extras 102 de 160 = 63,75; imposto 6; venda 4; estrutura 15; margem 11,25
+    expect(screen.getByText('Custo + extras')).toBeTruthy();
+    expect(screen.getByText('Estrutura da oficina').closest('li')!.textContent).toMatch(/15,00/);
+    expect(screen.getByText('Margem').closest('li')!.textContent).toMatch(/11,25/);
+    // 102 ÷ 0,90 = 113,33; 102 ÷ 0,75 = 136,00; 102 ÷ 0,55 = 185,45
+    expect(screen.getByText('Mínimo sem prejuízo').nextSibling!.textContent).toMatch(/113,33/);
+    expect(screen.getByText(/Equilíbrio/).nextSibling!.textContent).toMatch(/136,00/);
+    expect(screen.getByText(/Margem mínima/).nextSibling!.textContent).toMatch(/185,45/);
+    expect(screen.getByText(/Despesas pelo perfil de custos/)).toBeTruthy();
+  });
+
   it('preço abaixo do custo mais imposto aparece como prejuízo', async () => {
     await openDrawer(row({ proposed: '100' }), []);
     expect(screen.getByText('Prejuízo')).toBeTruthy();
@@ -135,5 +149,16 @@ describe('EntryTaxPayable', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Criar conta' }));
     expect(api.postJson).toHaveBeenCalledWith('/api/payables', expect.objectContaining({ amount: 214.8, dueDate: '2026-11-10', supplierName: 'SEFAZ-PE' }), expect.any(String));
     expect(await screen.findByText('Conta criada em Contas a pagar.')).toBeTruthy();
+  });
+});
+
+describe('CostProfileNote', () => {
+  it('diz a versão do perfil usado; fora do ar, avisa que valeu a regra; desligado, nada', () => {
+    const { container, rerender } = render(<CostProfileNote status={{ status: 'OK', version: 4, channel: 'BALCAO', fixedPct: '15', variablePct: '4', financialPct: '0.5', extraUnitCost: '0', confidence: 'CONFIRMADO' }} />);
+    expect(container.textContent).toMatch(/perfil de custos v4: estrutura 15% e despesas de venda 4,5%/);
+    rerender(<CostProfileNote status={{ status: 'UNAVAILABLE' }} />);
+    expect(container.textContent).toMatch(/usam as despesas da regra/);
+    rerender(<CostProfileNote status={{ status: 'OFF' }} />);
+    expect(container.textContent).toBe('');
   });
 });

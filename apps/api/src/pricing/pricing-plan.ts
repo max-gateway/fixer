@@ -8,6 +8,7 @@ import { TABLES } from '@fixer/tax-rules';
 import { taxNotes, type TaxNote } from './tax-notes.js';
 import { taxReadiness, type TaxReadiness } from './tax-readiness.js';
 import { resolveRule, type ResolvedRule } from './rule-resolver.js';
+import { NO_COST_PROFILE, type PricingCostProfile } from './cost-profile.js';
 
 // Monta, para cada item resolvido de uma nota, o que a precificação mostra e o que o lançamento aplica
 // (docs/specs/pricing.md §5 e §6). É a MESMA função do preview e do lançamento: o que a pessoa vê é o que será gravado.
@@ -52,6 +53,11 @@ export interface PricingRow {
   /** Motivo de não haver sugestão, em português, quando a conta falhou. */
   error: string | null;
   locked: boolean;
+  /**
+   * Despesas que o preço desta linha usou: do perfil de custos (estrutura + despesas de venda + custo extra por unidade) ou,
+   * sem perfil, o `overheadPct` da regra. O preço sai de (custo + extra) ÷ (1 − (margem + imposto + variável + estrutura)).
+   */
+  overhead: { source: 'PROFILE' | 'RULE'; variablePct: D; fixedPct: D; extraUnitCost: D };
 }
 
 export interface PricingPlan {
@@ -65,9 +71,16 @@ export interface PricingPlan {
   /** O que falta para o imposto desta nota sair confirmado (a mesma conta da tela de configuração). */
   readiness: TaxReadiness;
   ledger: InvoiceLedger;
+  /** Perfil de custos usado (ou por que não). */
+  costProfile: PricingCostProfile;
 }
 
-export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: InvoiceLedger): Promise<PricingPlan> {
+export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: InvoiceLedger, costProfile: PricingCostProfile = NO_COST_PROFILE): Promise<PricingPlan> {
+  // Com perfil publicado, as despesas vêm dele e o `overheadPct` da regra deixa de valer (cost-engine.md §14, fase 2).
+  const fromProfile = costProfile.status === 'OK';
+  const profileVariable = fromProfile ? D(costProfile.variablePct).plus(D(costProfile.financialPct)) : null;
+  const profileFixed = fromProfile ? D(costProfile.fixedPct) : D(0);
+  const extraUnit = fromProfile ? D(costProfile.extraUnitCost) : D(0);
   const ledger = ledgerIn ?? (await loadInvoiceLedger(tx, invoiceId));
   const [invoice, items, rules, profile, tableReviews] = await Promise.all([
     tx.purchaseInvoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { issuerCnpj: true } }),
@@ -95,7 +108,10 @@ export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: Inv
     const resolved = resolveRule(rules, { partId: part.id, ncm: item.ncm, supplierCnpj: invoice.issuerCnpj });
     const rule = resolved?.rule ?? null;
     const l = ledger.items.get(item.itemNumber);
+    // Custo de aquisição (o que vai para a peça) e custo de preço (com o extra por unidade do perfil).
     const cost = l?.landedCost ?? null;
+    const variable = profileVariable ?? D(rule?.overheadPct);
+    const priceCost = cost === null ? null : cost.plus(extraUnit);
     const locked = part.pricingMode === 'MANUAL';
 
     // Enquadramento: o que a pessoa confirmou na peça vale mais que a leitura do XML.
@@ -124,9 +140,9 @@ export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: Inv
     else if (!rule) rowFlags.push('NO_RULE');
     else if (tax.pct === null) rowFlags.push('TAX_UNAVAILABLE');
     else {
-      const params: PriceParams = { method: rule.method, value: rule.value, taxPct: tax.pct, overheadPct: rule.overheadPct, rounding: rule.rounding };
+      const params: PriceParams = { method: rule.method, value: rule.value, taxPct: tax.pct, overheadPct: variable.plus(profileFixed), rounding: rule.rounding };
       try {
-        suggested = suggestPrice(cost, params).price;
+        suggested = suggestPrice(priceCost!, params).price;
       } catch (e) {
         if (!(e instanceof PricingError)) throw e;
         error = e.message;
@@ -136,23 +152,24 @@ export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: Inv
     const draft = item.draftSellPrice ? D(item.draftSellPrice) : null;
     const proposed = locked ? null : (draft ?? suggested);
     const taxPct = tax.pct ?? D(0);
-    const overhead = D(rule?.overheadPct);
     let marginPct: D | null = null;
     let markupPct: D | null = null;
     let blocking: PriceFlag[] = [];
 
     if (proposed && cost && cost.gt(0)) {
-      marginPct = marginFromPrice(cost, proposed, taxPct, overhead);
+      // Margem líquida: depois do imposto, das despesas de venda e da estrutura. Markup sobre o custo de aquisição.
+      marginPct = marginFromPrice(priceCost!, proposed, taxPct, variable.plus(profileFixed));
       markupPct = markupFromPrice(cost, proposed);
       if (tax.pct === null && !rowFlags.includes('TAX_UNAVAILABLE')) rowFlags.push('TAX_UNAVAILABLE');
       rowFlags.push(
         ...evaluatePrice({
-          cost,
+          cost: priceCost!,
           proposed,
           currentPrice: part.sellPrice.gt(0) ? part.sellPrice : null,
           previousCost: part.costPrice.gt(0) ? part.costPrice : null,
           taxPct,
-          overheadPct: overhead,
+          overheadPct: variable,
+          fixedPct: profileFixed,
           minMarginPct: D(rule?.minMarginPct),
           maxJumpPct: D(rule?.maxJumpPct ?? 25),
           taxConfirmed: tax.confidence !== 'ESTIMADO',
@@ -187,10 +204,11 @@ export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: Inv
       ack: item.priceAck,
       error,
       locked,
+      overhead: { source: fromProfile ? 'PROFILE' : 'RULE', variablePct: variable, fixedPct: profileFixed, extraUnitCost: extraUnit },
     });
   }
 
-  return { rows, rulesVersion: TAX_RULES_VERSION, regime: ledger.regime, hasRule: defaultRule !== null || rules.length > 0, rule: defaultRule, requireTaxConfirmation, readiness: taxReadiness({ regime: ledger.regime, profile, tableReviews: reviewMap }), ledger };
+  return { rows, rulesVersion: TAX_RULES_VERSION, regime: ledger.regime, hasRule: defaultRule !== null || rules.length > 0, rule: defaultRule, requireTaxConfirmation, readiness: taxReadiness({ regime: ledger.regime, profile, tableReviews: reviewMap }), ledger, costProfile };
 }
 
 const s = (d: D | null) => (d ? d.toString() : null);
@@ -218,6 +236,8 @@ export function toDto(plan: PricingPlan) {
       /** Só o que bloqueia o "confirmado"; os passos opcionais (monofásico) ficam de fora. */
       missing: plan.readiness.steps.filter((s) => !s.done && !s.optional).map((s) => ({ id: s.id, label: s.label, detail: s.detail, tableId: s.tableId ?? null })),
     },
+    /** Perfil de custos aplicado às despesas do preço (ou por que não foi usado). */
+    costProfile: plan.costProfile,
     rows: plan.rows.map((r) => ({
       itemNumber: r.itemNumber,
       partId: r.partId,
@@ -249,6 +269,7 @@ export function toDto(plan: PricingPlan) {
       ack: r.ack,
       error: r.error,
       locked: r.locked,
+      overhead: { source: r.overhead.source, variablePct: r.overhead.variablePct.toString(), fixedPct: r.overhead.fixedPct.toString(), extraUnitCost: r.overhead.extraUnitCost.toString() },
       taxNotes: r.taxNotes,
     })),
   };

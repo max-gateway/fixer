@@ -104,6 +104,8 @@ export type PriceFlag =
   | 'BELOW_COST'
   | 'BELOW_COST_AFTER_TAX'
   | 'BELOW_MIN_MARGIN'
+  /** Cobre custo, imposto e despesas de venda, mas não a estrutura da oficina (perfil de custos): pede ciência. */
+  | 'BELOW_BREAK_EVEN'
   | 'BIG_JUMP'
   | 'COST_SPIKE'
   | 'PRICE_DOWN';
@@ -111,7 +113,7 @@ export type PriceFlag =
 /** Bloqueiam o lançamento enquanto o preço estiver assim (não há "estou ciente" para prejuízo certo). */
 export const BLOCKING_FLAGS: readonly PriceFlag[] = ['BELOW_COST', 'BELOW_COST_AFTER_TAX'];
 /** Exigem que a pessoa marque "estou ciente" no item. */
-export const ACK_FLAGS: readonly PriceFlag[] = ['BELOW_MIN_MARGIN', 'BIG_JUMP'];
+export const ACK_FLAGS: readonly PriceFlag[] = ['BELOW_MIN_MARGIN', 'BELOW_BREAK_EVEN', 'BIG_JUMP'];
 
 export interface EvaluateInput {
   cost: D;
@@ -120,7 +122,10 @@ export interface EvaluateInput {
   currentPrice: D | null;
   previousCost: D | null;
   taxPct: D;
+  /** Despesas de venda (variáveis): sem cobri-las, cada venda dá prejuízo. */
   overheadPct: D;
+  /** Estrutura (despesa fixa rateada, do perfil de custos). 0 quando não há perfil. */
+  fixedPct?: D;
   minMarginPct: D;
   maxJumpPct: D;
   taxConfirmed: boolean;
@@ -132,7 +137,10 @@ export function evaluatePrice(i: EvaluateInput): PriceFlag[] {
   if (i.proposed.lt(i.cost)) flags.push('BELOW_COST');
   // vende acima do custo, mas depois do imposto e das despesas não cobre o custo
   else if (i.proposed.mul(remaining([i.taxPct, i.overheadPct])).div(HUNDRED).lt(i.cost)) flags.push('BELOW_COST_AFTER_TAX');
-  if (marginFromPrice(i.cost, i.proposed, i.taxPct, i.overheadPct).lt(i.minMarginPct)) flags.push('BELOW_MIN_MARGIN');
+  // cobre as despesas de venda, mas não a estrutura: abaixo do equilíbrio (decisão comercial, não prejuízo por venda)
+  else if (i.fixedPct && i.fixedPct.gt(0) && i.proposed.mul(remaining([i.taxPct, i.overheadPct, i.fixedPct])).div(HUNDRED).lt(i.cost)) flags.push('BELOW_BREAK_EVEN');
+  // Abaixo do equilíbrio a margem já é negativa: o aviso do equilíbrio basta, sem repetir o da margem mínima.
+  if (!flags.includes('BELOW_BREAK_EVEN') && marginFromPrice(i.cost, i.proposed, i.taxPct, i.overheadPct.plus(i.fixedPct ?? 0)).lt(i.minMarginPct)) flags.push('BELOW_MIN_MARGIN');
   if (i.currentPrice && i.currentPrice.gt(0)) {
     if (i.proposed.minus(i.currentPrice).abs().div(i.currentPrice).mul(HUNDRED).gt(i.maxJumpPct)) flags.push('BIG_JUMP');
     if (i.proposed.lt(i.currentPrice)) flags.push('PRICE_DOWN');

@@ -61,7 +61,7 @@ export interface SnapshotInput {
   ledger: Pick<InvoiceLedger, 'regime' | 'rulesVersion' | 'alerts'>;
   itemLedger: ItemLedger;
   /** O plano de preço desta nota; null quando não foi possível montá-lo (lançamento sem preço com perfil incompleto). */
-  plan: Pick<PricingPlan, 'rulesVersion'> | null;
+  plan: Pick<PricingPlan, 'rulesVersion' | 'costProfile'> | null;
   row: PricingRow | null;
   /** Por que não há plano, quando `plan` é null. */
   planError: string | null;
@@ -160,6 +160,13 @@ export function buildEntrySnapshot(i: SnapshotInput): EntrySnapshot {
       markupPct: s(row?.markupPct),
       flags: row?.flags ?? [],
       error: row?.error ?? i.planError,
+      // Despesas que o preço usou: do perfil de custos (com a versão) ou da regra.
+      overhead: row && {
+        source: row.overhead.source,
+        variablePct: s(row.overhead.variablePct),
+        fixedPct: s(row.overhead.fixedPct),
+        extraUnitCost: s(row.overhead.extraUnitCost),
+      },
       priceHistoryId: i.priceHistoryId,
       rule: rule && {
         id: rule.id,
@@ -212,7 +219,7 @@ export function buildEntrySnapshot(i: SnapshotInput): EntrySnapshot {
       taxRulesVersion: i.plan?.rulesVersion ?? i.ledger.rulesVersion,
       // Motores da plataforma (tax-engine, cost-engine): preenchidos quando o Fixer passar a consumi-los.
       rulesetVersion: null,
-      costProfileVersion: null,
+      costProfileVersion: i.plan?.costProfile?.status === 'OK' ? i.plan.costProfile.version : null,
     },
     posted: { at: iso(i.postedAt), byId: i.postedById },
   };

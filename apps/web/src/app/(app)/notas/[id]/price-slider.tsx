@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { money } from '@/lib/invoices';
-import { marginOf, markupOf, pct1, priceFromMarkup, type PricingPlanView, type PricingRowView, type Rounding } from '@/lib/pricing';
+import { marginOf, markupOf, pct1, priceFromMarkup, rowExpenses, type PricingPlanView, type PricingRowView, type Rounding } from '@/lib/pricing';
 
 const ROUND = (v: number) => Math.round(v * 10) / 10;
 
@@ -35,15 +35,18 @@ export function buildMarks({ cost, suggested, current, max }: { cost: number; su
  * Zonas do markup (docs/specs/custos-e-impostos-ui.md §9.1): vermelho enquanto o preço, depois do imposto e das despesas, não
  * cobre o custo; âmbar até a margem mínima da regra; verde daí em diante. Imposto e despesas somando 100% ou mais: tudo vermelho.
  */
-export function buildZones({ taxPct, overheadPct, minMarginPct, max }: { taxPct: number; overheadPct: number; minMarginPct: number; max: number }): SliderZone[] {
+export function buildZones({ taxPct, overheadPct, fixedPct = 0, minMarginPct, max, costRatio = 1 }: { taxPct: number; overheadPct: number; fixedPct?: number; minMarginPct: number; max: number; costRatio?: number }): SliderZone[] {
+  // O markup é sobre o custo de aquisição; o preço precisa cobrir custo × costRatio (com o extra por unidade do perfil).
+  const at = (room: number) => (room > 0 ? (costRatio * (100 / room) - 1) * 100 : max);
   const room = 100 - taxPct - overheadPct;
   if (room <= 0) return [{ from: 0, to: max, tone: 'danger', label: 'Prejuízo depois do imposto' }];
-  const lossEnd = (100 / room - 1) * 100;
-  const minRoom = room - minMarginPct;
-  const minEnd = minRoom > 0 ? (100 / minRoom - 1) * 100 : max;
+  const lossEnd = at(room);
+  const evenEnd = fixedPct > 0 ? at(room - fixedPct) : lossEnd;
+  const minEnd = minMarginPct > 0 ? at(room - fixedPct - minMarginPct) : evenEnd;
   const zones: SliderZone[] = [{ from: 0, to: lossEnd, tone: 'danger', label: 'Prejuízo depois do imposto' }];
-  if (minMarginPct > 0) zones.push({ from: lossEnd, to: minEnd, tone: 'warning', label: 'Abaixo da margem mínima' });
-  if (minEnd < max) zones.push({ from: minMarginPct > 0 ? minEnd : lossEnd, to: max, tone: 'ok', label: 'Na meta' });
+  if (fixedPct > 0) zones.push({ from: lossEnd, to: evenEnd, tone: 'warning', label: 'Não cobre a estrutura' });
+  if (minMarginPct > 0) zones.push({ from: evenEnd, to: minEnd, tone: 'warning', label: 'Abaixo da margem mínima' });
+  if (minEnd < max) zones.push({ from: minEnd, to: max, tone: 'ok', label: 'Na meta' });
   return zones;
 }
 
@@ -86,7 +89,8 @@ function Body({ row: r, plan, onApply }: { row: PricingRowView; plan: PricingPla
   const rounding = (rule?.rounding ?? 'CENTS_90') as Rounding;
   const minMargin = Number(rule?.minMarginPct ?? 0);
   const tax = r.saleTax.pct === null ? 0 : Number(r.saleTax.pct);
-  const overhead = Number(rule?.overheadPct ?? 0);
+  const ex = rowExpenses(r, plan.rule);
+  const overhead = ex.variable + ex.fixed;
   const start = r.proposed ?? r.suggested ?? r.currentPrice;
   const suggested = r.suggested === null ? null : Number(r.suggested);
   const current = r.currentPrice === null ? null : Number(r.currentPrice);
@@ -97,9 +101,10 @@ function Body({ row: r, plan, onApply }: { row: PricingRowView; plan: PricingPla
   const [exact, setExact] = useState<number | null>(start ? Number(start) : null);
 
   const price = exact ?? priceFromMarkup(cost, m, rounding);
-  const margin = marginOf(cost, price, tax, overhead);
-  const loss = (price * (100 - tax - overhead)) / 100 < cost;
-  const low = !loss && margin < minMargin;
+  const margin = marginOf(ex.priceCost, price, tax, overhead);
+  const loss = (price * (100 - tax - ex.variable)) / 100 < ex.priceCost;
+  const belowEven = !loss && ex.fixed > 0 && (price * (100 - tax - overhead)) / 100 < ex.priceCost;
+  const low = !loss && !belowEven && margin < minMargin;
 
   return (
     <>
@@ -115,7 +120,7 @@ function Body({ row: r, plan, onApply }: { row: PricingRowView; plan: PricingPla
         max={max}
         step={1}
         marks={buildMarks({ cost, suggested, current, max })}
-        zones={buildZones({ taxPct: tax, overheadPct: overhead, minMarginPct: minMargin, max })}
+        zones={buildZones({ taxPct: tax, overheadPct: ex.variable, fixedPct: ex.fixed, minMarginPct: minMargin, max, costRatio: ex.priceCost / cost })}
         onChange={(v) => {
           setExact(null);
           setM(v);
@@ -129,7 +134,7 @@ function Body({ row: r, plan, onApply }: { row: PricingRowView; plan: PricingPla
         }}
       />
 
-      <ZoneLegend minMargin={minMargin} />
+      <ZoneLegend minMargin={minMargin} structure={ex.fixed > 0} />
 
       <dl className="tabular grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-3 text-sm">
         <div>
@@ -149,6 +154,12 @@ function Body({ row: r, plan, onApply }: { row: PricingRowView; plan: PricingPla
           <AlertDescription>Depois do imposto e das despesas este preço não cobre o custo. O lançamento fica bloqueado.</AlertDescription>
         </Alert>
       )}
+      {belowEven && (
+        <Alert variant="warning">
+          <TriangleAlert aria-hidden />
+          <AlertDescription>Cobre o custo e as despesas de venda, mas não a parte da estrutura da oficina ({pct1(ex.fixed)}): o lançamento vai pedir ciência.</AlertDescription>
+        </Alert>
+      )}
       {low && (
         <Alert variant="warning">
           <TriangleAlert aria-hidden />
@@ -159,9 +170,10 @@ function Body({ row: r, plan, onApply }: { row: PricingRowView; plan: PricingPla
   );
 }
 
-function ZoneLegend({ minMargin }: { minMargin: number }) {
+function ZoneLegend({ minMargin, structure }: { minMargin: number; structure: boolean }) {
   const items = [
     { cls: 'bg-red-400/70', text: 'prejuízo' },
+    ...(structure ? [{ cls: 'bg-amber-300/80', text: 'não cobre a estrutura' }] : []),
     ...(minMargin > 0 ? [{ cls: 'bg-amber-300/80', text: `abaixo de ${pct1(minMargin)}` }] : []),
     { cls: 'bg-emerald-400/60', text: 'na meta' },
   ];
