@@ -270,21 +270,32 @@ describe('CredentialService em modo gateway: upload = UMA chamada de cadastro', 
   describe('remover o certificado', () => {
     const build = (deleteCredential: () => Promise<unknown>) => {
       const deleted: unknown[] = [];
-      const prisma = {
-        tenantFiscalSettings: { findUnique: async () => ({ cnpj: '67278239000107' }) },
+      const wiped: string[] = [];
+      const wipe = (model: string) => ({ deleteMany: async () => void wiped.push(model) });
+      const tx = {
         fiscalCredential: { deleteMany: async () => void deleted.push(1) },
+        pricingRule: wipe('pricingRule'),
+        tenantTaxProfile: wipe('tenantTaxProfile'),
+        taxTableReview: wipe('taxTableReview'),
+        fiscalFieldProvenance: wipe('fiscalFieldProvenance'),
+        tenantFiscalSettings: wipe('tenantFiscalSettings'),
+      };
+      const prisma = {
+        $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
+        tenantFiscalSettings: { findUnique: async () => ({ cnpj: '67278239000107' }) },
         fiscalAuditLog: { create: async () => ({}) },
       };
       const svc = new CredentialService(prisma as never, { available: false } as never, { deleteCredential } as unknown as GatewayClient);
-      return { svc, deleted };
+      return { svc, deleted, wiped };
     };
 
     it('apaga no gateway e limpa o espelho local', async () => {
       const del = vi.fn().mockResolvedValue(null);
-      const { svc, deleted } = build(del);
+      const { svc, deleted, wiped } = build(del);
       await svc.remove({ id: 'u1' });
       expect(del).toHaveBeenCalledWith('67278239000107', 'u1');
       expect(deleted).toHaveLength(1);
+      expect(wiped).toHaveLength(5);
     });
 
     it('404 do gateway (certificado nunca esteve lá ou o CNPJ é de outro cliente): limpa o espelho local mesmo assim', async () => {
@@ -296,11 +307,12 @@ describe('CredentialService em modo gateway: upload = UMA chamada de cadastro', 
     });
 
     it('gateway fora do ar NÃO limpa o espelho (senão o Fixer acharia que o certificado saiu e o gateway ainda o teria)', async () => {
-      const { svc, deleted } = build(async () => {
+      const { svc, deleted, wiped } = build(async () => {
         throw new GatewayError('indisponível', 503);
       });
       await expect(svc.remove({ id: 'u1' })).rejects.toMatchObject({ status: 503 });
       expect(deleted).toHaveLength(0);
+      expect(wiped).toHaveLength(0);
     });
   });
 });

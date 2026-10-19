@@ -124,7 +124,7 @@ function CurrentCertificate({ cred, onReplace, replacing }: { cred: NonNullable<
             </Button>
           ) : (
             <span className="flex items-center gap-2 text-sm">
-              Remover e parar a busca de notas?
+              Remover, parar a busca de notas e apagar os dados da empresa, o perfil tributário e as regras de precificação? As notas já importadas ficam.
               <Button type="button" variant="destructive" size="sm" disabled={remove.isPending} onClick={() => remove.mutate()}>
                 {remove.isPending && <Loader2 aria-hidden className="animate-spin" />} Sim, remover
               </Button>

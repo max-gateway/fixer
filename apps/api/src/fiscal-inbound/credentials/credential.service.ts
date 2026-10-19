@@ -16,6 +16,8 @@ const CTX_PASS = 'fiscal-credential:pfx-pass';
 /** O certificado precisa valer por pelo menos isto; evita aceitar um que vence antes do primeiro ciclo. */
 const MIN_VALID_DAYS = 7;
 const MAX_PFX_BYTES = 256 * 1024;
+/** O que `remove` apaga além do certificado (vai para a auditoria). */
+const WIPED_ON_REMOVE = ['pricingRule', 'tenantTaxProfile', 'taxTableReview', 'fiscalFieldProvenance', 'tenantFiscalSettings'];
 
 export const SettingsSchema = z.object({
   cnpj: z
@@ -236,9 +238,26 @@ export class CredentialService {
 
   async remove(actor: Actor) {
     if (this.gateway) return this.removeViaGateway(actor);
-    const { count } = await this.prisma.fiscalCredential.deleteMany({ where: { orgId: TenantContext.require() } });
-    if (count === 0) throw new NotFoundException('Nenhum certificado cadastrado');
-    await this.audit(actor, 'credential.delete', {});
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.fiscalCredential.deleteMany({ where: { orgId: TenantContext.require() } });
+      if (count === 0) throw new NotFoundException('Nenhum certificado cadastrado');
+      await this.wipeConfiguration(tx);
+    });
+    await this.audit(actor, 'credential.delete', { wiped: WIPED_ON_REMOVE });
+  }
+
+  /**
+   * Remover o certificado zera a configuração fiscal e de precificação da empresa (dados da empresa, origem dos valores,
+   * perfil tributário, aceites das tabelas e regras de preço): tudo isso vale para o CNPJ que sai. Ficam as notas, o
+   * estoque, o histórico de preços e a auditoria, que são o passado da oficina.
+   */
+  private async wipeConfiguration(tx: Pick<PrismaService, 'pricingRule' | 'tenantTaxProfile' | 'taxTableReview' | 'fiscalFieldProvenance' | 'tenantFiscalSettings'>) {
+    const where = { orgId: TenantContext.require() };
+    await tx.pricingRule.deleteMany({ where });
+    await tx.tenantTaxProfile.deleteMany({ where });
+    await tx.taxTableReview.deleteMany({ where });
+    await tx.fiscalFieldProvenance.deleteMany({ where });
+    await tx.tenantFiscalSettings.deleteMany({ where });
   }
 
   // --- modo gateway -----------------------------------------------------------------------------------------
@@ -333,8 +352,11 @@ export class CredentialService {
       // registro local veio do modo direto). O objetivo, "sem certificado", já vale: limpa o espelho local e segue.
       if (!(err instanceof NotFoundException)) throw err;
     }
-    await this.prisma.fiscalCredential.deleteMany({ where: { orgId: TenantContext.require() } });
-    await this.audit(actor, 'credential.delete', { via: 'gateway' });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.fiscalCredential.deleteMany({ where: { orgId: TenantContext.require() } });
+      await this.wipeConfiguration(tx);
+    });
+    await this.audit(actor, 'credential.delete', { via: 'gateway', wiped: WIPED_ON_REMOVE });
   }
 
   /** Decifra o certificado para uma rodada de sincronização. O retorno vive só na memória do chamador. */

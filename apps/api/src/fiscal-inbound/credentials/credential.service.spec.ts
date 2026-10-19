@@ -16,20 +16,33 @@ const keys = () =>
 
 /** Prisma em memória só com o que o serviço usa; guarda a credencial e o estado para inspeção. */
 function setup(opts: { settings?: { cnpj: string | null } | null; keyProvider?: ReturnType<typeof keys> } = {}) {
-  const db: { credential: Record<string, any> | null; settings: any; syncUpserts: any[]; audits: any[] } = {
+  const db: { credential: Record<string, any> | null; settings: any; syncUpserts: any[]; audits: any[]; wiped: string[] } = {
     credential: null,
     settings: opts.settings === undefined ? { cnpj: TENANT_CNPJ, legalName: 'OFICINA', ufCode: 35 } : opts.settings,
     syncUpserts: [],
     audits: [],
+    wiped: [],
   };
+  const deleteCredential = vi.fn(async () => {
+    const count = db.credential ? 1 : 0;
+    db.credential = null;
+    return { count };
+  });
+  const wipe = (model: string) => ({ deleteMany: vi.fn(async () => void db.wiped.push(model)) });
   const tx = {
     fiscalCredential: {
       upsert: vi.fn(async ({ create }: any) => {
         db.credential = { ...db.credential, ...create };
         return db.credential;
       }),
+      deleteMany: deleteCredential,
     },
     fiscalSyncState: { upsert: vi.fn(async (args: any) => db.syncUpserts.push(args)) },
+    pricingRule: wipe('pricingRule'),
+    tenantTaxProfile: wipe('tenantTaxProfile'),
+    taxTableReview: wipe('taxTableReview'),
+    fiscalFieldProvenance: wipe('fiscalFieldProvenance'),
+    tenantFiscalSettings: wipe('tenantFiscalSettings'),
   };
   const prisma = {
     $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
@@ -41,11 +54,7 @@ function setup(opts: { settings?: { cnpj: string | null } | null; keyProvider?: 
       findUnique: vi.fn(async () => db.credential),
       count: vi.fn(async () => (db.credential ? 1 : 0)),
       update: vi.fn(async ({ data }: any) => Object.assign(db.credential!, data)),
-      deleteMany: vi.fn(async () => {
-        const count = db.credential ? 1 : 0;
-        db.credential = null;
-        return { count };
-      }),
+      deleteMany: deleteCredential,
     },
     fiscalAuditLog: { create: vi.fn(async ({ data }: any) => db.audits.push(data)) },
   };
@@ -211,11 +220,19 @@ describe('CredentialService.updateFlags / remove', () => {
     await expect(service.remove(actor)).rejects.toMatchObject({ status: 404 });
   });
 
-  it('remover audita', async () => {
+  it('remover audita e zera a configuração fiscal e de precificação', async () => {
     const { service, db } = setup();
     db.credential = { id: 1 };
     await service.remove(actor);
+    expect(db.credential).toBeNull();
+    expect(db.wiped.sort()).toEqual(['fiscalFieldProvenance', 'pricingRule', 'taxTableReview', 'tenantFiscalSettings', 'tenantTaxProfile']);
     expect(db.audits.at(-1)).toMatchObject({ action: 'credential.delete' });
+  });
+
+  it('sem certificado, remover não apaga configuração nenhuma', async () => {
+    const { service, db } = setup();
+    await expect(service.remove(actor)).rejects.toMatchObject({ status: 404 });
+    expect(db.wiped).toEqual([]);
   });
 
   it('flags vazias são recusadas', () => {

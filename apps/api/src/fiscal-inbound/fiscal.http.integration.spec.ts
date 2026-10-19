@@ -259,9 +259,19 @@ describe.skipIf(!URL)('Importação de NF-e por HTTP (Postgres, integração)', 
       const on = await http().patch('/fiscal/credentials').send({ enabled: true }).expect(200);
       expect(on.body.credential.enabled).toBe(true);
 
-      // 5. remover
+      // 5. remover: leva junto a configuração fiscal e de precificação, mas não as notas
+      await db.pricingRule.deleteMany({ where: { scope: 'DEFAULT' } });
+      await db.pricingRule.create({ data: { scope: 'DEFAULT', value: 35 } });
+      await db.tenantTaxProfile.deleteMany();
+      await db.tenantTaxProfile.create({ data: { icmsSalePct: 18 } });
+      const invoice = await seedInvoice(901);
       await http().delete('/fiscal/credentials').expect(200);
-      expect((await http().get('/fiscal/status').expect(200)).body.credential).toBeNull();
+      const after = (await http().get('/fiscal/status').expect(200)).body;
+      expect(after.credential).toBeNull();
+      expect(after.settings).toBeNull();
+      expect(await db.pricingRule.count()).toBe(0);
+      expect(await db.tenantTaxProfile.count()).toBe(0);
+      expect(await db.purchaseInvoice.count({ where: { id: invoice.id } })).toBe(1);
       await http().delete('/fiscal/credentials').expect(404);
     });
 

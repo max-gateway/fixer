@@ -571,7 +571,7 @@ Métricas: `fiscal_sync_runs_total{cstat}`, `fiscal_documents_total{schema}`, `f
 | GET/PUT | `/fiscal/company` | CNPJ, razão social e UF da empresa (pré-condição do upload). Rota própria: `fiscal/settings` é do módulo fiscal-settings (NFS-e) | `invoices.read` / `fiscal.manage` |
 | POST | `/fiscal/credentials` | upload do `.pfx` (JSON, base64) | `fiscal.manage` |
 | PATCH | `/fiscal/credentials` | `enabled`, `autoManifest` (exige `acknowledgeManifestDuty: true`), `autoExport` | `fiscal.manage` |
-| DELETE | `/fiscal/credentials` | remove certificado e desliga sync | `fiscal.manage` |
+| DELETE | `/fiscal/credentials` | remove certificado, desliga sync e apaga a configuração fiscal e de precificação (dados da empresa, proveniência, perfil tributário, aceites das tabelas, regras de preço); notas, estoque e histórico ficam | `fiscal.manage` |
 | POST | `/fiscal/sync` | sincronizar agora (409 se `nextPollAt` > now) | `invoices.reconcile` |
 | POST | `/fiscal/sync/resume-from` | retoma de um NSU informado após 656 (§6.6), com auditoria | `fiscal.manage` |
 | GET | `/invoices?view=&q=&take=&skip=` | lista paginada por aba (`pending`, `ready`, `posted`, `summary`, `canceled`, `ignored`, `all`), com `unresolvedCount` por nota; `q` busca fornecedor, CNPJ, número e chave | `invoices.read` |
