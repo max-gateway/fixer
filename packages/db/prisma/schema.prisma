@@ -759,8 +759,43 @@ model TenantFiscalSettings {
   issRate              Decimal?
   municipalServiceCode String?
   hourlyRate           Decimal?
+  cnae                 String? // CNAE principal (7 dígitos), da consulta de CNPJ
+  lc116Item            String? // serviço padrão da oficina na LC 116 ("14.01"), inferido da CNAE (docs/specs/fiscal-autofill.md §5.1)
 
   @@map("tenant_fiscal_settings")
+}
+
+// De onde veio cada valor da configuração fiscal (docs/specs/fiscal-autofill.md §4). Valor MANUAL nunca é trocado sozinho.
+enum FiscalValueSource {
+  CNPJ_LOOKUP
+  INTEGRA_PGDASD
+  INTEGRA_PAGAMENTOS
+  NFSE_PARAMETROS
+  TAX_RULES_DEFAULT
+  FIXER_ESTIMATE
+  MANUAL
+}
+
+enum FiscalValueConfidence {
+  OFICIAL // registro do próprio governo
+  INFERIDO // deduzido de dado oficial por regra do Fixer
+  ESTIMADO // sem fonte oficial
+  INFORMADO // digitado por alguém (fonte MANUAL)
+}
+
+// Um registro por campo: a origem do valor em uso. Também guarda fatos sem coluna própria (ex.: "simplesOptant").
+model FiscalFieldProvenance {
+  orgId      String                @default(dbgenerated("app_org()")) @db.Uuid
+  field      String
+  source     FiscalValueSource
+  confidence FiscalValueConfidence
+  fetchedAt  DateTime              @default(now())
+  reference  String? // ex.: CNAE consultada, período de apuração
+  evidence   Json? // resumo do que a fonte respondeu; nunca documento inteiro
+  updatedBy  String? // userId quando MANUAL
+
+  @@id([orgId, field])
+  @@map("fiscal_field_provenance")
 }
 
 // Singleton: versão do packages/catalog aplicada neste banco.

@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Put } from '@nestjs/common';
+import { CurrentUser, type AuthUser } from '../auth/auth.decorators.js';
 import { RequirePermission } from '../auth/permissions.js';
 import { parse } from '../common/parse.js';
 import { FiscalSettingsService } from './fiscal-settings.service.js';
@@ -15,8 +16,8 @@ export class FiscalSettingsController {
 
   @Put('fiscal/settings')
   @RequirePermission('fiscal.manage')
-  updateSettings(@Body() body: unknown) {
-    return this.fiscal.updateSettings(parse(UpdateSettingsSchema, body));
+  updateSettings(@Body() body: unknown, @CurrentUser() user: AuthUser) {
+    return this.fiscal.updateSettings(parse(UpdateSettingsSchema, body), user.id);
   }
 
   @Patch('parts/:id/fiscal')

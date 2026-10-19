@@ -67,8 +67,8 @@ export class PricingController {
 
   @Put('pricing/tax-profile')
   @RequirePermission('pricing.write')
-  saveTaxProfile(@Body() body: unknown) {
-    return this.pricing.saveTaxProfile(parse(TaxProfileSchema, body));
+  saveTaxProfile(@Body() body: unknown, @CurrentUser() user: AuthUser) {
+    return this.pricing.saveTaxProfile(parse(TaxProfileSchema, body), user.id);
   }
 
   /** Quem valida os percentuais (contador) precisa de `fiscal.verify`: é uma confirmação fiscal, não uma edição. */

@@ -9,6 +9,7 @@ import { SIMPLES_COMERCIO_META } from './data/simples-comercio.js';
 import { ST_AUTOPECAS_META } from './data/st-autopecas-anexo-ii.js';
 import { ST_AUTOPECAS_PROTOCOLO_META } from './data/st-autopecas-protocolo.js';
 import { PE_ANTECIPACAO_SIMPLES_META, PE_ST_AUTOPECAS_META, PE_ST_PNEUS_META } from './data/pe-icms.js';
+import { CNAE_LC116_META } from './data/cnae-lc116.js';
 
 export const TABLES = [
   SIMPLES_COMERCIO_META,
@@ -24,6 +25,7 @@ export const TABLES = [
   PE_ST_AUTOPECAS_META,
   PE_ST_PNEUS_META,
   PE_ANTECIPACAO_SIMPLES_META,
+  CNAE_LC116_META,
 ];
 
 /** Identificador único das versões de todas as tabelas; vai no snapshot de cada preço calculado. */
@@ -63,3 +65,5 @@ export {
   type PeSimplesSize,
 } from './data/pe-icms.js';
 export { mvaAdjusted, peStAutopecasOrigin, peAntecipacaoSimples, pePneuItem, type PeStOriginStatus, type PeAntecipacaoSimples, type PeAntecipacaoBasis, type PeAntecipacaoAssumption } from './src/pe.js';
+export { CNAE_LC116, CNAE_LC116_META, LC116_ITEM_14_01, type CnaeServiceEntry } from './data/cnae-lc116.js';
+export { internalModalRatePct, normalizeCnae, serviceItemForCnae } from './src/cnae.js';

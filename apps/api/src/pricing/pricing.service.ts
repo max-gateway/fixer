@@ -1,7 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@fixer/db';
 import { z } from 'zod';
+import { markManual, sameValue, type AutofillField } from '../fiscal-autofill/provenance.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { TenantContext } from '../tenancy/tenant-context.js';
 import { buildPricingPlan, toDto } from './pricing-plan.js';
 import { TABLES } from '@fixer/tax-rules';
 import { TAX_RULES_VERSION } from '../fiscal-inbound/tax/rules.js';
@@ -181,9 +183,14 @@ export class PricingService {
     return { profile: p && this.profileView(p), readiness: taxReadiness({ regime: (settings?.taxRegime as Regime | null | undefined) ?? null, profile: p, tableReviews }) };
   }
 
-  async saveTaxProfile(input: z.input<typeof TaxProfileSchema>) {
+  async saveTaxProfile(input: z.input<typeof TaxProfileSchema>, userId: string | null = null) {
     const saved = await this.prisma.$transaction(async (tx) => {
       const prev = await tx.tenantTaxProfile.findFirst();
+      // O que a pessoa muda vira MANUAL: o preenchimento automático não sobrescreve mais (docs/specs/fiscal-autofill.md §4).
+      const manual = (['rbt12', 'icmsSalePct', 'stateTaxRegular'] as AutofillField[]).filter(
+        (k) => (input as Record<string, unknown>)[k] !== undefined && !sameValue((prev as Record<string, unknown> | null)?.[k], (input as Record<string, unknown>)[k]),
+      );
+      await markManual(tx, TenantContext.require(), manual, userId);
       const changed =
         !prev ||
         ['rbt12', 'icmsSalePct', 'simplesEffectiveRatePct', 'icmsSharePct', 'pisSharePct', 'cofinsSharePct'].some((k) => {

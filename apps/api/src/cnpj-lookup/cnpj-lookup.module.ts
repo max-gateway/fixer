@@ -11,5 +11,6 @@ import { CnpjLookupService } from './cnpj-lookup.service.js';
 @Module({
   controllers: [CnpjLookupController],
   providers: [CnpjLookupConfig, CnpjLookupClient, CnpjLookupService],
+  exports: [CnpjLookupService],
 })
 export class CnpjLookupModule {}

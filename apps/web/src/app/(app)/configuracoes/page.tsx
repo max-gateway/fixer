@@ -1,6 +1,7 @@
 import { Info, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { ApiError, apiGet } from '@/lib/api';
+import type { AutofillProvenance } from '@/lib/fiscal-autofill';
 import type { FiscalStatus } from '@/lib/fiscal-import';
 import { CertificateCard } from './certificate-card';
 import { CompanyForm } from './company-form';
@@ -30,7 +31,10 @@ export default async function CadastroPage() {
   }
 
   // Sem registro ainda (oficina nova): o formulário começa vazio.
-  const fiscal = await apiGet<FiscalSettings | null>('/fiscal/settings').catch(() => null);
+  const [fiscal, provenance] = await Promise.all([
+    apiGet<FiscalSettings | null>('/fiscal/settings').catch(() => null),
+    apiGet<AutofillProvenance>('/fiscal/autofill').catch((): AutofillProvenance => ({ fields: [], simplesOptant: null })),
+  ]);
   const company = status.settings;
   const missingTax = !fiscal?.issRate || !fiscal?.municipalServiceCode;
 
@@ -39,7 +43,7 @@ export default async function CadastroPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Cadastro da oficina</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Envie o certificado digital da oficina: o Fixer lê o CNPJ dele e preenche sozinho a empresa, o município e o Simples Nacional. É com o mesmo certificado que as notas de compra são buscadas na SEFAZ.
+          Envie o certificado digital da oficina: o Fixer lê o CNPJ dele e preenche sozinho a empresa, o município, o regime (quando é Simples Nacional) e o serviço da oficina. É com o mesmo certificado que as notas de compra são buscadas na SEFAZ.
         </p>
       </header>
 
@@ -57,12 +61,13 @@ export default async function CadastroPage() {
       {company?.cnpj && (
         <Step n={2} title="Dados da oficina" done>
           <CompanyOverview
-            key={`${company.cnpj}|${company.legalName}|${company.ufCode}|${fiscal?.municipalityIbge}|${fiscal?.taxRegime}`}
             cnpj={company.cnpj}
             legalName={company.legalName}
             ufCode={company.ufCode}
             municipalityIbge={fiscal?.municipalityIbge ?? null}
             taxRegime={fiscal?.taxRegime ?? null}
+            lc116Item={fiscal?.lc116Item ?? null}
+            provenance={provenance}
           />
           {!status.credential && (
             <details className="max-w-xl text-sm">

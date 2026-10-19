@@ -15,6 +15,7 @@ export type FiscalSettings = {
   issRate: string | number | null; // Decimal chega como string
   municipalServiceCode: string | null;
   hourlyRate: string | number | null;
+  lc116Item?: string | null;
 };
 
 const num = (v: string): number | null | 'invalid' => {

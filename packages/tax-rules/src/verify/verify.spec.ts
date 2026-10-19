@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { CNAE_LC116, LC116_ITEM_14_01 } from '../../data/cnae-lc116.js';
 import { ST_AUTOPECAS_ANEXO_II } from '../../data/st-autopecas-anexo-ii.js';
-import { cfop, cst, interestadual22, monofasico, parseStAnexoII, protocolo, referenceDeadlineWarnings, reform, simplesLegacy, stAnexoII, type Check } from './checks.js';
+import { cfop, cnaeLc116, cst, interestadual22, monofasico, parseStAnexoII, protocolo, referenceDeadlineWarnings, reform, simplesLegacy, stAnexoII, type Check } from './checks.js';
 import { decodeBody, decodeEntities, flat, htmlToText, pctBR, reaisBR } from './html.js';
 import { exitCode, formatReport, runChecks } from './run.js';
 
@@ -170,5 +171,30 @@ describe('execução', () => {
   it('filtra por id ou por tabela', async () => {
     const out = await runChecks(['t2'], '2026-10-13', [ok, bad], async () => 'x');
     expect(out.map((o) => o.id)).toEqual(['b']);
+  });
+});
+
+describe('CNAE → LC 116', () => {
+  const lc116 = `<p>14.01 &#150; ${LC116_ITEM_14_01}</p>`;
+  const ibge = (rows: { id: string; descricao: string }[]) => JSON.stringify(rows);
+  const all = CNAE_LC116.map((e) => ({ id: e.cnae, descricao: e.description }));
+  const docs = (rows = all) => ({ lc116, ibge4520: ibge(rows.filter((r) => r.id.startsWith('4520'))), ibge4543: ibge(rows.filter((r) => r.id.startsWith('4543'))) });
+
+  it('passa quando o item e as subclasses batem', () => {
+    expect(cnaeLc116(docs())).toEqual({ status: 'PASS', messages: [] });
+  });
+
+  it('falha quando a descrição muda, a subclasse some ou o item 14.01 muda', () => {
+    const changed = all.map((r) => (r.id === '4520001' ? { ...r, descricao: 'OUTRA' } : r)).filter((r) => r.id !== '4520008');
+    const r = cnaeLc116({ ...docs(changed), lc116: '<p>14.01 – Outro texto</p>' });
+    expect(r.status).toBe('FAIL');
+    const text = r.messages.join(' | ');
+    expect(text).toMatch(/item 14\.01/);
+    expect(text).toMatch(/4520001: descrição mudou/);
+    expect(text).toMatch(/4520008: não existe mais/);
+  });
+
+  it('avisa de subclasse nova sem item', () => {
+    expect(cnaeLc116(docs([...all, { id: '4520009', descricao: 'NOVA' }]))).toMatchObject({ status: 'WARN' });
   });
 });

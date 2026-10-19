@@ -10,9 +10,11 @@ import {
   type TaxRegimeCode,
   type TenantFiscalLike,
 } from '@fixer/domain';
+import { markManual, sameValue, type AutofillField } from '../fiscal-autofill/provenance.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { PartFiscalInput, UpdateSettingsInput } from './schema.js';
 
+const TRACKED_SETTINGS: AutofillField[] = ['municipalityIbge', 'taxRegime', 'issRate', 'municipalServiceCode'];
 const toNumber = (v: unknown): number | null => (v == null ? null : Number(v));
 const describe = (issues: FiscalIssue[]) => issues.map((i) => i.message).join('; ');
 
@@ -40,12 +42,16 @@ export class FiscalSettingsService {
     return this.prisma.tenantFiscalSettings.findUnique({ where: { orgId: TenantContext.require() } });
   }
 
-  updateSettings(input: UpdateSettingsInput) {
+  /** O que a pessoa muda vira MANUAL: o preenchimento automático não sobrescreve mais (docs/specs/fiscal-autofill.md §4). */
+  async updateSettings(input: UpdateSettingsInput, userId: string | null = null) {
+    const orgId = TenantContext.require();
     const data = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
-    return this.prisma.tenantFiscalSettings.upsert({
-      where: { orgId: TenantContext.require() },
-      create: { orgId: TenantContext.require(), ...data },
-      update: data,
+    return this.prisma.$transaction(async (tx) => {
+      const prev = await tx.tenantFiscalSettings.findUnique({ where: { orgId } });
+      const changed = TRACKED_SETTINGS.filter((k) => k in data && !sameValue((prev as Record<string, unknown> | null)?.[k], data[k]));
+      const saved = await tx.tenantFiscalSettings.upsert({ where: { orgId }, create: { orgId, ...data }, update: data });
+      await markManual(tx, orgId, changed, userId);
+      return saved;
     });
   }
 

@@ -8,8 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { describedBy, Field } from '@/components/ui/field';
 import { Input, Select } from '@/components/ui/input';
-import { lookupCompany, settingsFromHints } from '@/lib/company-autofill';
-import { deleteJson, postJson, putJson } from '@/lib/client-api';
+import { deleteJson, postJson } from '@/lib/client-api';
 import { daysUntil, type FiscalStatus } from '@/lib/fiscal-import';
 import { formatCnpj, shortDate } from '@/lib/invoices';
 
@@ -164,11 +163,9 @@ function UploadForm({ hasCredential, enroll, savedCnpj, onDone, onCancel }: { ha
       if (enroll) {
         const cert = await postJson<{ certCnpj: string }>('/api/fiscal/credentials/inspect', { pfxBase64, password }, 'Não foi possível ler o certificado.');
         if (cert.certCnpj !== savedCnpj) {
-          // O certificado manda: empresa, município e regime vêm da consulta do CNPJ dele. ISS e código municipal
-          // dependem do município e ficam para o usuário (a tela avisa).
-          const { company, hints } = await lookupCompany(cert.certCnpj);
-          await putJson('/api/fiscal/company', company, 'Não foi possível salvar os dados da empresa.');
-          await putJson('/api/fiscal/settings', settingsFromHints(hints, true), 'Não foi possível salvar a configuração fiscal.');
+          // O certificado manda: a API grava o CNPJ dele e preenche empresa, município, regime e serviço pelas fontes
+          // oficiais, zerando o que era da empresa anterior (docs/specs/fiscal-autofill.md §6.1).
+          await postJson('/api/fiscal/autofill', { cnpj: cert.certCnpj }, 'Não foi possível salvar os dados da empresa.');
         }
       }
       return postJson('/api/fiscal/credentials', { pfxBase64, password, environment }, 'Não foi possível enviar o certificado.');

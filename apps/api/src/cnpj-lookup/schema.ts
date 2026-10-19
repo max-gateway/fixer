@@ -50,6 +50,8 @@ export interface CnpjFiscalHints {
   municipalityIbge: string | null;
   /** true = optante pelo Simples Nacional (inclui MEI); false = não optante; null = a consulta não informou. */
   simples: boolean | null;
+  /** CNAEs secundárias (7 dígitos); a oficina que tem comércio de peças como principal costuma ter o serviço aqui. */
+  secondaryCnaes: string[];
 }
 
 const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' ? (v as Record<string, unknown>) : null);
@@ -64,7 +66,10 @@ export function fiscalHintsFromRaw(raw: unknown): CnpjFiscalHints {
   };
   const simples = optant(company?.simples);
   const mei = optant(company?.simei);
+  const side = Array.isArray(root?.sideActivities) ? root.sideActivities : [];
+  const secondaryCnaes = side.map((a) => String(obj(a)?.id ?? '').replace(/\D/g, '')).filter((id) => /^\d{7}$/.test(id));
   return {
+    secondaryCnaes,
     municipalityIbge: /^\d{7}$/.test(ibge) ? ibge : null,
     simples: simples === true || mei === true ? true : simples === false || mei === false ? false : null,
   };

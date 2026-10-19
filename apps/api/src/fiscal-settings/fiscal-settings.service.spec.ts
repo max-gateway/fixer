@@ -32,7 +32,10 @@ function setup(over: { part?: object | null; settings?: object | null; order?: o
       update: vi.fn().mockImplementation(async ({ data }: { data: object }) => ({ id: 'sf1', ...data })),
     },
     serviceOrder: { findUnique: vi.fn().mockResolvedValue(over.order === undefined ? null : over.order) },
+    fiscalFieldProvenance: { upsert: vi.fn().mockResolvedValue({}) },
+    $transaction: vi.fn(),
   };
+  prisma.$transaction.mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma));
   return { prisma, service: new FiscalSettingsService(prisma as never) };
 }
 
@@ -59,6 +62,14 @@ describe('FiscalSettingsService.updateSettings', () => {
     expect(call.update).toEqual({ taxRegime: 'SIMPLES', issRate: 2.5 });
     expect(Object.keys(call.create)).not.toContain('cnpj');
     expect(Object.keys(call.update)).not.toContain('cnpj');
+  });
+
+  it('marca como MANUAL só o que mudou, para o preenchimento automático não sobrescrever', async () => {
+    const { prisma, service } = setup({ settings: { taxRegime: 'SIMPLES', issRate: '2.50', municipalityIbge: '2611606' } });
+    await service.updateSettings({ taxRegime: 'PRESUMIDO', issRate: 2.5, municipalityIbge: '2611606' }, 'u1');
+    const marked = prisma.fiscalFieldProvenance.upsert.mock.calls.map((c) => c[0].where.orgId_field.field);
+    expect(marked).toEqual(['taxRegime']);
+    expect(prisma.fiscalFieldProvenance.upsert.mock.calls[0][0].create).toMatchObject({ source: 'MANUAL', confidence: 'INFORMADO', updatedBy: 'u1' });
   });
 });
 

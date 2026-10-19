@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  internalModalRatePct,
+  serviceItemForCnae,
   CFOP,
   CFOP_NOT_RESALE_NATURES,
   CFOP_RESALE_NATURES,
@@ -446,11 +448,30 @@ describe('Pernambuco: antecipação do Simples (mercadoria sem ST)', () => {
   });
 });
 
+describe('CNAE → item da LC 116', () => {
+  it('liga as subclasses de oficina ao 14.01, com ou sem máscara', () => {
+    expect(serviceItemForCnae('4520-0/01')?.lc116Item).toBe('14.01');
+    expect(serviceItemForCnae('45.20-0-05')?.lc116Item).toBe('14.01');
+    expect(serviceItemForCnae(4543900)?.lc116Item).toBe('14.01');
+  });
+
+  it('CNAE fora da tabela (comércio de peças) ou ausente devolve null', () => {
+    expect(serviceItemForCnae('4530703')).toBeNull();
+    expect(serviceItemForCnae(null)).toBeNull();
+  });
+
+  it('alíquota interna modal só das UFs cobertas', () => {
+    expect(internalModalRatePct('pe')).toBe('20.5');
+    expect(internalModalRatePct('SP')).toBeNull();
+    expect(internalModalRatePct(null)).toBeNull();
+  });
+});
+
 describe('metadados', () => {
   it('toda tabela cita fonte oficial, não foi validada por humano e lista o que não cobre', () => {
     for (const t of TABLES) {
       expect(t.sources.length).toBeGreaterThan(0);
-      for (const s of t.sources) expect(s.url).toMatch(/^https:\/\/(www\.planalto\.gov\.br|www\.confaz\.fazenda\.gov\.br|www2\.camara\.leg\.br|www\.sefaz\.pe\.gov\.br)\//);
+      for (const s of t.sources) expect(s.url).toMatch(/^https:\/\/(www\.planalto\.gov\.br|www\.confaz\.fazenda\.gov\.br|www2\.camara\.leg\.br|www\.sefaz\.pe\.gov\.br|servicodados\.ibge\.gov\.br)\//);
       expect(t.validatedBy).toBeNull();
       expect(t.caveats.length).toBeGreaterThan(0);
     }

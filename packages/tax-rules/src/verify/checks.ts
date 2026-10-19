@@ -1,4 +1,5 @@
 import { CFOP } from '../../data/cfop.js';
+import { CNAE_LC116, LC116_ITEM_14_01 } from '../../data/cnae-lc116.js';
 import { CRT, CSOSN, CST_ICMS } from '../../data/cst-csosn.js';
 import { IBS_CBS_REDUCED_AUTOPECAS, IBS_CBS_REFERENCE } from '../../data/ibs-cbs-referencia.js';
 import { MONOFASICO_AUTOPECAS } from '../../data/monofasico-autopecas.js';
@@ -328,6 +329,28 @@ export function reform(lc214Html: string, today: string): CheckResult {
 
 // ---------- Lista de verificações ----------
 
+// ---------- CNAE → LC 116 (texto do item 14.01 e descrições das subclasses no IBGE) ----------
+
+export function cnaeLc116(docs: Record<string, string>): CheckResult {
+  const problems: string[] = [];
+  if (!flat(htmlToText(docs.lc116 ?? '')).includes(LC116_ITEM_14_01.slice(0, -1))) problems.push('não achei no texto oficial: item 14.01 da LC 116 com o texto do pacote');
+  const ibge = new Map<string, string>();
+  for (const key of ['ibge4520', 'ibge4543']) {
+    try {
+      for (const s of JSON.parse(docs[key] ?? '[]') as { id: string; descricao: string }[]) ibge.set(String(s.id), s.descricao);
+    } catch {
+      problems.push(`resposta do IBGE (${key}) não é JSON`);
+    }
+  }
+  for (const e of CNAE_LC116) {
+    const theirs = ibge.get(e.cnae);
+    if (theirs === undefined) problems.push(`CNAE ${e.cnae}: não existe mais no IBGE`);
+    else if (theirs !== e.description) problems.push(`CNAE ${e.cnae}: descrição mudou no IBGE ("${theirs}")`);
+  }
+  const unknown = [...ibge.keys()].filter((id) => !CNAE_LC116.some((e) => e.cnae === id));
+  return result(problems, unknown.length ? [`subclasses novas no IBGE sem item da LC 116 no pacote: ${unknown.join(', ')}`] : []);
+}
+
 export const CHECKS: Check[] = [
   { id: 'simples-anexo-i', table: 'simples-comercio', sources: [{ key: 'lc123', url: `${PLANALTO}/lcp/lcp123.htm` }], run: (d) => simplesLegacy(d.lc123!) },
   { id: 'simples-anexo-xviii', table: 'simples-comercio', sources: [{ key: 'lc214', url: `${PLANALTO}/lcp/lcp214.htm` }], run: (d) => simplesReform(d.lc214!) },
@@ -362,6 +385,16 @@ export const CHECKS: Check[] = [
       { key: 'pt129', url: `${CONFAZ}/protocolos/2010/pt129_10`, insecure: true },
     ],
     run: (d) => peStAutopecas(d),
+  },
+  {
+    id: 'cnae-lc116',
+    table: 'cnae-lc116',
+    sources: [
+      { key: 'lc116', url: `${PLANALTO}/lcp/lcp116.htm` },
+      { key: 'ibge4520', url: 'https://servicodados.ibge.gov.br/api/v2/cnae/classes/45200/subclasses' },
+      { key: 'ibge4543', url: 'https://servicodados.ibge.gov.br/api/v2/cnae/classes/45439/subclasses' },
+    ],
+    run: (d) => cnaeLc116(d),
   },
   { id: 'reforma', table: 'ibs-cbs-transition + ibs-cbs-referencia', sources: [{ key: 'lc214', url: `${PLANALTO}/lcp/lcp214.htm` }], run: (d, today) => reform(d.lc214!, today) },
 ];
