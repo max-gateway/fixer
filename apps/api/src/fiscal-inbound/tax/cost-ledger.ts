@@ -1,5 +1,21 @@
 import { Prisma } from '@fixer/db';
-import { cfopProfile, icmsCreditAllowed, isStPaidBefore, TAX_RULES_VERSION, type CfopProfile } from './rules.js';
+import {
+  cfopProfile,
+  icmsCreditAllowed,
+  interstateRate,
+  isStPaidBefore,
+  mvaAdjusted,
+  ORIGIN_TAXED_AT_4,
+  parseCents,
+  PE_INTERNAL_RATE_PCT,
+  PE_ST_AUTOPECAS_MVA,
+  peAntecipacaoSimples,
+  peStAutopecasOrigin,
+  stAutopecaCest,
+  stAutopecaItems,
+  TAX_RULES_VERSION,
+  type CfopProfile,
+} from './rules.js';
 
 // Livro de custo da compra (docs/specs/pricing.md §5.1): decompõe o que a nota realmente custou em componentes
 // auditáveis e devolve o custo líquido de reposição por unidade de ESTOQUE. É a fonte única do custo exibido e do
@@ -30,7 +46,11 @@ export type ComponentCode =
   | 'ICMS_ST_RETIDO'
   | 'ICMS_DESONERADO'
   | 'PIS'
-  | 'COFINS';
+  | 'COFINS'
+  /** ST que o adquirente em PE recolhe na entrada (autopeça de UF sem acordo): RICMS-PE, Anexo 37, art. 100. */
+  | 'ICMS_ST_ENTRADA'
+  /** Antecipação do ICMS na entrada do Simples em PE (mercadoria sem ST): RICMS-PE arts. 338 a 340 e 363-A. */
+  | 'ANTECIPACAO_ICMS';
 
 export interface CostComponent {
   code: ComponentCode;
@@ -55,11 +75,17 @@ export interface LedgerItemInput {
   icmsSt: Value;
   cfop: string;
   unitFactor: Value;
+  ncm?: string | null;
+  cest?: string | null;
+  /** 1º dígito do CST (0 a 8). */
+  origin?: number | null;
   tax?: {
     indTot?: number | null;
     icmsKind?: string | null;
     icmsCode?: string | null;
     icms?: Value;
+    /** pICMS da operação própria do remetente. */
+    icmsRate?: Value;
     icmsSt?: Value;
     fcpSt?: Value;
     stRet?: Value;
@@ -73,6 +99,9 @@ export interface LedgerItemInput {
 
 export interface LedgerInvoiceInput {
   destIndicator?: number | null;
+  issuerUf?: string | null;
+  recipientUf?: string | null;
+  issuedAt?: Date | null;
   freightMode?: number | null;
   /** ICMSTot do XML (vDesc, vFrete, vSeg, vOutro...) como string decimal. */
   totals?: unknown;
@@ -85,7 +114,9 @@ export type AlertCode =
   | 'ANTECIPACAO_ICMS_POSSIVEL'
   | 'NAO_E_COMPRA_REVENDA'
   | 'ITEM_FORA_DO_TOTAL'
-  | 'TOTAIS_DIVERGENTES';
+  | 'TOTAIS_DIVERGENTES'
+  | 'ST_ENTRADA_PE'
+  | 'ANTECIPACAO_PE';
 
 export interface LedgerAlert {
   code: AlertCode;
@@ -150,7 +181,28 @@ function totalsOf(raw: unknown): Record<string, string> {
   return raw && typeof raw === 'object' ? (raw as Record<string, string>) : {};
 }
 
-export function computeLedger(input: { invoice: LedgerInvoiceInput; items: LedgerItemInput[]; regime: Regime | null }): InvoiceLedger {
+/** O que o livro de custo precisa saber da oficina compradora além do regime (regras de entrada da UF dela). */
+export interface LedgerBuyer {
+  /** Receita bruta dos últimos 12 meses, "1234567.89": decide ME × EPP na antecipação de PE. */
+  rbt12?: string | null;
+  /** Em dia com a SEFAZ estadual (PE: art. 393-A); null = não informado. */
+  stateTaxRegular?: boolean | null;
+}
+
+const OPERATION_CODES: ReadonlySet<ComponentCode> = new Set(['PRODUTO', 'DESCONTO', 'FRETE', 'SEGURO', 'OUTRAS_DESPESAS', 'FRETE_POR_FORA', 'IPI']);
+const INTER_PCTS = new Set(['4', '7', '12']);
+
+/** Alíquota interestadual da operação: a destacada no XML quando é uma das três legais, senão a da Resolução do Senado. */
+function interPctOf(item: LedgerItemInput, issuerUf: string, destUf: string): '4' | '7' | '12' | null {
+  const fromXml = item.tax?.icmsRate == null ? null : D(item.tax.icmsRate).toNumber().toString();
+  if (fromXml && INTER_PCTS.has(fromXml)) return fromXml as '4' | '7' | '12';
+  return interstateRate(issuerUf, destUf, ORIGIN_TAXED_AT_4.has(String(item.origin ?? '')))?.pct ?? null;
+}
+
+const pctOf = (v: Value, pct: string) => D(v).mul(pct).div(100);
+const brl = (v: D) => `R$ ${v.toFixed(2).replace('.', ',')}`;
+
+export function computeLedger(input: { invoice: LedgerInvoiceInput; items: LedgerItemInput[]; regime: Regime | null; buyer?: LedgerBuyer }): InvoiceLedger {
   const { invoice, items } = input;
   const regime: Regime = input.regime ?? 'SIMPLES';
   const totals = totalsOf(invoice.totals);
@@ -207,6 +259,14 @@ export function computeLedger(input: { invoice: LedgerInvoiceInput; items: Ledge
   const ledgers = new Map<number, ItemLedger>();
   const notResale: number[] = [];
   const interstate: number[] = [];
+  // Regras de entrada de PE: valem quando a nota é interestadual e o destinatário está em PE.
+  const destUf = invoice.recipientUf?.toUpperCase() ?? null;
+  const issuerUf = invoice.issuerUf?.toUpperCase() ?? null;
+  const asOf = (invoice.issuedAt ?? new Date()).toISOString().slice(0, 10);
+  const peEntry = invoice.destIndicator === 2 && destUf === 'PE' && issuerUf !== null && issuerUf !== 'PE';
+  const stEntry = { items: [] as number[], total: ZERO, supplierShouldRetain: false, byNcmOnly: false };
+  const antecipacao = { items: [] as number[], total: ZERO, assumptions: new Set<string>() };
+  const rbt12Cents = input.buyer?.rbt12 ? parseCents(input.buyer.rbt12) : null;
 
   for (const item of items) {
     const tax = item.tax ?? null;
@@ -247,7 +307,41 @@ export function computeLedger(input: { invoice: LedgerInvoiceInput; items: Ledge
 
     const stCharged = D(tax?.icmsSt ?? item.icmsSt).plus(D(tax?.fcpSt)).gt(0);
     const stPaid = isStPaidBefore(kind, code) || D(tax?.stRet).gt(0);
-    if (invoice.destIndicator === 2 && regime !== 'REAL' && profile !== 'NOT_RESALE' && tax?.indTot !== 0 && !stCharged && !stPaid) {
+    const owesOnEntry = profile !== 'NOT_RESALE' && tax?.indTot !== 0 && !stCharged && !stPaid;
+    const autopeca = item.cest ? stAutopecaCest(item.cest) !== null : stAutopecaItems(item.ncm).length > 0;
+    const inter = peEntry && owesOnEntry ? interPctOf(item, issuerUf!, 'PE') : null;
+    const operation = components.filter((c) => OPERATION_CODES.has(c.code)).reduce((s, c) => s.plus(c.amount), ZERO);
+    let handled = false;
+    if (inter && autopeca) {
+      // ST de autopeça (RICMS-PE, Anexo 37, art. 100): base = operação × (1 + MVA ajustada); imposto = base × 20,5% − ICMS próprio.
+      const origin = peStAutopecasOrigin(issuerUf!, asOf);
+      if (origin.status === 'ADQUIRENTE_RECOLHE' || origin.status === 'REMETENTE_RETEM') {
+        const mva = mvaAdjusted(PE_ST_AUTOPECAS_MVA.general, inter, PE_INTERNAL_RATE_PCT);
+        const notOwn = components.filter((c) => c.code === 'IPI' || c.code === 'FRETE_POR_FORA').reduce((s, c) => s.plus(c.amount), ZERO);
+        const ownIcms = D(tax?.icms).gt(0) ? D(tax?.icms) : pctOf(operation.minus(notOwn), inter);
+        const due = pctOf(operation.mul(D(mva).div(100).plus(1)), PE_INTERNAL_RATE_PCT).minus(ownIcms).toDecimalPlaces(2);
+        if (due.gt(0)) {
+          add('ICMS_ST_ENTRADA', 'COST', due, `RICMS-PE Anexo 37 art. 100 (MVA ${mva}%)`);
+          stEntry.items.push(item.itemNumber);
+          stEntry.total = stEntry.total.plus(due);
+          if (origin.status === 'REMETENTE_RETEM') stEntry.supplierShouldRetain = true;
+          if (!item.cest) stEntry.byNcmOnly = true;
+        }
+        handled = true;
+      }
+    } else if (inter && regime === 'SIMPLES') {
+      // Antecipação do Simples (mercadoria sem ST): percentual do informativo sobre o valor da operação (estimativa).
+      const a = peAntecipacaoSimples({ rbt12Cents, regular: input.buyer?.stateTaxRegular ?? null, interPct: inter, asOf });
+      const due = pctOf(operation, a.pct).toDecimalPlaces(2);
+      if (due.gt(0)) {
+        add('ANTECIPACAO_ICMS', 'COST', due, `RICMS-PE arts. 338-340 (${a.pct}%)`);
+        antecipacao.items.push(item.itemNumber);
+        antecipacao.total = antecipacao.total.plus(due);
+        for (const x of a.assumptions) antecipacao.assumptions.add(x);
+      }
+      handled = true;
+    }
+    if (!handled && invoice.destIndicator === 2 && regime !== 'REAL' && owesOnEntry) {
       interstate.push(item.itemNumber);
     }
 
@@ -269,6 +363,29 @@ export function computeLedger(input: { invoice: LedgerInvoiceInput; items: Ledge
       severity: 'warning',
       message: 'O frete é por conta da oficina e não está nesta nota (vem em um CT-e à parte). O custo das peças não inclui o frete.',
       itemNumbers: [],
+    });
+  }
+  if (stEntry.items.length > 0) {
+    alerts.push({
+      code: 'ST_ENTRADA_PE',
+      severity: 'warning',
+      message:
+        `Autopeça de outra UF sem ICMS-ST na nota: a oficina recolhe ${brl(stEntry.total)} de ST na entrada em PE (RICMS-PE, Anexo 37, art. 100, MVA de 71,78% ajustada). Já está no custo.` +
+        (stEntry.supplierShouldRetain ? ' O fornecedor é de UF do Protocolo 97/2010 e deveria ter retido: confira com ele, a SEFAZ-PE cobra de você.' : '') +
+        (stEntry.byNcmOnly ? ' Item sem CEST enquadrado pelo NCM: confirme que é de uso automotivo.' : ''),
+      itemNumbers: stEntry.items,
+    });
+  }
+  if (antecipacao.items.length > 0) {
+    const why: string[] = [];
+    if (antecipacao.assumptions.has('REGULARIDADE_NAO_INFORMADA')) why.push('a situação na SEFAZ-PE não foi informada, então usamos o percentual de contribuinte irregular (o maior)');
+    if (antecipacao.assumptions.has('PORTE_PRESUMIDO')) why.push('sem a receita dos últimos 12 meses, usamos o percentual de EPP');
+    if (antecipacao.assumptions.has('SEM_PERCENTUAL_NA_DATA')) why.push('não há percentual reduzido publicado para esta data');
+    alerts.push({
+      code: 'ANTECIPACAO_PE',
+      severity: 'warning',
+      message: `Compra de outra UF: estimamos ${brl(antecipacao.total)} de antecipação de ICMS na entrada em PE (Simples Nacional). Já está no custo; o valor exato vem no extrato da SEFAZ-PE.${why.length ? ` Atenção: ${why.join('; ')}.` : ''}`,
+      itemNumbers: antecipacao.items,
     });
   }
   if (interstate.length > 0) {

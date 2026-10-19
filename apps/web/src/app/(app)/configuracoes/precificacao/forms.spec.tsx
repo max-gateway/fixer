@@ -65,6 +65,17 @@ const profile: TaxProfileSettings = {
 const readiness = (regime: TaxReadiness['regime']): TaxReadiness => ({ regime, regimeInformed: true, supported: regime !== 'REAL', steps: [], requiredTables: [], ready: false, summary: '' });
 
 describe('TaxProfileForm por regime', () => {
+  it('Simples: pergunta a situação na SEFAZ estadual, com "não sei" quando não informada', () => {
+    wrap(<TaxProfileForm initial={profile} readiness={readiness('SIMPLES')} canReview />);
+    expect(screen.getByRole('radiogroup', { name: /Situação na SEFAZ estadual/ })).toBeTruthy();
+    expect((screen.getByRole('radio', { name: /Não sei/ }) as HTMLButtonElement).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('Presumido não pergunta a situação na SEFAZ (a antecipação calculada é só do Simples)', () => {
+    wrap(<TaxProfileForm initial={profile} readiness={readiness('PRESUMIDO')} canReview />);
+    expect(screen.queryByRole('radiogroup', { name: /Situação na SEFAZ estadual/ })).toBeNull();
+  });
+
   it('Simples: pede a RBT12 em reais e esconde o ICMS da venda; percentuais do contador ficam recolhidos', () => {
     wrap(<TaxProfileForm initial={profile} readiness={readiness('SIMPLES')} canReview />);
     expect(screen.getByRole('textbox', { name: /Receita dos últimos 12 meses/ })).toBeTruthy();

@@ -33,6 +33,8 @@ export const TaxProfileSchema = z.object({
   pisSharePct: pct(100).nullable(),
   cofinsSharePct: pct(100).nullable(),
   requireTaxConfirmation: z.boolean().default(false),
+  /** Em dia com a SEFAZ estadual (PE: art. 393-A do RICMS); null = não informado. */
+  stateTaxRegular: z.boolean().nullable().default(null),
 });
 
 /** "Revisei estes percentuais" (contador ou quem tem `fiscal.verify`). */
@@ -215,6 +217,7 @@ export class PricingService {
       pisSharePct: p.pisSharePct?.toString() ?? null,
       cofinsSharePct: p.cofinsSharePct?.toString() ?? null,
       requireTaxConfirmation: p.requireTaxConfirmation,
+      stateTaxRegular: p.stateTaxRegular,
       reviewedBy: p.reviewedBy,
       reviewedAt: p.reviewedAt?.toISOString() ?? null,
       rulesVersion: TAX_RULES_VERSION,

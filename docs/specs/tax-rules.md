@@ -34,6 +34,8 @@ Dez tabelas em `packages/tax-rules`, todas de texto oficial (Planalto, Confaz, C
 | `federal-lucro` | Leis 9.249/95, 7.689/88, 9.715/98, 9.718/98, 10.637/02, 10.833/03; LC 224/2025 | PIS/Cofins até 2026-12-31 | `presumidoCommerce(data, acimaDe5M)`, `federalLines` |
 | `cfop` | Convênio s/nº 1970, Anexo II (Ajustes SINIEF 03/24 e 39/25), 695 códigos | 2024-06-01 em diante | `cfopInfo`, `cfopProfile` |
 | `cst-csosn` | Convênio s/nº 1970, Tabelas A e B, CRT e CSOSN (Ajustes SINIEF 39/23 e 20/24) | 2023-12-01 em diante | `icmsCreditAllowed`, `isStPaidBefore` |
+| `pe-st-autopecas` | RICMS-PE, Anexo 37, arts. 99 a 101 (Dec. 57.000/2024); Prot. ICMS 97/2010 e 129/2010 | 2024-08-01 em diante | `peStAutopecasOrigin(uf, data)`, `mvaAdjusted(original, inter, intra)` |
+| `pe-antecipacao-simples` | Informativo SEFAZ-PE "Antecipação: aquisições em outra UF" (01/10/2026), RICMS-PE arts. 338 a 340, 363-A, 393-A | 2023-12-01 a 2032-12-31 (percentuais publicados até 2028) | `peAntecipacaoSimples({ rbt12, regular, inter, data })` |
 
 Achados que mudam o produto:
 
@@ -50,6 +52,16 @@ Achados que mudam o produto:
 - **`DEPENDE`** significa que o NCM sozinho não decide (ex-tarifário ou Anexo II): a pessoa confirma.
 - **Não inventa**: o que a lei deixa para ato do Senado ou do TCU fica `null`.
 - **O que é regra do Fixer, e não texto legal**, está marcado: as naturezas de CFOP que contam como revenda e os CST/CSOSN que dão crédito.
+
+### 2.2 Entrada em Pernambuco (2026-10-19)
+
+Primeiro pacote estadual, porque os clientes estão em PE (estratégia de conteúdo próprio por demanda: platform `tax-engine.md` §12.5). O livro de custo (`cost-ledger.ts`) aplica quando a nota é interestadual, o destinatário é de PE e a nota não traz ST:
+
+- **Autopeça** (Anexo II do Conv. 142/2018, pelo CEST ou, sem CEST, pelo NCM): componente `ICMS_ST_ENTRADA` = operação × (1 + MVA ajustada) × 20,5% − ICMS próprio. A MVA original é 71,78% e a ajustada sai da fórmula do Prot. 97/2010 (107,43% a 4%, 100,95% a 7%, 90,15% a 12%). Vindo de UF do Prot. 97/2010, o fornecedor deveria ter retido: o custo inclui a ST e o alerta manda conferir. **SP deixou de reter em 2026-10-01** (Prot. 129/2010 revogado).
+- **Mercadoria sem ST, comprador do Simples**: componente `ANTECIPACAO_ICMS`, **estimado**, com o percentual do informativo sobre o valor da operação (ME ou demais pela RBT12; regular ou não pelo novo `TenantTaxProfile.stateTaxRegular`). Sem a situação informada, usa o pior caso (diferença cheia) e o alerta diz isso.
+- Fora disso, continua o aviso genérico `ANTECIPACAO_ICMS_POSSIVEL`.
+
+`npm run verify:sources -- pe-st-autopecas` confere o decreto (SEFAZ-PE) e os dois protocolos (Confaz). O informativo de antecipação é PDF e ainda não tem verificação automática.
 
 ## 3. Pronto para a nova tributação
 
@@ -85,7 +97,7 @@ Achados que mudam o produto:
 
 ## 5. Fora do escopo (sem fonte federal única)
 
-- **ICMS interno por UF, MVA e base de cálculo da ST**: vêm da legislação de cada um dos 27 estados. O custo não precisa (o XML traz o ST pago); o ICMS da venda do Presumido é informado pelo tenant.
+- **ICMS interno por UF, MVA e base de cálculo da ST**: vêm da legislação de cada um dos 27 estados. **PE está coberto na entrada de autopeças e na antecipação do Simples (§2.2)**; o resto (pneus, Agreste, regime normal, outras UFs) não. O custo não precisa (o XML traz o ST pago); o ICMS da venda do Presumido é informado pelo tenant.
 - **Antecipação e DIFAL por UF.**
 - **Alíquotas de referência de CBS e IBS**, até o Senado fixar; **cClassTrib** da NF-e (tabela da Nota Técnica); regimes específicos e Imposto Seletivo.
 - **Alterações por decreto** na lista monofásica (Lei 10.485, art. 3º, § 1º): conferir na TIPI.

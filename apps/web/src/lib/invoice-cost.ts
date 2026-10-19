@@ -17,7 +17,9 @@ export type CostComponentCode =
   | 'ICMS_ST_RETIDO'
   | 'ICMS_DESONERADO'
   | 'PIS'
-  | 'COFINS';
+  | 'COFINS'
+  | 'ICMS_ST_ENTRADA'
+  | 'ANTECIPACAO_ICMS';
 
 export type CostComponent = {
   code: CostComponentCode;
@@ -59,6 +61,8 @@ export const COMPONENT_LABEL: Record<CostComponentCode, string> = {
   ICMS_DESONERADO: 'ICMS desonerado',
   PIS: 'PIS do fornecedor (já está no preço)',
   COFINS: 'COFINS do fornecedor (já está no preço)',
+  ICMS_ST_ENTRADA: 'ICMS-ST pago por você na entrada (PE)',
+  ANTECIPACAO_ICMS: 'ICMS antecipado na entrada (PE, estimado)',
 };
 
 export type WithCost<T> = T & { cost?: ItemCost | null };

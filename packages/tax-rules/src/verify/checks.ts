@@ -242,6 +242,22 @@ const phrases = (html: string, list: Phrase[]) => result(missing(flat(htmlToText
 export const interestadual22 = (h: string) => phrases(h, [['12% (doze por cento) como alíquota geral', 'será de doze por cento'], ['7% (sete) a partir de 1990 do Sul/Sudeste', 'II - a partir de 1990, sete por cento'], ['regiões do 7%', 'Regiões Norte, Nordeste e Centro-Oeste e ao Estado do Espírito Santo']]);
 export const interestadual13 = (h: string) => phrases(h, [['4% para importados', 'será de 4% (quatro por cento)'], ['vigência em 2013-01-01', 'Esta Resolução entra em vigor em 1º de janeiro de 2013'], ['limite de 40% de conteúdo de importação', 'superior a 40% (quarenta por cento)']]);
 
+/** ST de autopeças em PE: MVA do Anexo 37 (Dec. 57.000/2024), MVA do Prot. 97/2010 com PE signatário, e o Prot. 129/2010 (PE–SP) revogado. */
+export const peStAutopecas = (docs: Record<string, string>): CheckResult => {
+  const problems: string[] = [];
+  const text = (k: string) => flat(htmlToText(docs[k] ?? ''));
+  problems.push(...missing(text('dec57000'), [
+    ['Anexo 37, art. 99: regime pelos Protocolos 97/2010 e 129/2010', 'adotado nos termos dos Protocolos ICMS 97/2010 e 129/2010'],
+    ['Anexo 37, art. 100: MVA de 36,56% (fidelidade)', '36,56% (trinta e seis vírgula cinquenta e seis por cento)'],
+    ['Anexo 37, art. 100: MVA de 71,78% nos demais casos', '71,78% (setenta e um vírgula setenta e oito por cento), nos demais casos'],
+  ]));
+  const pt97 = text('pt97');
+  problems.push(...missing(pt97, [['Prot. 97/2010: MVA de 71,78%', '71,78%'], ['Prot. 97/2010: fórmula da MVA ajustada', 'MVA ajustada = [(1+ MVA-ST original) x (1 - ALQ inter) / (1- ALQ intra)]-1'], ['Prot. 97/2010: Pernambuco signatário', 'Pernambuco']]));
+  const pt129 = text('pt129');
+  if (!/REVOGADO/i.test(pt129) || !pt129.includes('96/26')) problems.push('o Prot. ICMS 129/2010 (PE–SP) não aparece mais como revogado pelo Prot. 96/26: a tabela pe-st-autopecas supõe a revogação desde 2026-10-01');
+  return result(problems);
+};
+
 export const federal = (docs: Record<string, string>): CheckResult => {
   const problems: string[] = [];
   const need = (key: string, list: Phrase[]) => problems.push(...missing(flat(htmlToText(docs[key] ?? '')), list));
@@ -336,6 +352,16 @@ export const CHECKS: Check[] = [
       { key: 'lc214', url: `${PLANALTO}/lcp/lcp214.htm` },
     ],
     run: (d) => federal(d),
+  },
+  {
+    id: 'pe-st-autopecas',
+    table: 'pe-st-autopecas',
+    sources: [
+      { key: 'dec57000', url: 'https://www.sefaz.pe.gov.br/Legislacao/Tributaria/Documents/Legislacao/Decretos/2024/Dec57000_2024.htm' },
+      { key: 'pt97', url: `${CONFAZ}/protocolos/2010/pt097_10`, insecure: true },
+      { key: 'pt129', url: `${CONFAZ}/protocolos/2010/pt129_10`, insecure: true },
+    ],
+    run: (d) => peStAutopecas(d),
   },
   { id: 'reforma', table: 'ibs-cbs-transition + ibs-cbs-referencia', sources: [{ key: 'lc214', url: `${PLANALTO}/lcp/lcp214.htm` }], run: (d, today) => reform(d.lc214!, today) },
 ];

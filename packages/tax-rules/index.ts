@@ -8,6 +8,7 @@ import { MONOFASICO_AUTOPECAS_META } from './data/monofasico-autopecas.js';
 import { SIMPLES_COMERCIO_META } from './data/simples-comercio.js';
 import { ST_AUTOPECAS_META } from './data/st-autopecas-anexo-ii.js';
 import { ST_AUTOPECAS_PROTOCOLO_META } from './data/st-autopecas-protocolo.js';
+import { PE_ANTECIPACAO_SIMPLES_META, PE_ST_AUTOPECAS_META } from './data/pe-icms.js';
 
 export const TABLES = [
   SIMPLES_COMERCIO_META,
@@ -20,6 +21,8 @@ export const TABLES = [
   FEDERAL_LUCRO_META,
   CFOP_META,
   CST_CSOSN_META,
+  PE_ST_AUTOPECAS_META,
+  PE_ANTECIPACAO_SIMPLES_META,
 ];
 
 /** Identificador único das versões de todas as tabelas; vai no snapshot de cada preço calculado. */
@@ -45,3 +48,14 @@ export { cfopInfo, cfopProfile, CFOP_NOT_RESALE_NATURES, CFOP_RESALE_NATURES, ty
 export { icmsCreditAllowed, isStPaidBefore } from './src/cst.js';
 export { referenceRate, reducedRateForNcm } from './src/reform.js';
 export { inForce, type TableMeta, type RuleSource } from './src/types.js';
+export {
+  PE_INTERNAL_RATE_PCT,
+  PE_ST_AUTOPECAS_ORIGINS,
+  PE_ST_AUTOPECAS_MVA,
+  PE_ST_AUTOPECAS_META,
+  PE_ANTECIPACAO_SIMPLES,
+  PE_ANTECIPACAO_SIMPLES_META,
+  type PeStOriginPeriod,
+  type PeSimplesSize,
+} from './data/pe-icms.js';
+export { mvaAdjusted, peStAutopecasOrigin, peAntecipacaoSimples, type PeStOriginStatus, type PeAntecipacaoSimples, type PeAntecipacaoBasis, type PeAntecipacaoAssumption } from './src/pe.js';

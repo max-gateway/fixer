@@ -3,7 +3,22 @@
 // Nada aqui é parecer tributário: o contador da oficina precisa validar as tabelas (spec §12, §14).
 import { TAX_RULES_PACKAGE_VERSION } from '@fixer/tax-rules';
 
-export { cfopProfile, icmsCreditAllowed, isStPaidBefore, type CfopProfile } from '@fixer/tax-rules';
+export {
+  cfopProfile,
+  icmsCreditAllowed,
+  interstateRate,
+  isStPaidBefore,
+  mvaAdjusted,
+  ORIGIN_TAXED_AT_4,
+  parseCents,
+  PE_INTERNAL_RATE_PCT,
+  PE_ST_AUTOPECAS_MVA,
+  peAntecipacaoSimples,
+  peStAutopecasOrigin,
+  stAutopecaCest,
+  stAutopecaItems,
+  type CfopProfile,
+} from '@fixer/tax-rules';
 
 /** Versão das tabelas de regra; vai no snapshot de cada custo calculado. */
 export const TAX_RULES_VERSION = TAX_RULES_PACKAGE_VERSION;

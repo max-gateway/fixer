@@ -11,14 +11,20 @@ export async function loadInvoiceLedger(
   invoiceId: string,
   factors: ReadonlyMap<number, Prisma.Decimal.Value> = new Map(),
 ): Promise<InvoiceLedger> {
-  const [invoice, items, settings] = await Promise.all([
-    tx.purchaseInvoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { destIndicator: true, freightMode: true, totals: true, extraFreight: true } }),
+  const [invoice, items, settings, profile] = await Promise.all([
+    tx.purchaseInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+      select: { destIndicator: true, freightMode: true, totals: true, extraFreight: true, issuerUf: true, recipientUf: true, issuedAt: true },
+    }),
     tx.purchaseInvoiceItem.findMany({ where: { invoiceId }, orderBy: { itemNumber: 'asc' }, include: { tax: true } }),
     tx.tenantFiscalSettings.findFirst({ select: { taxRegime: true } }),
+    tx.tenantTaxProfile.findFirst({ select: { rbt12: true, stateTaxRegular: true } }),
   ]);
   return computeLedger({
     invoice,
     items: items.map((i) => ({ ...i, unitFactor: factors.get(i.itemNumber) ?? i.unitFactor })),
     regime: (settings?.taxRegime as Regime | null | undefined) ?? null,
+    // Regras de entrada da UF da oficina (hoje, PE): porte pela RBT12 e situação na SEFAZ estadual.
+    buyer: { rbt12: profile?.rbt12?.toFixed(2) ?? null, stateTaxRegular: profile?.stateTaxRegular ?? null },
   });
 }

@@ -14,6 +14,9 @@ import {
   ST_AUTOPECAS_ANEXO_II,
   TABLES,
   TAX_RULES_PACKAGE_VERSION,
+  mvaAdjusted,
+  peAntecipacaoSimples,
+  peStAutopecasOrigin,
   cfopInfo,
   cfopProfile,
   icmsCreditAllowed,
@@ -368,11 +371,57 @@ describe('CFOP, CST e CSOSN', () => {
   });
 });
 
+describe('Pernambuco: ST de autopeças na entrada', () => {
+  it('MVA ajustada de 71,78% para a alíquota interna de 20,5% (Prot. 97/2010, § 1º)', () => {
+    expect(mvaAdjusted('71.78', '4', '20.5')).toBe('107.43');
+    expect(mvaAdjusted('71.78', '7', '20.5')).toBe('100.95');
+    expect(mvaAdjusted('71.78', '12', '20.5')).toBe('90.15');
+    // alíquota interna menor que a interestadual: vale a original (§ 6º)
+    expect(mvaAdjusted('71.78', '12', '7')).toBe('71.78');
+  });
+
+  it('quem recolhe depende da UF de origem e da data', () => {
+    expect(peStAutopecasOrigin('BA', '2026-10-19').status).toBe('REMETENTE_RETEM');
+    expect(peStAutopecasOrigin('SP', '2026-09-30').status).toBe('REMETENTE_RETEM'); // Prot. 129/2010 ainda vigente
+    expect(peStAutopecasOrigin('SP', '2026-10-01').status).toBe('ADQUIRENTE_RECOLHE'); // revogado pelo Prot. 96/26
+    expect(peStAutopecasOrigin('MG', '2026-10-19').status).toBe('ADQUIRENTE_RECOLHE');
+    expect(peStAutopecasOrigin('RS', '2024-10-31').status).toBe('REMETENTE_RETEM');
+    expect(peStAutopecasOrigin('RS', '2024-11-01').status).toBe('ADQUIRENTE_RECOLHE');
+    expect(peStAutopecasOrigin('pe', '2026-10-19').status).toBe('OPERACAO_INTERNA');
+    expect(peStAutopecasOrigin('SP', '2024-07-31').status).toBe('SEM_DADO_NA_DATA');
+  });
+});
+
+describe('Pernambuco: antecipação do Simples (mercadoria sem ST)', () => {
+  const base = { interPct: '12' as const, asOf: '2026-10-19' };
+
+  it('regular: percentual reduzido por porte (informativo, itens 2.3.7.2.2 e 2.3.7.2.3)', () => {
+    expect(peAntecipacaoSimples({ ...base, rbt12Cents: 30_000_000n, regular: true })).toMatchObject({ pct: '5.31', basis: 'REDUZIDA_ME', assumptions: [] });
+    expect(peAntecipacaoSimples({ ...base, rbt12Cents: 36_000_000n, regular: true })).toMatchObject({ pct: '5.31', size: 'ME' }); // R$ 360 mil ainda é ME
+    expect(peAntecipacaoSimples({ ...base, rbt12Cents: 100_000_000n, regular: true })).toMatchObject({ pct: '6.37', basis: 'REDUZIDA_DEMAIS' });
+    expect(peAntecipacaoSimples({ rbt12Cents: 100_000_000n, regular: true, interPct: '4', asOf: base.asOf }).pct).toBe('13.62');
+    expect(peAntecipacaoSimples({ rbt12Cents: 30_000_000n, regular: true, interPct: '7', asOf: base.asOf }).pct).toBe('5.02');
+  });
+
+  it('irregular ou sem informação paga a diferença cheia de alíquotas, e diz o que supôs', () => {
+    expect(peAntecipacaoSimples({ ...base, rbt12Cents: 30_000_000n, regular: false })).toMatchObject({ pct: '8.50', basis: 'DIFERENCA_ALIQUOTAS', assumptions: [] });
+    expect(peAntecipacaoSimples({ ...base, rbt12Cents: null, regular: null })).toMatchObject({
+      pct: '8.50',
+      size: 'DEMAIS',
+      assumptions: ['PORTE_PRESUMIDO', 'REGULARIDADE_NAO_INFORMADA'],
+    });
+  });
+
+  it('a partir de 2029 não há percentual reduzido publicado', () => {
+    expect(peAntecipacaoSimples({ ...base, rbt12Cents: 30_000_000n, regular: true, asOf: '2029-01-01' })).toMatchObject({ pct: '8.50', assumptions: ['SEM_PERCENTUAL_NA_DATA'] });
+  });
+});
+
 describe('metadados', () => {
   it('toda tabela cita fonte oficial, não foi validada por humano e lista o que não cobre', () => {
     for (const t of TABLES) {
       expect(t.sources.length).toBeGreaterThan(0);
-      for (const s of t.sources) expect(s.url).toMatch(/^https:\/\/(www\.planalto\.gov\.br|www\.confaz\.fazenda\.gov\.br|www2\.camara\.leg\.br)\//);
+      for (const s of t.sources) expect(s.url).toMatch(/^https:\/\/(www\.planalto\.gov\.br|www\.confaz\.fazenda\.gov\.br|www2\.camara\.leg\.br|www\.sefaz\.pe\.gov\.br)\//);
       expect(t.validatedBy).toBeNull();
       expect(t.caveats.length).toBeGreaterThan(0);
     }

@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import { postJson, putJson } from '@/lib/client-api';
 import { num, show, Submit } from './pricing-settings-form';
@@ -25,10 +26,19 @@ export type TaxProfileSettings = {
   pisSharePct: string | null;
   cofinsSharePct: string | null;
   requireTaxConfirmation: boolean;
+  /** Em dia com a SEFAZ estadual (PE: art. 393-A); null = não informado. */
+  stateTaxRegular?: boolean | null;
   reviewedBy: string | null;
   reviewedAt: string | null;
   rulesVersion: string;
 };
+
+const REGULAR_OPTIONS = [
+  { value: 'yes', label: 'Em dia', hint: 'Sem débito, PGDAS-D entregue e antecipações pagas.' },
+  { value: 'no', label: 'Com pendência', hint: 'Paga a diferença cheia de alíquotas.' },
+  { value: 'unknown', label: 'Não sei', hint: 'O custo usa o pior caso até você informar.' },
+] as const;
+const regularValue = (v: boolean | null | undefined) => (v === true ? 'yes' : v === false ? 'no' : 'unknown');
 
 const pctError = (v: number | null | 'invalid', max = 100) => (v === 'invalid' || (typeof v === 'number' && v > max) ? `Informe um percentual entre 0 e ${max}` : null);
 
@@ -48,6 +58,7 @@ export function TaxProfileForm({ initial, readiness, canReview }: { initial: Tax
   const [pis, setPis] = useState(show(initial?.pisSharePct));
   const [cofins, setCofins] = useState(show(initial?.cofinsSharePct));
   const [require, setRequire] = useState(initial?.requireTaxConfirmation ?? false);
+  const [regular, setRegular] = useState<string>(regularValue(initial?.stateTaxRegular));
   const [reviewer, setReviewer] = useState(initial?.reviewedBy ?? '');
   const [submitted, setSubmitted] = useState(false);
 
@@ -87,6 +98,7 @@ export function TaxProfileForm({ initial, readiness, canReview }: { initial: Tax
       pisSharePct: n.pis as number | null,
       cofinsSharePct: n.cofins as number | null,
       requireTaxConfirmation: require,
+      stateTaxRegular: regular === 'yes' ? true : regular === 'no' ? false : null,
     });
   }
 
@@ -110,6 +122,26 @@ export function TaxProfileForm({ initial, readiness, canReview }: { initial: Tax
               <Input id="tax-rbt12-asof" type="date" value={rbt12AsOf} onChange={(e) => setRbt12AsOf(e.target.value)} />
             </Field>
           </div>
+        )}
+
+        {regime === 'SIMPLES' && (
+          <fieldset className="space-y-2">
+            <legend id="tax-regular" className="text-sm font-medium">
+              Situação na SEFAZ estadual
+            </legend>
+            <p className="text-xs text-muted-foreground">Em PE, muda o ICMS antecipado nas compras de outro estado (RICMS-PE, art. 393-A), que entra no custo das peças.</p>
+            <RadioGroup value={regular} onValueChange={setRegular} aria-labelledby="tax-regular" className="gap-1.5">
+              {REGULAR_OPTIONS.map((o) => (
+                <label key={o.value} className="flex cursor-pointer items-start gap-2 text-sm">
+                  <RadioGroupItem value={o.value} className="mt-0.5" />
+                  <span>
+                    {o.label}
+                    <span className="block text-xs text-muted-foreground">{o.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </RadioGroup>
+          </fieldset>
         )}
 
         {regime === 'PRESUMIDO' && (

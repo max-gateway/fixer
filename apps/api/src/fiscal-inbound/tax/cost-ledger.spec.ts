@@ -231,3 +231,78 @@ describe('perfil de CFOP', () => {
     expect(cfopProfile(cfop)).toBe(expected);
   });
 });
+
+describe('livro de custo: entrada em Pernambuco (RICMS-PE)', () => {
+  const pe = (issuerUf: string, issuedAt = '2026-10-18T12:00:00Z'): LedgerInvoiceInput => ({ destIndicator: 2, issuerUf, recipientUf: 'PE', issuedAt: new Date(issuedAt) });
+  // pastilha de freio: Anexo II do Conv. 142/2018, item 14.0 (CEST 01.014.00, NCM 6813)
+  const pastilha = (o: Partial<LedgerItemInput> = {}) => item({ cfop: '6102', ncm: '68138110', cest: '0101400', tax: { icmsKind: 'CSOSN', icmsCode: '102' }, ...o });
+  const runPe = (items: LedgerItemInput[], invoice: LedgerInvoiceInput, buyer = { rbt12: '300000.00', stateTaxRegular: true as boolean | null }, regime: Regime = 'SIMPLES') =>
+    computeLedger({ invoice, items, regime, buyer });
+  const comp = (l: ReturnType<typeof run>, code: string) => l.items.get(1)!.components.find((c) => c.code === code);
+
+  it('autopeça de SP sem ST: a oficina recolhe a ST na entrada (MVA 71,78% ajustada para 7% → 100,95%)', () => {
+    // base ST = 400 × 2,0095 = 803,80; × 20,5% = 164,78; − ICMS próprio 400 × 7% = 28 → 136,78
+    const l = runPe([pastilha()], pe('SP'));
+    expect(comp(l, 'ICMS_ST_ENTRADA')).toMatchObject({ treatment: 'COST', source: 'RICMS-PE Anexo 37 art. 100 (MVA 100.95%)' });
+    expect(comp(l, 'ICMS_ST_ENTRADA')!.amount.toString()).toBe('136.78');
+    expect(cost(l)).toBe('134.195');
+    const alert = l.alerts.find((a) => a.code === 'ST_ENTRADA_PE');
+    expect(alert?.message).toContain('R$ 136,78');
+    expect(alert?.message).not.toContain('deveria ter retido');
+    expect(l.alerts.map((a) => a.code)).not.toContain('ANTECIPACAO_ICMS_POSSIVEL');
+  });
+
+  it('ICMS próprio destacado na nota é o que se deduz; alíquota de 12% → MVA 90,15%', () => {
+    // 400 × 1,9015 = 760,60; × 20,5% = 155,92; − 48 = 107,92
+    const l = runPe([pastilha({ tax: { icmsKind: 'CST', icmsCode: '00', icms: '48', icmsRate: '12' } })], pe('CE'));
+    expect(comp(l, 'ICMS_ST_ENTRADA')!.amount.toString()).toBe('107.92');
+  });
+
+  it('fornecedor de UF do Protocolo 97/2010 que não reteve: calcula e avisa que ele deveria ter retido', () => {
+    const l = runPe([pastilha()], pe('BA'));
+    expect(comp(l, 'ICMS_ST_ENTRADA')).toBeDefined();
+    expect(l.alerts.find((a) => a.code === 'ST_ENTRADA_PE')?.message).toContain('deveria ter retido');
+  });
+
+  it('SP ainda retinha até 30/09/2026 (Protocolo 129/2010)', () => {
+    expect(runPe([pastilha()], pe('SP', '2026-09-30T12:00:00Z')).alerts.find((a) => a.code === 'ST_ENTRADA_PE')?.message).toContain('deveria ter retido');
+  });
+
+  it('nota que já traz ST, compra interna e oficina fora de PE não recebem a regra', () => {
+    expect(comp(runPe([pastilha({ icmsSt: '50', tax: { icmsSt: '50' } })], pe('SP')), 'ICMS_ST_ENTRADA')).toBeUndefined();
+    expect(comp(runPe([pastilha()], { ...pe('PE'), destIndicator: 1 }), 'ICMS_ST_ENTRADA')).toBeUndefined();
+    const sp = runPe([pastilha()], { ...pe('MG'), recipientUf: 'SP' });
+    expect(comp(sp, 'ICMS_ST_ENTRADA')).toBeUndefined();
+    expect(sp.alerts.map((a) => a.code)).toContain('ANTECIPACAO_ICMS_POSSIVEL');
+  });
+
+  it('item sem CEST enquadrado só pelo NCM pede confirmação de uso automotivo', () => {
+    const l = runPe([pastilha({ cest: null })], pe('SP'));
+    expect(l.alerts.find((a) => a.code === 'ST_ENTRADA_PE')?.message).toContain('uso automotivo');
+  });
+
+  describe('mercadoria sem ST: antecipação do Simples', () => {
+    const chave = (o: Partial<LedgerItemInput> = {}) => item({ cfop: '6102', ncm: '82041100', cest: null, tax: { icmsKind: 'CSOSN', icmsCode: '102' }, ...o });
+
+    it('ME regular comprando de SP (7%): 5,02% sobre o valor da operação', () => {
+      const l = runPe([chave()], pe('SP'));
+      expect(comp(l, 'ANTECIPACAO_ICMS')!.amount.toString()).toBe('20.08');
+      expect(comp(l, 'ICMS_ST_ENTRADA')).toBeUndefined();
+      expect(l.alerts.find((a) => a.code === 'ANTECIPACAO_PE')?.message).not.toContain('Atenção');
+    });
+
+    it('sem situação na SEFAZ nem RBT12: pior caso (diferença cheia de 13,5%), dizendo o que supôs', () => {
+      const l = runPe([chave()], pe('SP'), { rbt12: null as unknown as string, stateTaxRegular: null });
+      expect(comp(l, 'ANTECIPACAO_ICMS')!.amount.toString()).toBe('54');
+      const msg = l.alerts.find((a) => a.code === 'ANTECIPACAO_PE')!.message;
+      expect(msg).toContain('irregular');
+      expect(msg).toContain('EPP');
+    });
+
+    it('fora do Simples a antecipação não é calculada: continua só o aviso', () => {
+      const l = runPe([chave()], pe('SP'), undefined, 'PRESUMIDO');
+      expect(comp(l, 'ANTECIPACAO_ICMS')).toBeUndefined();
+      expect(l.alerts.map((a) => a.code)).toContain('ANTECIPACAO_ICMS_POSSIVEL');
+    });
+  });
+});

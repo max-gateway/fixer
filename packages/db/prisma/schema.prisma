@@ -1044,6 +1044,7 @@ model TenantTaxProfile {
   pisSharePct             Decimal?
   cofinsSharePct          Decimal?
   requireTaxConfirmation  Boolean   @default(false) // item com imposto "estimado" exige ciência
+  stateTaxRegular         Boolean? // em dia com a SEFAZ estadual (PE: RICMS art. 393-A); muda o percentual da antecipação na entrada. null = não informado (o custo usa o pior caso)
   reviewedBy              String? // quem validou (contador)
   reviewedAt              DateTime?
   updatedAt               DateTime  @updatedAt
