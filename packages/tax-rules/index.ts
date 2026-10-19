@@ -8,7 +8,7 @@ import { MONOFASICO_AUTOPECAS_META } from './data/monofasico-autopecas.js';
 import { SIMPLES_COMERCIO_META } from './data/simples-comercio.js';
 import { ST_AUTOPECAS_META } from './data/st-autopecas-anexo-ii.js';
 import { ST_AUTOPECAS_PROTOCOLO_META } from './data/st-autopecas-protocolo.js';
-import { PE_ANTECIPACAO_SIMPLES_META, PE_ST_AUTOPECAS_META } from './data/pe-icms.js';
+import { PE_ANTECIPACAO_SIMPLES_META, PE_ST_AUTOPECAS_META, PE_ST_PNEUS_META } from './data/pe-icms.js';
 
 export const TABLES = [
   SIMPLES_COMERCIO_META,
@@ -22,6 +22,7 @@ export const TABLES = [
   CFOP_META,
   CST_CSOSN_META,
   PE_ST_AUTOPECAS_META,
+  PE_ST_PNEUS_META,
   PE_ANTECIPACAO_SIMPLES_META,
 ];
 
@@ -55,7 +56,10 @@ export {
   PE_ST_AUTOPECAS_META,
   PE_ANTECIPACAO_SIMPLES,
   PE_ANTECIPACAO_SIMPLES_META,
+  PE_ST_PNEUS,
+  PE_ST_PNEUS_META,
+  type PePneuItem,
   type PeStOriginPeriod,
   type PeSimplesSize,
 } from './data/pe-icms.js';
-export { mvaAdjusted, peStAutopecasOrigin, peAntecipacaoSimples, type PeStOriginStatus, type PeAntecipacaoSimples, type PeAntecipacaoBasis, type PeAntecipacaoAssumption } from './src/pe.js';
+export { mvaAdjusted, peStAutopecasOrigin, peAntecipacaoSimples, pePneuItem, type PeStOriginStatus, type PeAntecipacaoSimples, type PeAntecipacaoBasis, type PeAntecipacaoAssumption } from './src/pe.js';

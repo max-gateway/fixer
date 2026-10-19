@@ -17,6 +17,8 @@ import {
   mvaAdjusted,
   peAntecipacaoSimples,
   peStAutopecasOrigin,
+  pePneuItem,
+  PE_ST_PNEUS,
   cfopInfo,
   cfopProfile,
   icmsCreditAllowed,
@@ -389,6 +391,33 @@ describe('Pernambuco: ST de autopeças na entrada', () => {
     expect(peStAutopecasOrigin('RS', '2024-11-01').status).toBe('ADQUIRENTE_RECOLHE');
     expect(peStAutopecasOrigin('pe', '2026-10-19').status).toBe('OPERACAO_INTERNA');
     expect(peStAutopecasOrigin('SP', '2024-07-31').status).toBe('SEM_DADO_NA_DATA');
+  });
+});
+
+describe('Pernambuco: ST de pneus (Anexo XVI do Conv. 142/2018)', () => {
+  it('a MVA ajustada calculada bate com a tabela oficial da SEFAZ-PE em todos os itens', () => {
+    // [4%, 7%, 12%] como publicados na tabela "MVAs a partir de 1º de janeiro de 2024", por MVA original
+    const published: Record<string, [string, string, string]> = {
+      '42': ['71.47', '66.11', '57.18'],
+      '32': ['59.40', '54.42', '46.11'],
+      '60': ['93.21', '87.17', '77.11'],
+      '45': ['75.09', '69.62', '60.50'],
+      '105': ['147.55', '139.81', '126.92'],
+    };
+    for (const p of PE_ST_PNEUS) {
+      expect([mvaAdjusted(p.mvaOriginal, '4', '20.5'), mvaAdjusted(p.mvaOriginal, '7', '20.5'), mvaAdjusted(p.mvaOriginal, '12', '20.5')]).toEqual(published[p.mvaOriginal]);
+    }
+  });
+
+  it('enquadra pelo CEST, ou pelo NCM com o prefixo mais longo', () => {
+    expect(pePneuItem('40111000', '1600100')).toMatchObject({ item: { item: '1.0', mvaOriginal: '42' }, byNcmOnly: false });
+    expect(pePneuItem('40114000', null)).toMatchObject({ item: { item: '3.0', mvaOriginal: '60' }, byNcmOnly: true });
+    expect(pePneuItem('40112090', null)?.item.item).toBe('2.0');
+    expect(pePneuItem('40116100', null)?.item.item).toBe('4.0');
+    expect(pePneuItem('40132000', null)?.item.item).toBe('9.0');
+    expect(pePneuItem('40131000', null)?.item.item).toBe('8.0');
+    expect(pePneuItem('68138110', null)).toBeNull();
+    expect(pePneuItem('40111000', '0101400')).toBeNull();
   });
 });
 

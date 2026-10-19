@@ -281,6 +281,22 @@ describe('livro de custo: entrada em Pernambuco (RICMS-PE)', () => {
     expect(l.alerts.find((a) => a.code === 'ST_ENTRADA_PE')?.message).toContain('uso automotivo');
   });
 
+  it('pneu de passageiro de SP sem ST: MVA 42% ajustada para 7% → 66,11%', () => {
+    // 400 × 1,6611 = 664,44; × 20,5% = 136,21; − 28 = 108,21
+    const l = runPe([item({ cfop: '6102', ncm: '40111000', cest: '1600100', tax: { icmsKind: 'CSOSN', icmsCode: '102' } })], pe('SP'));
+    expect(comp(l, 'ICMS_ST_ENTRADA')).toMatchObject({ source: 'RICMS-PE Anexo 37 arts. 49-54, item 1.0 (MVA 66.11%)' });
+    expect(comp(l, 'ICMS_ST_ENTRADA')!.amount.toString()).toBe('108.21');
+    expect(comp(l, 'ANTECIPACAO_ICMS')).toBeUndefined(); // ST prevalece sobre a antecipação geral
+    expect(l.alerts.find((a) => a.code === 'ST_ENTRADA_PE')?.message).toContain('Pneu de fabricante');
+  });
+
+  it('pneu de moto sem CEST: enquadra pelo NCM (MVA 60% → 87,17%) e pede confirmação', () => {
+    // 400 × 1,8717 = 748,68; × 20,5% = 153,48; − 28 = 125,48
+    const l = runPe([item({ cfop: '6102', ncm: '40114000', cest: null, tax: { icmsKind: 'CSOSN', icmsCode: '102' } })], pe('SP'));
+    expect(comp(l, 'ICMS_ST_ENTRADA')!.amount.toString()).toBe('125.48');
+    expect(l.alerts.find((a) => a.code === 'ST_ENTRADA_PE')?.message).toContain('tipo de pneu');
+  });
+
   describe('mercadoria sem ST: antecipação do Simples', () => {
     const chave = (o: Partial<LedgerItemInput> = {}) => item({ cfop: '6102', ncm: '82041100', cest: null, tax: { icmsKind: 'CSOSN', icmsCode: '102' }, ...o });
 

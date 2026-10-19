@@ -15,6 +15,7 @@ export {
   PE_ST_AUTOPECAS_MVA,
   peAntecipacaoSimples,
   peStAutopecasOrigin,
+  pePneuItem,
   stAutopecaCest,
   stAutopecaItems,
   type CfopProfile,

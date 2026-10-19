@@ -113,3 +113,48 @@ export const PE_ANTECIPACAO_SIMPLES_META: TableMeta = {
     'A partir de 2029 o benefício do comércio é reduzido em 20% ao ano (Conv. ICMS 190/2017): os percentuais desses anos ainda não foram publicados.',
   ],
 };
+
+// ---------------------------------------------------------------------------------------------------------------------
+// ST de pneus, câmaras de ar e protetores (RICMS-PE, Anexo 37, arts. 49 a 54, desde 2023-12-01; Conv. ICMS 142/2018,
+// Anexo XVI). MVA original da tabela oficial da SEFAZ-PE "Pneus novos, câmaras de ar e protetores — MVAs a partir de
+// 1º de janeiro de 2024"; as ajustadas da mesma tabela batem com a fórmula de `mvaAdjusted` (teste).
+
+export interface PePneuItem {
+  item: string;
+  cest: string;
+  /** NCM como no convênio: vale o prefixo. */
+  ncm: string[];
+  description: string;
+  /** MVA-ST original, operação interna ou de importação. */
+  mvaOriginal: string;
+}
+
+export const PE_ST_PNEUS: PePneuItem[] = [
+  { item: '1.0', cest: '16.001.00', ncm: ['4011.10.00'], description: 'Pneus novos para automóveis de passageiros (inclusive uso misto, camionetas e de corrida)', mvaOriginal: '42' },
+  { item: '2.0', cest: '16.002.00', ncm: ['4011.20', '4011.30', '4011.70', '4011.80', '4011.90'], description: 'Pneus novos para caminhões (inclusive fora-de-estrada), ônibus, aviões, máquinas de terraplenagem, construção, agrícolas e pá-carregadeira', mvaOriginal: '32' },
+  { item: '3.0', cest: '16.003.00', ncm: ['4011.40.00'], description: 'Pneus novos para motocicletas', mvaOriginal: '60' },
+  { item: '4.0', cest: '16.004.00', ncm: ['4011'], description: 'Outros tipos de pneus novos, exceto os do CEST 16.005.00', mvaOriginal: '45' },
+  { item: '5.0', cest: '16.005.00', ncm: ['4011.50.00'], description: 'Pneus novos de borracha para bicicletas', mvaOriginal: '105' },
+  { item: '7.0', cest: '16.007.00', ncm: ['4012.90'], description: 'Protetores de borracha, exceto os do CEST 16.007.01', mvaOriginal: '45' },
+  { item: '8.0', cest: '16.008.00', ncm: ['4013'], description: 'Câmaras de ar de borracha, exceto as do CEST 16.009.00', mvaOriginal: '45' },
+  { item: '9.0', cest: '16.009.00', ncm: ['4013.20.00'], description: 'Câmaras de ar de borracha para bicicletas', mvaOriginal: '105' },
+];
+
+export const PE_ST_PNEUS_META: TableMeta = {
+  id: 'pe-st-pneus',
+  version: '2026-10-19.1',
+  effectiveFrom: '2024-01-01',
+  effectiveTo: null,
+  sources: [
+    { law: 'SEFAZ-PE, tabela "Pneus novos, câmaras de ar e protetores — MVAs a partir de 1º de janeiro de 2024" (Conv. ICMS 142/2018, Anexo XVI)', url: 'https://www.sefaz.pe.gov.br/Legislacao/Tributaria/Documents/Legislacao/Tabelas/Tabela%20MVA%20Pneus%20e%20C%C3%A2maras%20de%20Ar.pdf', retrievedAt: '2026-10-19' },
+    { law: 'SEFAZ-PE, "Produtos sujeitos ao regime de antecipação/substituição tributária com MVA" (atualizada em 14.10.2026): pneus no RICMS-PE, Anexo 37, arts. 49 a 54, substituição com liberação', url: 'https://www.sefaz.pe.gov.br/Legislacao/Tributaria/Documents/Legislacao/Tabelas/Produtos_Antecipacao_Tributaria.pdf', retrievedAt: '2026-10-19' },
+  ],
+  validatedBy: null,
+  caveats: [
+    'O texto dos arts. 49 a 54 do Anexo 37 não foi lido: a MVA vem da tabela oficial da SEFAZ-PE, e a fórmula da ajustada foi conferida contra ela.',
+    'O item 6.0 do Anexo XVI não aparece na tabela da SEFAZ-PE e não está aqui.',
+    'Sem CEST, o NCM decide pelo prefixo mais longo; 4011 genérico cai em "outros tipos" (45%). O alerta pede confirmação.',
+    'Pneu vindo de fabricante ou importador de outra UF normalmente chega com a ST retida pelo convênio. Nota sem ST: o cálculo supõe que a oficina recolhe na entrada.',
+    'O CEST 16.007.01 (exceção do item 7.0) não tem MVA na tabela e não está aqui.',
+  ],
+};

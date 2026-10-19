@@ -3,6 +3,8 @@ import {
   PE_ANTECIPACAO_SIMPLES,
   PE_INTERNAL_RATE_PCT,
   PE_ST_AUTOPECAS_ORIGINS,
+  PE_ST_PNEUS,
+  type PePneuItem,
   type PeSimplesSize,
 } from '../data/pe-icms.js';
 
@@ -89,4 +91,27 @@ export function peAntecipacaoSimples(input: { rbt12Cents: bigint | null; regular
   }
   const pct = PE_ANTECIPACAO_SIMPLES[size][PE_INTERNAL_RATE_PCT]![input.interPct];
   return { pct, basis: size === 'ME' ? 'REDUZIDA_ME' : 'REDUZIDA_DEMAIS', size, assumptions };
+}
+
+const digits = (v: string) => v.replace(/\D/g, '');
+
+/**
+ * Item de pneu, câmara ou protetor do Anexo XVI (ST em PE): pelo CEST quando há; senão pelo NCM, prefixo mais longo.
+ * `byNcmOnly` = enquadrado sem CEST (o alerta pede confirmação).
+ */
+export function pePneuItem(ncm: string | null | undefined, cest: string | null | undefined): { item: PePneuItem; byNcmOnly: boolean } | null {
+  const c = digits(cest ?? '');
+  if (c.length === 7) {
+    const byCest = PE_ST_PNEUS.find((p) => digits(p.cest) === c);
+    return byCest ? { item: byCest, byNcmOnly: false } : null;
+  }
+  const n = digits(ncm ?? '');
+  if (n.length < 4) return null;
+  let best: { item: PePneuItem; len: number } | null = null;
+  for (const p of PE_ST_PNEUS) {
+    for (const code of p.ncm.map(digits)) {
+      if (n.startsWith(code) && (!best || code.length > best.len)) best = { item: p, len: code.length };
+    }
+  }
+  return best && { item: best.item, byNcmOnly: true };
 }

@@ -35,6 +35,7 @@ Dez tabelas em `packages/tax-rules`, todas de texto oficial (Planalto, Confaz, C
 | `cfop` | Convênio s/nº 1970, Anexo II (Ajustes SINIEF 03/24 e 39/25), 695 códigos | 2024-06-01 em diante | `cfopInfo`, `cfopProfile` |
 | `cst-csosn` | Convênio s/nº 1970, Tabelas A e B, CRT e CSOSN (Ajustes SINIEF 39/23 e 20/24) | 2023-12-01 em diante | `icmsCreditAllowed`, `isStPaidBefore` |
 | `pe-st-autopecas` | RICMS-PE, Anexo 37, arts. 99 a 101 (Dec. 57.000/2024); Prot. ICMS 97/2010 e 129/2010 | 2024-08-01 em diante | `peStAutopecasOrigin(uf, data)`, `mvaAdjusted(original, inter, intra)` |
+| `pe-st-pneus` | Tabela SEFAZ-PE de MVA de pneus, câmaras e protetores (desde 01/01/2024); RICMS-PE, Anexo 37, arts. 49 a 54; Conv. 142/2018, Anexo XVI | 2024-01-01 em diante | `pePneuItem(ncm, cest)` + `mvaAdjusted` |
 | `pe-antecipacao-simples` | Informativo SEFAZ-PE "Antecipação: aquisições em outra UF" (01/10/2026), RICMS-PE arts. 338 a 340, 363-A, 393-A | 2023-12-01 a 2032-12-31 (percentuais publicados até 2028) | `peAntecipacaoSimples({ rbt12, regular, inter, data })` |
 
 Achados que mudam o produto:
@@ -58,6 +59,7 @@ Achados que mudam o produto:
 Primeiro pacote estadual, porque os clientes estão em PE (estratégia de conteúdo próprio por demanda: platform `tax-engine.md` §12.5). O livro de custo (`cost-ledger.ts`) aplica quando a nota é interestadual, o destinatário é de PE e a nota não traz ST:
 
 - **Autopeça** (Anexo II do Conv. 142/2018, pelo CEST ou, sem CEST, pelo NCM): componente `ICMS_ST_ENTRADA` = operação × (1 + MVA ajustada) × 20,5% − ICMS próprio. A MVA original é 71,78% e a ajustada sai da fórmula do Prot. 97/2010 (107,43% a 4%, 100,95% a 7%, 90,15% a 12%). Vindo de UF do Prot. 97/2010, o fornecedor deveria ter retido: o custo inclui a ST e o alerta manda conferir. **SP deixou de reter em 2026-10-01** (Prot. 129/2010 revogado).
+- **Pneu, câmara de ar ou protetor** (Anexo XVI do Conv. 142/2018, pelo CEST ou pelo NCM): mesmo cálculo, com a MVA do item (42% passageiro, 32% caminhão/ônibus/agrícola, 60% moto, 45% outros, câmaras e protetores, 105% bicicleta). As ajustadas calculadas batem com a tabela oficial da SEFAZ-PE (teste). Nota sem ST supõe que a oficina recolhe; o alerta lembra que pneu de fabricante costuma vir retido.
 - **Mercadoria sem ST, comprador do Simples**: componente `ANTECIPACAO_ICMS`, **estimado**, com o percentual do informativo sobre o valor da operação (ME ou demais pela RBT12; regular ou não pelo novo `TenantTaxProfile.stateTaxRegular`). Sem a situação informada, usa o pior caso (diferença cheia) e o alerta diz isso.
 - Fora disso, continua o aviso genérico `ANTECIPACAO_ICMS_POSSIVEL`.
 
@@ -97,7 +99,7 @@ Primeiro pacote estadual, porque os clientes estão em PE (estratégia de conte�
 
 ## 5. Fora do escopo (sem fonte federal única)
 
-- **ICMS interno por UF, MVA e base de cálculo da ST**: vêm da legislação de cada um dos 27 estados. **PE está coberto na entrada de autopeças e na antecipação do Simples (§2.2)**; o resto (pneus, Agreste, regime normal, outras UFs) não. O custo não precisa (o XML traz o ST pago); o ICMS da venda do Presumido é informado pelo tenant.
+- **ICMS interno por UF, MVA e base de cálculo da ST**: vêm da legislação de cada um dos 27 estados. **PE está coberto na entrada de autopeças, pneus e na antecipação do Simples (§2.2)**; o resto (Agreste, regime normal, outras UFs) não. O custo não precisa (o XML traz o ST pago); o ICMS da venda do Presumido é informado pelo tenant.
 - **Antecipação e DIFAL por UF.**
 - **Alíquotas de referência de CBS e IBS**, até o Senado fixar; **cClassTrib** da NF-e (tabela da Nota Técnica); regimes específicos e Imposto Seletivo.
 - **Alterações por decreto** na lista monofásica (Lei 10.485, art. 3º, § 1º): conferir na TIPI.

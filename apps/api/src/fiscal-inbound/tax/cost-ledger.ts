@@ -11,6 +11,7 @@ import {
   PE_ST_AUTOPECAS_MVA,
   peAntecipacaoSimples,
   peStAutopecasOrigin,
+  pePneuItem,
   stAutopecaCest,
   stAutopecaItems,
   TAX_RULES_VERSION,
@@ -264,7 +265,7 @@ export function computeLedger(input: { invoice: LedgerInvoiceInput; items: Ledge
   const issuerUf = invoice.issuerUf?.toUpperCase() ?? null;
   const asOf = (invoice.issuedAt ?? new Date()).toISOString().slice(0, 10);
   const peEntry = invoice.destIndicator === 2 && destUf === 'PE' && issuerUf !== null && issuerUf !== 'PE';
-  const stEntry = { items: [] as number[], total: ZERO, supplierShouldRetain: false, byNcmOnly: false };
+  const stEntry = { items: [] as number[], total: ZERO, supplierShouldRetain: false, byNcmOnly: false, tyres: false };
   const antecipacao = { items: [] as number[], total: ZERO, assumptions: new Set<string>() };
   const rbt12Cents = input.buyer?.rbt12 ? parseCents(input.buyer.rbt12) : null;
 
@@ -309,26 +310,40 @@ export function computeLedger(input: { invoice: LedgerInvoiceInput; items: Ledge
     const stPaid = isStPaidBefore(kind, code) || D(tax?.stRet).gt(0);
     const owesOnEntry = profile !== 'NOT_RESALE' && tax?.indTot !== 0 && !stCharged && !stPaid;
     const autopeca = item.cest ? stAutopecaCest(item.cest) !== null : stAutopecaItems(item.ncm).length > 0;
+    const pneu = autopeca ? null : pePneuItem(item.ncm, item.cest);
     const inter = peEntry && owesOnEntry ? interPctOf(item, issuerUf!, 'PE') : null;
     const operation = components.filter((c) => OPERATION_CODES.has(c.code)).reduce((s, c) => s.plus(c.amount), ZERO);
+    // ST que a oficina recolhe na entrada em PE: base = operação × (1 + MVA ajustada); imposto = base × 20,5% − ICMS próprio.
+    const stOnEntry = (mvaOriginal: string, source: string) => {
+      const mva = mvaAdjusted(mvaOriginal, inter!, PE_INTERNAL_RATE_PCT);
+      const notOwn = components.filter((c) => c.code === 'IPI' || c.code === 'FRETE_POR_FORA').reduce((s, c) => s.plus(c.amount), ZERO);
+      const ownIcms = D(tax?.icms).gt(0) ? D(tax?.icms) : pctOf(operation.minus(notOwn), inter!);
+      const due = pctOf(operation.mul(D(mva).div(100).plus(1)), PE_INTERNAL_RATE_PCT).minus(ownIcms).toDecimalPlaces(2);
+      if (due.gt(0)) {
+        add('ICMS_ST_ENTRADA', 'COST', due, `${source} (MVA ${mva}%)`);
+        stEntry.items.push(item.itemNumber);
+        stEntry.total = stEntry.total.plus(due);
+      }
+      return due.gt(0);
+    };
     let handled = false;
     if (inter && autopeca) {
-      // ST de autopeça (RICMS-PE, Anexo 37, art. 100): base = operação × (1 + MVA ajustada); imposto = base × 20,5% − ICMS próprio.
+      // Autopeça (RICMS-PE, Anexo 37, art. 100; Prot. 97/2010): MVA de 71,78%.
       const origin = peStAutopecasOrigin(issuerUf!, asOf);
       if (origin.status === 'ADQUIRENTE_RECOLHE' || origin.status === 'REMETENTE_RETEM') {
-        const mva = mvaAdjusted(PE_ST_AUTOPECAS_MVA.general, inter, PE_INTERNAL_RATE_PCT);
-        const notOwn = components.filter((c) => c.code === 'IPI' || c.code === 'FRETE_POR_FORA').reduce((s, c) => s.plus(c.amount), ZERO);
-        const ownIcms = D(tax?.icms).gt(0) ? D(tax?.icms) : pctOf(operation.minus(notOwn), inter);
-        const due = pctOf(operation.mul(D(mva).div(100).plus(1)), PE_INTERNAL_RATE_PCT).minus(ownIcms).toDecimalPlaces(2);
-        if (due.gt(0)) {
-          add('ICMS_ST_ENTRADA', 'COST', due, `RICMS-PE Anexo 37 art. 100 (MVA ${mva}%)`);
-          stEntry.items.push(item.itemNumber);
-          stEntry.total = stEntry.total.plus(due);
+        if (stOnEntry(PE_ST_AUTOPECAS_MVA.general, 'RICMS-PE Anexo 37 art. 100')) {
           if (origin.status === 'REMETENTE_RETEM') stEntry.supplierShouldRetain = true;
           if (!item.cest) stEntry.byNcmOnly = true;
         }
         handled = true;
       }
+    } else if (inter && pneu) {
+      // Pneu, câmara ou protetor (RICMS-PE, Anexo 37, arts. 49 a 54; Conv. 142/2018, Anexo XVI): MVA do item.
+      if (stOnEntry(pneu.item.mvaOriginal, `RICMS-PE Anexo 37 arts. 49-54, item ${pneu.item.item}`)) {
+        stEntry.tyres = true;
+        if (pneu.byNcmOnly) stEntry.byNcmOnly = true;
+      }
+      handled = true;
     } else if (inter && regime === 'SIMPLES') {
       // Antecipação do Simples (mercadoria sem ST): percentual do informativo sobre o valor da operação (estimativa).
       const a = peAntecipacaoSimples({ rbt12Cents, regular: input.buyer?.stateTaxRegular ?? null, interPct: inter, asOf });
@@ -370,9 +385,10 @@ export function computeLedger(input: { invoice: LedgerInvoiceInput; items: Ledge
       code: 'ST_ENTRADA_PE',
       severity: 'warning',
       message:
-        `Autopeça de outra UF sem ICMS-ST na nota: a oficina recolhe ${brl(stEntry.total)} de ST na entrada em PE (RICMS-PE, Anexo 37, art. 100, MVA de 71,78% ajustada). Já está no custo.` +
-        (stEntry.supplierShouldRetain ? ' O fornecedor é de UF do Protocolo 97/2010 e deveria ter retido: confira com ele, a SEFAZ-PE cobra de você.' : '') +
-        (stEntry.byNcmOnly ? ' Item sem CEST enquadrado pelo NCM: confirme que é de uso automotivo.' : ''),
+        `Mercadoria com ST em PE comprada de outra UF sem ICMS-ST na nota: a oficina recolhe ${brl(stEntry.total)} de ST na entrada (RICMS-PE, Anexo 37, MVA ajustada). Já está no custo.` +
+        (stEntry.supplierShouldRetain ? ' O fornecedor da autopeça é de UF do Protocolo 97/2010 e deveria ter retido: confira com ele, a SEFAZ-PE cobra de você.' : '') +
+        (stEntry.tyres ? ' Pneu de fabricante ou importador costuma vir com a ST retida: confira a nota com o fornecedor.' : '') +
+        (stEntry.byNcmOnly ? ' Item sem CEST enquadrado pelo NCM: confirme o enquadramento (uso automotivo, tipo de pneu).' : ''),
       itemNumbers: stEntry.items,
     });
   }
