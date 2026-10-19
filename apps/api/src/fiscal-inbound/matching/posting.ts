@@ -1,20 +1,15 @@
 import { Prisma } from '@fixer/db';
 import { ConflictException, UnprocessableEntityException } from '@nestjs/common';
-import { buildPricingPlan, type PricingRow } from '../../pricing/pricing-plan.js';
+import { buildPricingPlan, type PricingPlan, type PricingRow } from '../../pricing/pricing-plan.js';
+import { nextAvgCost } from '../../stock/avg-cost.js';
 import { loadInvoiceLedger } from '../tax/invoice-ledger.js';
+import { buildEntrySnapshot, ENTRY_SNAPSHOT_SCHEMA_VERSION, type SnapshotInput } from './entry-snapshot.js';
 
 type Tx = Prisma.TransactionClient;
 
 export interface PostOptions {
   /** Aplica os preços de venda (rascunho ou sugestão) junto com a entrada (docs/specs/pricing.md §6.2). Sem isto o preço nunca muda. */
   applyPricing?: boolean;
-}
-
-/** Custo médio ponderado: o saldo antes da entrada pesa com o custo médio atual; saldo zero ou negativo recomeça no custo da compra. */
-export function nextAvgCost(prev: { stockQty: Prisma.Decimal; avgCost: Prisma.Decimal | null; costPrice: Prisma.Decimal }, qty: Prisma.Decimal, cost: Prisma.Decimal): Prisma.Decimal {
-  if (prev.stockQty.lte(0)) return cost;
-  const base = prev.avgCost ?? prev.costPrice;
-  return base.mul(prev.stockQty).plus(cost.mul(qty)).div(prev.stockQty.plus(qty)).toDecimalPlaces(4);
 }
 
 /**
@@ -32,15 +27,29 @@ export async function postInvoice(tx: Tx, invoiceId: string, userId: string, opt
 
   const invoice = await tx.purchaseInvoice.findUniqueOrThrow({
     where: { id: invoiceId },
-    select: { number: true, series: true, accessKey: true },
+    select: {
+      number: true, series: true, accessKey: true, issuedAt: true, issuerCnpj: true, issuerName: true,
+      issuerUf: true, issuerCrt: true, recipientUf: true, destIndicator: true, freightMode: true,
+    },
   });
   const items = await tx.purchaseInvoiceItem.findMany({ where: { invoiceId }, orderBy: { itemNumber: 'asc' } });
   // Custo líquido de reposição (docs/specs/pricing.md §5.1): a mesma conta que a tela mostra.
   const ledger = await loadInvoiceLedger(tx, invoiceId);
   // O plano de preço lê o custo e o preço ATUAIS das peças, então precisa ser montado antes de a entrada mexer nelas.
-  const plan = opts.applyPricing ? await buildPricingPlan(tx, invoiceId, ledger) : null;
+  // Sem pedido de preço o plano só alimenta o snapshot: se não der para montá-lo, o lançamento segue sem ele.
+  let plan: PricingPlan | null = null;
+  let planError: string | null = null;
+  if (opts.applyPricing) plan = await buildPricingPlan(tx, invoiceId, ledger);
+  else {
+    try {
+      plan = await buildPricingPlan(tx, invoiceId, ledger);
+    } catch (e) {
+      planError = e instanceof Error ? e.message : String(e);
+    }
+  }
+  const fiscal = await loadFiscalContext(tx);
   const rows = new Map<number, PricingRow>((plan?.rows ?? []).map((r) => [r.itemNumber, r]));
-  if (plan) {
+  if (plan && opts.applyPricing) {
     const refused = plan.rows.filter((r) => r.proposed && r.blocking.length > 0);
     if (refused.length > 0) {
       throw new UnprocessableEntityException({
@@ -60,20 +69,27 @@ export async function postInvoice(tx: Tx, invoiceId: string, userId: string, opt
     const cost = l?.landedCost;
     if (!cost) continue; // quantidade zero: não há o que dar entrada
     const qty = item.quantity.mul(item.unitFactor);
-    const before = await tx.part.findUniqueOrThrow({ where: { id: item.partId }, select: { stockQty: true, avgCost: true, costPrice: true, sellPrice: true } });
+    const before = await tx.part.findUniqueOrThrow({
+      where: { id: item.partId },
+      select: {
+        stockQty: true, avgCost: true, costPrice: true, sellPrice: true, sku: true, name: true, ncm: true, cest: true,
+        pricingMode: true, icmsStStatus: true, pisCofinsMonofasico: true, taxFlagsSource: true, fiscalVerified: true,
+      },
+    });
     const row = rows.get(item.itemNumber);
-    const newPrice = row?.proposed ?? null;
+    const newPrice = opts.applyPricing ? (row?.proposed ?? null) : null;
+    const avgAfter = nextAvgCost(before, qty, cost);
     const part = await tx.part.update({
       where: { id: item.partId },
       data: {
         stockQty: { increment: qty },
         costPrice: cost,
-        avgCost: nextAvgCost(before, qty, cost),
+        avgCost: avgAfter,
         ...(newPrice ? { sellPrice: newPrice } : {}),
       },
-      select: { stockQty: true },
+      select: { stockQty: true, sellPrice: true },
     });
-    await tx.stockMovement.create({
+    const movement = await tx.stockMovement.create({
       data: {
         partId: item.partId,
         type: 'PURCHASE',
@@ -82,9 +98,13 @@ export async function postInvoice(tx: Tx, invoiceId: string, userId: string, opt
         purchaseInvoiceItemId: item.id,
         createdById: userId,
         note,
+        unitCost: cost,
+        avgCostBefore: before.avgCost ?? (before.stockQty.gt(0) ? before.costPrice : null),
+        avgCostAfter: avgAfter,
       },
     });
-    if (row && plan) {
+    let priceHistoryId: string | null = null;
+    if (row && plan && opts.applyPricing) {
       // O que foi calculado fica no item: explica o preço mesmo depois que a lei ou as tabelas mudarem.
       await tx.purchaseInvoiceItem.update({
         where: { id: item.id },
@@ -102,7 +122,7 @@ export async function postInvoice(tx: Tx, invoiceId: string, userId: string, opt
         },
       });
       if (newPrice) {
-        await tx.partPriceHistory.create({
+        ({ id: priceHistoryId } = await tx.partPriceHistory.create({
           data: {
             partId: item.partId,
             costBefore: before.costPrice,
@@ -119,11 +139,59 @@ export async function postInvoice(tx: Tx, invoiceId: string, userId: string, opt
             pricingRuleId: row.ruleId,
             createdById: userId,
           },
-        });
+          select: { id: true },
+        }));
       }
     }
+    // Fotografia imutável do lançamento, com ou sem preço (docs/specs/stock-entry-snapshot.md).
+    const snap = buildEntrySnapshot({
+      invoice,
+      item,
+      part: { id: item.partId, ...before },
+      before,
+      after: { stockQty: part.stockQty, costPrice: cost, avgCost: avgAfter, sellPrice: part.sellPrice },
+      quantity: qty,
+      ledger,
+      itemLedger: l!,
+      plan,
+      row: row ?? null,
+      planError,
+      applyPricing: opts.applyPricing === true,
+      priceHistoryId,
+      fiscal,
+      postedAt: new Date(),
+      postedById: userId,
+    });
+    await tx.stockEntrySnapshot.create({
+      data: {
+        stockMovementId: movement.id,
+        partId: item.partId,
+        purchaseInvoiceItemId: item.id,
+        schemaVersion: ENTRY_SNAPSHOT_SCHEMA_VERSION,
+        quantity: qty,
+        unitCost: cost,
+        totalCost: l!.totalCost,
+        avgCostAfter: avgAfter,
+        sellPriceAfter: part.sellPrice,
+        priceChanged: snap.priceChanged,
+        taxRulesVersion: plan?.rulesVersion ?? ledger.rulesVersion,
+        context: snap.context as Prisma.InputJsonValue,
+        contentHash: snap.contentHash,
+        createdById: userId,
+      },
+    });
   }
   return true;
+}
+
+/** Regime, UF, perfil tributário e aceites do contador vigentes no instante do lançamento (entram no snapshot). */
+async function loadFiscalContext(tx: Tx): Promise<SnapshotInput['fiscal']> {
+  const [settings, profile, tableReviews] = await Promise.all([
+    tx.tenantFiscalSettings.findFirst({ select: { taxRegime: true, ufCode: true } }),
+    tx.tenantTaxProfile.findFirst(),
+    tx.taxTableReview.findMany({ select: { tableId: true, version: true, reviewedBy: true, reviewedAt: true } }),
+  ]);
+  return { taxRegime: settings?.taxRegime ?? null, ufCode: settings?.ufCode ?? null, profile, tableReviews };
 }
 
 /** Lançamento automático (`autoExport`): só quando a nota chegou a READY e o autor configurado existe. Nunca mexe em preço. */

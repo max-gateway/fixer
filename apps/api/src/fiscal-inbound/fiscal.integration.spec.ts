@@ -29,6 +29,7 @@ describe.skipIf(!URL)('Sincronização fiscal (Postgres, integração)', () => {
   const keys = new Set<string>();
 
   const cleanup = async () => {
+    await db.stockEntrySnapshot.deleteMany({ where: { createdById: USER } });
     await db.stockMovement.deleteMany({ where: { createdById: USER } });
     await db.purchaseInvoiceItem.deleteMany({ where: { invoice: { accessKey: { in: [...keys] } } } });
     await db.purchaseInvoice.deleteMany({ where: { accessKey: { in: [...keys] } } });

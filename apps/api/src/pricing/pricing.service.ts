@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { buildPricingPlan, toDto } from './pricing-plan.js';
 import { TABLES } from '@fixer/tax-rules';
 import { TAX_RULES_VERSION } from '../fiscal-inbound/tax/rules.js';
+import { hashContext } from '../fiscal-inbound/matching/entry-snapshot.js';
 import { PricingError, suggestPrice } from './pricing.js';
 import type { Regime } from './sale-tax.js';
 import { taxReadiness } from './tax-readiness.js';
@@ -276,6 +277,30 @@ export class PricingService {
         marginAfter: h.marginAfter?.toDecimalPlaces(2).toString() ?? null,
         saleTaxPct: h.saleTaxPct?.toString() ?? null,
         taxRulesVersion: h.taxRulesVersion,
+      })),
+    };
+  }
+
+  /**
+   * Entradas da peça no estoque por nota, com a fotografia de cada lançamento (docs/specs/stock-entry-snapshot.md).
+   * `intact` recalcula o hash sobre o que está gravado: false indica conteúdo alterado fora do sistema.
+   */
+  async entries(partId: string) {
+    const rows = await this.prisma.stockEntrySnapshot.findMany({ where: { partId }, orderBy: { createdAt: 'desc' }, take: 50 });
+    return {
+      entries: rows.map((e) => ({
+        id: e.id,
+        at: e.createdAt.toISOString(),
+        quantity: e.quantity.toString(),
+        unitCost: e.unitCost.toString(),
+        totalCost: e.totalCost.toString(),
+        avgCostAfter: e.avgCostAfter.toString(),
+        sellPriceAfter: e.sellPriceAfter.toString(),
+        priceChanged: e.priceChanged,
+        taxRulesVersion: e.taxRulesVersion,
+        schemaVersion: e.schemaVersion,
+        intact: hashContext(e.context) === e.contentHash,
+        context: e.context,
       })),
     };
   }

@@ -255,6 +255,8 @@ model PartPriceHistory {
 enum PriceChangeSource { INVOICE MANUAL AUTO REVERSAL }
 ```
 
+> **Complemento (2026-10-19):** toda entrada por nota também grava uma fotografia imutável e completa do lançamento (`StockEntrySnapshot`), com ou sem preço, e os movimentos de estoque passam a ser valorizados. Ver [stock-entry-snapshot.md](stock-entry-snapshot.md).
+
 `@@unique([purchaseInvoiceItemId, source])` impede histórico duplicado se o lançamento for repetido; NULLs são distintos no Postgres, então registros sem nota não são afetados.
 
 ## 5. Cálculo (`packages/domain/src/pricing/`)

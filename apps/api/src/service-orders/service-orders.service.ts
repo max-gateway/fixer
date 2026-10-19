@@ -6,6 +6,7 @@ import type { EstimateSource, Prisma, Service, ServiceOrderStatus, VariantResolu
 import type { AuthUser } from '../auth/auth.decorators.js';
 import { emitOrderEvent } from '../outbox/order-events.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { nextAvgCost } from '../stock/avg-cost.js';
 import { LearningService } from '../learning/learning.service.js';
 import { VehicleVariantsService } from '../vehicle-variants/vehicle-variants.service.js';
 import { generateLinkCode } from '../whatsapp-link/link-code.js';
@@ -385,17 +386,29 @@ export class ServiceOrdersService {
       data: { stockQty: { decrement: line.quantity } },
     });
     if (count === 0) throw new ConflictException(`Estoque insuficiente: ${line.partName}`);
-    await this.recordMovement(tx, line, 'SALE_CONSUMPTION', user, null);
+    const part = await tx.part.findUniqueOrThrow({ where: { id: line.partId } });
+    // A saída vale o custo médio do momento; a linha guarda o custo congelado, base do lucro da OS.
+    const unitCost = part.avgCost ?? part.costPrice ?? null;
+    await tx.serviceOrderPartLine.update({ where: { id: line.id }, data: { unitCost } });
+    await this.recordMovement(tx, line, 'SALE_CONSUMPTION', user, null, part.stockQty, { unitCost, avgCostBefore: unitCost, avgCostAfter: unitCost });
   }
 
   private async returnStock(
     tx: Tx,
-    line: { id: string; partId: string; quantity: Prisma.Decimal },
+    line: { id: string; partId: string; quantity: Prisma.Decimal; unitCost?: Prisma.Decimal | null },
     user: AuthUser,
     note: string,
   ) {
-    await tx.part.update({ where: { id: line.partId }, data: { stockQty: { increment: line.quantity } } });
-    await this.recordMovement(tx, line, 'RETURN', user, note);
+    const before = await tx.part.findUniqueOrThrow({ where: { id: line.partId } });
+    // Volta pelo custo com que saiu (o congelado na linha); OS anterior à valorização volta pelo médio atual.
+    const unitCost = line.unitCost ?? before.avgCost ?? before.costPrice ?? null;
+    const avgCostBefore = before.avgCost ?? null;
+    const avgCostAfter = unitCost === null ? avgCostBefore : nextAvgCost(before, line.quantity, unitCost);
+    const part = await tx.part.update({
+      where: { id: line.partId },
+      data: { stockQty: { increment: line.quantity }, ...(avgCostAfter ? { avgCost: avgCostAfter } : {}) },
+    });
+    await this.recordMovement(tx, line, 'RETURN', user, note, part.stockQty, { unitCost, avgCostBefore, avgCostAfter });
   }
 
   private async recordMovement(
@@ -404,17 +417,19 @@ export class ServiceOrdersService {
     type: 'SALE_CONSUMPTION' | 'RETURN',
     user: AuthUser,
     note: string | null,
+    balanceAfter: Prisma.Decimal,
+    valuation: { unitCost: Prisma.Decimal | null; avgCostBefore: Prisma.Decimal | null; avgCostAfter: Prisma.Decimal | null },
   ) {
-    const part = await tx.part.findUniqueOrThrow({ where: { id: line.partId } });
     await tx.stockMovement.create({
       data: {
         partId: line.partId,
         type,
         quantity: line.quantity,
-        balanceAfter: part.stockQty,
+        balanceAfter,
         serviceOrderPartLineId: line.id,
         note,
         createdById: user.id,
+        ...valuation,
       },
     });
   }

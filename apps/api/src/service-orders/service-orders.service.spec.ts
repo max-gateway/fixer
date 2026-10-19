@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConflictException } from '@nestjs/common';
+import { Prisma } from '@fixer/db';
 import { ServiceOrdersService } from './service-orders.service.js';
 import { CreateServiceOrderSchema } from './schema.js';
 
@@ -14,9 +15,10 @@ function setup(order: { status: string; partLines: unknown[] } | null, stockUpda
     },
     part: {
       updateMany: vi.fn().mockResolvedValue({ count: stockUpdateCount }),
-      update: vi.fn(),
-      findUniqueOrThrow: vi.fn().mockResolvedValue({ stockQty: 5 }),
+      update: vi.fn().mockResolvedValue({ stockQty: new Prisma.Decimal(7) }),
+      findUniqueOrThrow: vi.fn().mockResolvedValue({ stockQty: new Prisma.Decimal(5), avgCost: new Prisma.Decimal('12.5'), costPrice: new Prisma.Decimal('14') }),
     },
+    serviceOrderPartLine: { update: vi.fn() },
     stockMovement: { create: vi.fn() },
     serviceOrderStatusLog: { create: vi.fn() },
     serviceOrderEvent: { create: vi.fn() },
@@ -39,9 +41,12 @@ describe('ServiceOrdersService.transition', () => {
     });
     expect(tx.stockMovement.create.mock.calls[0][0].data).toMatchObject({
       type: 'SALE_CONSUMPTION',
-      balanceAfter: 5,
       serviceOrderPartLineId: 'l1',
     });
+    expect(tx.stockMovement.create.mock.calls[0][0].data.balanceAfter.toString()).toBe('5');
+    // a saída vale o custo médio do momento, congelado na linha da OS
+    expect(tx.stockMovement.create.mock.calls[0][0].data.unitCost.toString()).toBe('12.5');
+    expect(tx.serviceOrderPartLine.update).toHaveBeenCalledWith({ where: { id: 'l1' }, data: { unitCost: new Prisma.Decimal('12.5') } });
     expect(tx.serviceOrderStatusLog.create.mock.calls[0][0].data).toMatchObject({
       fromStatus: 'QUOTE',
       toStatus: 'APPROVED',
@@ -86,9 +91,14 @@ describe('ServiceOrdersService.transition', () => {
     await service.transition('o1', { status: 'CANCELLED' }, user);
     expect(tx.part.update).toHaveBeenCalledWith({
       where: { id: 'p1' },
-      data: { stockQty: { increment: 2 } },
+      data: expect.objectContaining({ stockQty: { increment: 2 } }),
     });
-    expect(tx.stockMovement.create.mock.calls[0][0].data.type).toBe('RETURN');
+    const ret = tx.stockMovement.create.mock.calls[0][0].data;
+    expect(ret.type).toBe('RETURN');
+    // OS anterior à valorização (linha sem custo) volta pelo custo médio atual, sem distorcer o médio
+    expect(ret.unitCost.toString()).toBe('12.5');
+    expect(ret.avgCostAfter.toString()).toBe('12.5');
+    expect(ret.balanceAfter.toString()).toBe('7');
     expect(tx.serviceOrder.update.mock.calls[0][0].data.closedAt).toBeInstanceOf(Date);
   });
 

@@ -109,6 +109,13 @@ export class PricingController {
     return this.pricing.history(id);
   }
 
+  /** Entradas da peça no estoque com a fotografia de cada lançamento (custo, preço, imposto, regra e versões). */
+  @Get('parts/:id/entries')
+  @RequirePermission('pricing.read')
+  entries(@Param('id') id: string) {
+    return this.pricing.entries(id);
+  }
+
   @Put('parts/:id/pricing-mode')
   @RequirePermission('pricing.write')
   setMode(@Param('id') id: string, @Body() body: unknown) {

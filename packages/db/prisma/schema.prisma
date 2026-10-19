@@ -337,6 +337,7 @@ model ServiceOrderPartLine {
   partName  String // snapshot of the part's name at time of sale
   quantity  Decimal @default(1)
   unitPrice Decimal // price charged on this order, frozen
+  unitCost  Decimal? // custo médio da peça na saída do estoque (aprovação), congelado: base do lucro da OS. null = OS anterior à valorização
 
   stockMovements StockMovement[]
 
@@ -489,9 +490,49 @@ model StockMovement {
   purchaseInvoiceItemId String?
   purchaseInvoiceItem   PurchaseInvoiceItem? @relation(fields: [purchaseInvoiceItemId], references: [id], onDelete: Restrict)
 
+  // Valorização (kardex): o custo deste movimento e o custo médio antes e depois. Entrada por nota = custo líquido de
+  // reposição; saída e devolução = custo médio do momento. null = movimento sem custo conhecido (anterior à valorização,
+  // ou entrada manual sem custo).
+  unitCost      Decimal?
+  avgCostBefore Decimal?
+  avgCostAfter  Decimal?
+
+  entrySnapshot StockEntrySnapshot?
+
   createdAt DateTime @default(now())
 
   @@unique([purchaseInvoiceItemId, type])
+  @@index([orgId])
+}
+
+// Fotografia imutável de uma entrada no estoque por nota (docs/specs/stock-entry-snapshot.md): tudo o que o custo e o preço
+// usaram naquele instante, para explicar e reproduzir o lançamento depois que a peça, o perfil ou as tabelas mudarem.
+// Uma por movimento PURCHASE de nota. Gravada na mesma transação do lançamento; UPDATE é recusado por trigger.
+model StockEntrySnapshot {
+  id                    String        @id @default(cuid())
+  orgId                 String        @default(dbgenerated("app_org()")) @db.Uuid
+  stockMovementId       String        @unique
+  stockMovement         StockMovement @relation(fields: [stockMovementId], references: [id], onDelete: Restrict)
+  partId                String
+  purchaseInvoiceItemId String
+  schemaVersion         Int // formato de `context`; muda quando um campo novo passa a ser obrigatório
+  // Colunas para consulta e relatório; o resto está em `context`.
+  quantity              Decimal // unidades de estoque que entraram
+  unitCost              Decimal // custo líquido de reposição por unidade
+  totalCost             Decimal
+  avgCostAfter          Decimal
+  sellPriceAfter        Decimal // preço de venda depois do lançamento (igual ao anterior se o preço não mudou)
+  priceChanged          Boolean
+  taxRulesVersion       String // versão de packages/tax-rules
+  rulesetVersion        String? // tax-engine (platform), quando o Fixer passar a consumi-lo
+  costProfileVersion    Int? // cost-engine (platform), idem
+  context               Json // documento, componentes do custo, preço, imposto, regra, perfil, aceites
+  contentHash           String // sha256 do `context` canônico: evidência de que não foi alterado
+  createdById           String
+  createdAt             DateTime      @default(now())
+
+  @@index([partId, createdAt])
+  @@index([purchaseInvoiceItemId])
   @@index([orgId])
 }
 

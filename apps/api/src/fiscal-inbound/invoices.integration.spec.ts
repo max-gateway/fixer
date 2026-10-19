@@ -9,6 +9,7 @@ import { parseDistResponse } from './parser/dist-response.parser.js';
 import { PricingService } from '../pricing/pricing.service.js';
 import { backfillInvoiceTax } from './tax/backfill.js';
 import { SyncRunner } from './sync/sync.runner.js';
+import { hashContext } from './matching/entry-snapshot.js';
 
 /**
  * Conciliação contra Postgres REAL: aprendizado de vínculo entre notas, cadastro de peça pelo item,
@@ -33,6 +34,7 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
     await db.tenantTaxProfile.deleteMany();
     await db.taxTableReview.deleteMany();
     await db.supplierItemMap.deleteMany({ where: { supplierCnpj: SUPPLIER } });
+    await db.stockEntrySnapshot.deleteMany({ where: { createdById: USER } });
     await db.stockMovement.deleteMany({ where: { createdById: USER } });
     await db.purchaseInvoiceItem.deleteMany({ where: { invoice: { accessKey: { in: [...keys] } } } });
     await db.purchaseInvoice.deleteMany({ where: { accessKey: { in: [...keys] } } });
@@ -513,6 +515,34 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
       expect(item!.suggestedSellPrice?.toString()).toBe('43.9');
       expect(item!.saleTaxSnapshot).toMatchObject({ pct: '7' });
       expect((item!.costSnapshot as { landed: string }).landed).toBe('23.2');
+
+      // fotografia imutável do lançamento, ligada ao movimento e ao histórico de preço
+      const mov = await db.stockMovement.findFirstOrThrow({ where: { partId: p.id, type: 'PURCHASE' } });
+      expect(mov.unitCost?.toString()).toBe('23.2');
+      expect(mov.avgCostBefore?.toString()).toBe('10');
+      expect(mov.avgCostAfter?.toString()).toBe('18.8');
+      const snap = await db.stockEntrySnapshot.findUniqueOrThrow({ where: { stockMovementId: mov.id } });
+      expect(snap).toMatchObject({ partId: p.id, purchaseInvoiceItemId: item!.id, priceChanged: true, schemaVersion: 1 });
+      expect(snap.unitCost.toString()).toBe('23.2');
+      expect(snap.sellPriceAfter.toString()).toBe('43.9');
+      expect(snap.context).toMatchObject({
+        price: { outcome: 'APPLIED', before: '40', after: '43.9', suggested: '43.9', priceHistoryId: hist[0]!.id, rule: { method: 'MARGIN' } },
+        saleTax: { pct: '7', confidence: 'ESTIMADO' },
+        stock: { quantity: '10', before: { stockQty: '5', costPrice: '10' }, after: { stockQty: '15', avgCost: '18.8' } },
+        engines: { taxRulesVersion: snap.taxRulesVersion },
+      });
+      // o hash recalculado sobre o que voltou do JSONB bate: nada foi alterado
+      expect(hashContext(snap.context)).toBe(snap.contentHash);
+      const { entries } = await pricing.entries(p.id);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ id: snap.id, unitCost: '23.2', sellPriceAfter: '43.9', priceChanged: true, intact: true });
+    });
+
+    it('o snapshot é imutável: UPDATE é recusado pelo banco', async () => {
+      const { p, inv } = await setup();
+      await service.confirm(inv.id, USER, { applyPricing: true });
+      const snap = await db.stockEntrySnapshot.findFirstOrThrow({ where: { partId: p.id } });
+      await expect(db.stockEntrySnapshot.update({ where: { id: snap.id }, data: { unitCost: 1 } })).rejects.toThrow(/imutável/);
     });
 
     it('lançar SEM pedir preço nunca muda o preço de venda (comportamento de sempre)', async () => {
@@ -522,6 +552,11 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
       expect(after.sellPrice.toString()).toBe('40');
       expect(after.costPrice.toString()).toBe('23.2');
       expect(await db.partPriceHistory.count({ where: { partId: p.id } })).toBe(0);
+      // sem preço também fica a fotografia: custo, estoque e o preço que a regra teria sugerido
+      const snap = await db.stockEntrySnapshot.findFirstOrThrow({ where: { partId: p.id } });
+      expect(snap.priceChanged).toBe(false);
+      expect(snap.context).toMatchObject({ price: { outcome: 'NOT_REQUESTED', before: '40', after: '40', suggested: '43.9', priceHistoryId: null } });
+      expect(hashContext(snap.context)).toBe(snap.contentHash);
     });
 
     it('preço escolhido vale no lugar da sugestão; limpar o rascunho volta à sugestão', async () => {
