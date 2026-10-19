@@ -15,6 +15,7 @@ import {
   type InvoiceDetail,
   type InvoiceItem,
 } from '@/lib/invoices';
+import { EntryTaxPayable } from './entry-tax-payable';
 import { InvoiceActions } from './invoice-actions';
 import { PricingPanel } from './pricing-panel';
 import { ItemRow } from './item-row';
@@ -73,7 +74,7 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
       </header>
 
       <Notices inv={inv} />
-      <CostAlerts alerts={inv.costAlerts ?? []} />
+      <CostAlerts alerts={inv.costAlerts ?? []} invoiceNumber={inv.number} supplierName={inv.issuerName} />
 
       {inv.items.length > 0 ? (
         <div className="space-y-2">
@@ -99,7 +100,7 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
 }
 
 /** O que o XML não traz ou não fecha (frete por fora, antecipação de ICMS, item que não é revenda), com os itens envolvidos. */
-function CostAlerts({ alerts }: { alerts: CostAlert[] }) {
+function CostAlerts({ alerts, invoiceNumber, supplierName }: { alerts: CostAlert[]; invoiceNumber: number | null; supplierName: string }) {
   if (alerts.length === 0) return null;
   return (
     <div className="space-y-3">
@@ -107,6 +108,10 @@ function CostAlerts({ alerts }: { alerts: CostAlert[] }) {
         <Notice key={`${a.code}-${i}`} tone={a.severity === 'warning' ? 'warning' : 'info'}>
           <p>{a.message}</p>
           {a.itemNumbers.length > 0 && <p className="text-xs">Itens: {a.itemNumbers.join(', ')}</p>}
+          {/* ICMS que a oficina recolhe na entrada em PE: vira conta a pagar só quando a pessoa confirma o vencimento. */}
+          {a.amount && Number(a.amount) > 0 && (a.code === 'ST_ENTRADA_PE' || a.code === 'ANTECIPACAO_PE') && (
+            <EntryTaxPayable amount={a.amount} estimated={a.code === 'ANTECIPACAO_PE'} invoiceNumber={invoiceNumber} supplierName={supplierName || 'fornecedor'} />
+          )}
         </Notice>
       ))}
     </div>

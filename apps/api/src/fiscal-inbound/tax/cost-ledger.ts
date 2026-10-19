@@ -125,6 +125,8 @@ export interface LedgerAlert {
   message: string;
   /** Itens envolvidos; vazio quando o alerta é da nota inteira. */
   itemNumbers: number[];
+  /** Valor a pagar que o alerta anuncia (imposto de entrada), em reais com 2 casas; ausente nos demais alertas. */
+  amount?: string;
 }
 
 export interface ItemLedger {
@@ -390,6 +392,7 @@ export function computeLedger(input: { invoice: LedgerInvoiceInput; items: Ledge
         (stEntry.tyres ? ' Pneu de fabricante ou importador costuma vir com a ST retida: confira a nota com o fornecedor.' : '') +
         (stEntry.byNcmOnly ? ' Item sem CEST enquadrado pelo NCM: confirme o enquadramento (uso automotivo, tipo de pneu).' : ''),
       itemNumbers: stEntry.items,
+      amount: stEntry.total.toFixed(2),
     });
   }
   if (antecipacao.items.length > 0) {
@@ -402,6 +405,7 @@ export function computeLedger(input: { invoice: LedgerInvoiceInput; items: Ledge
       severity: 'warning',
       message: `Compra de outra UF: estimamos ${brl(antecipacao.total)} de antecipação de ICMS na entrada em PE (Simples Nacional). Já está no custo; o valor exato vem no extrato da SEFAZ-PE.${why.length ? ` Atenção: ${why.join('; ')}.` : ''}`,
       itemNumbers: antecipacao.items,
+      amount: antecipacao.total.toFixed(2),
     });
   }
   if (interstate.length > 0) {

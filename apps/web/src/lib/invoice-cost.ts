@@ -42,6 +42,8 @@ export type CostAlert = {
   severity: 'warning' | 'info';
   message: string;
   itemNumbers: number[];
+  /** Valor a pagar anunciado (imposto de entrada em PE), em reais; ausente nos demais alertas. */
+  amount?: string;
 };
 
 /** Nome de cada componente em linguagem de balcão, com o que ele significa para o custo. */

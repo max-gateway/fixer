@@ -2,7 +2,7 @@
 
 import { SlidersHorizontal, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
-import { MarkupSlider, type SliderMark } from '@/components/markup-slider';
+import { MarkupSlider, type SliderMark, type SliderZone } from '@/components/markup-slider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -29,6 +29,22 @@ export function buildMarks({ cost, suggested, current, max }: { cost: number; su
   if (current !== null) add({ value: ROUND(markupOf(cost, current)), label: 'atual', tone: 'current', price: current });
   for (const v of [30, 50, 100]) add({ value: v, label: `${v}%`, tone: 'preset' });
   return marks;
+}
+
+/**
+ * Zonas do markup (docs/specs/custos-e-impostos-ui.md §9.1): vermelho enquanto o preço, depois do imposto e das despesas, não
+ * cobre o custo; âmbar até a margem mínima da regra; verde daí em diante. Imposto e despesas somando 100% ou mais: tudo vermelho.
+ */
+export function buildZones({ taxPct, overheadPct, minMarginPct, max }: { taxPct: number; overheadPct: number; minMarginPct: number; max: number }): SliderZone[] {
+  const room = 100 - taxPct - overheadPct;
+  if (room <= 0) return [{ from: 0, to: max, tone: 'danger', label: 'Prejuízo depois do imposto' }];
+  const lossEnd = (100 / room - 1) * 100;
+  const minRoom = room - minMarginPct;
+  const minEnd = minRoom > 0 ? (100 / minRoom - 1) * 100 : max;
+  const zones: SliderZone[] = [{ from: 0, to: lossEnd, tone: 'danger', label: 'Prejuízo depois do imposto' }];
+  if (minMarginPct > 0) zones.push({ from: lossEnd, to: minEnd, tone: 'warning', label: 'Abaixo da margem mínima' });
+  if (minEnd < max) zones.push({ from: minMarginPct > 0 ? minEnd : lossEnd, to: max, tone: 'ok', label: 'Na meta' });
+  return zones;
 }
 
 /** Limite da escala: 200% ou o que couber o maior marcador com folga, em passos de 50. */
@@ -99,6 +115,7 @@ function Body({ row: r, plan, onApply }: { row: PricingRowView; plan: PricingPla
         max={max}
         step={1}
         marks={buildMarks({ cost, suggested, current, max })}
+        zones={buildZones({ taxPct: tax, overheadPct: overhead, minMarginPct: minMargin, max })}
         onChange={(v) => {
           setExact(null);
           setM(v);
@@ -111,6 +128,8 @@ function Body({ row: r, plan, onApply }: { row: PricingRowView; plan: PricingPla
           onApply(p);
         }}
       />
+
+      <ZoneLegend minMargin={minMargin} />
 
       <dl className="tabular grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-3 text-sm">
         <div>
@@ -137,5 +156,23 @@ function Body({ row: r, plan, onApply }: { row: PricingRowView; plan: PricingPla
         </Alert>
       )}
     </>
+  );
+}
+
+function ZoneLegend({ minMargin }: { minMargin: number }) {
+  const items = [
+    { cls: 'bg-red-400/70', text: 'prejuízo' },
+    ...(minMargin > 0 ? [{ cls: 'bg-amber-300/80', text: `abaixo de ${pct1(minMargin)}` }] : []),
+    { cls: 'bg-emerald-400/60', text: 'na meta' },
+  ];
+  return (
+    <p aria-hidden className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      {items.map((i) => (
+        <span key={i.text} className="inline-flex items-center gap-1">
+          <span className={`inline-block size-2 rounded-full ${i.cls}`} />
+          {i.text}
+        </span>
+      ))}
+    </p>
   );
 }

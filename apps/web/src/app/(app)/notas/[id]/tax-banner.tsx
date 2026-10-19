@@ -1,38 +1,15 @@
 import { ArrowRight, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
-import { Hint } from '@/components/hint';
+import { ConfidenceChip } from '@/components/confidence-chip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import type { PricingPlanView, SaleTaxView } from '@/lib/pricing';
 
 /** Etiqueta única do estado do imposto de um item: nunca só cor, sempre com texto; a explicação abre ao passar o mouse ou tocar. */
 export function TaxChip({ tax }: { tax: SaleTaxView }) {
-  if (tax.pct === null) {
-    return (
-      <Hint content="O imposto sobre a venda não pôde ser calculado: veja o motivo em Detalhes.">
-        <Badge variant="danger">Imposto indisponível</Badge>
-      </Hint>
-    );
-  }
-  if (tax.confidence === 'DEFINIDO') {
-    return (
-      <Hint content="Percentual que você definiu na regra de preço.">
-        <Badge variant="secondary">Definido por você</Badge>
-      </Hint>
-    );
-  }
-  if (tax.confidence === 'CONFIRMADO') {
-    return (
-      <Hint content="O contador validou os dados e as tabelas, e o enquadramento da peça está confirmado.">
-        <Badge variant="success">Imposto confirmado</Badge>
-      </Hint>
-    );
-  }
-  return (
-    <Hint content="Falta validação do contador (dados ou tabelas) ou a confirmação do enquadramento da peça.">
-      <Badge variant="warning">Imposto estimado</Badge>
-    </Hint>
-  );
+  if (tax.pct === null) return <ConfidenceChip state="SEM_DADO" label="Imposto indisponível" hint="O imposto sobre a venda não pôde ser calculado: veja o motivo em Detalhes." />;
+  if (tax.confidence === 'DEFINIDO') return <ConfidenceChip state="DEFINIDO" hint="Percentual que você definiu na regra de preço." />;
+  if (tax.confidence === 'CONFIRMADO') return <ConfidenceChip state="CONFIRMADO" label="Imposto confirmado" hint="O contador validou os dados e as tabelas, e o enquadramento da peça está confirmado." />;
+  return <ConfidenceChip state="ESTIMADO" label="Imposto estimado" hint="Falta validação do contador (dados ou tabelas) ou a confirmação do enquadramento da peça." />;
 }
 
 /**

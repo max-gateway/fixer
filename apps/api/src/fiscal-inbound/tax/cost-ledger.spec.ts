@@ -248,6 +248,7 @@ describe('livro de custo: entrada em Pernambuco (RICMS-PE)', () => {
     expect(cost(l)).toBe('134.195');
     const alert = l.alerts.find((a) => a.code === 'ST_ENTRADA_PE');
     expect(alert?.message).toContain('R$ 136,78');
+    expect(alert?.amount).toBe('136.78'); // vira o valor do botão "Criar conta a pagar"
     expect(alert?.message).not.toContain('deveria ter retido');
     expect(l.alerts.map((a) => a.code)).not.toContain('ANTECIPACAO_ICMS_POSSIVEL');
   });
@@ -303,6 +304,7 @@ describe('livro de custo: entrada em Pernambuco (RICMS-PE)', () => {
     it('ME regular comprando de SP (7%): 5,02% sobre o valor da operação', () => {
       const l = runPe([chave()], pe('SP'));
       expect(comp(l, 'ANTECIPACAO_ICMS')!.amount.toString()).toBe('20.08');
+      expect(l.alerts.find((a) => a.code === 'ANTECIPACAO_PE')?.amount).toBe('20.08');
       expect(comp(l, 'ICMS_ST_ENTRADA')).toBeUndefined();
       expect(l.alerts.find((a) => a.code === 'ANTECIPACAO_PE')?.message).not.toContain('Atenção');
     });

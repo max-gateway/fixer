@@ -234,6 +234,8 @@ export function toDto(plan: PricingPlan) {
       name: r.name,
       stockQty: r.stockQty.toString(),
       cost: s(r.cost),
+      /** Componentes do custo da linha (livro de custo), para a gaveta "Por que esse preço?". */
+      costComponents: (plan.ledger.items.get(r.itemNumber)?.components ?? []).map((c) => ({ code: c.code, treatment: c.treatment, amount: c.amount.toString(), source: c.source, allocated: c.allocated })),
       previousCost: s(r.previousCost),
       currentPrice: s(r.currentPrice),
       suggested: s(r.suggested),

@@ -1,6 +1,8 @@
 // Precificação a partir da nota de compra (docs/specs/pricing.md). Decimais chegam como string no JSON.
 // A API é a autoridade: aqui só há a conta de exibição (margem de um preço digitado) e os textos.
 
+import type { CostComponent } from './invoice-cost';
+
 export type PriceFlag =
   | 'NO_RULE'
   | 'LOCKED'
@@ -53,6 +55,8 @@ export type PricingRowView = {
   name: string;
   stockQty: string;
   cost: string | null;
+  /** Componentes do custo da linha (livro de custo da API). */
+  costComponents?: CostComponent[];
   previousCost: string | null;
   currentPrice: string | null;
   suggested: string | null;

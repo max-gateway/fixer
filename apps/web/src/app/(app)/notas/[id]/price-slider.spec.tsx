@@ -3,7 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PricingPlanView, PricingRowView } from '@/lib/pricing';
-import { buildMarks, MarkupPopover, scaleMax } from './price-slider';
+import { buildMarks, buildZones, MarkupPopover, scaleMax } from './price-slider';
 
 beforeAll(() => {
   globalThis.ResizeObserver ??= class {
@@ -46,6 +46,25 @@ describe('buildMarks / scaleMax', () => {
     expect(scaleMax(0)).toBe(250);
     expect(scaleMax(300)).toBe(350);
     expect(scaleMax(Number.NaN, 10)).toBe(250);
+  });
+});
+
+describe('buildZones', () => {
+  it('prejuízo até o markup que só cobre custo e imposto; âmbar até a margem mínima; verde depois', () => {
+    // imposto 10%: preço × 0,9 = custo → markup 11,1%; margem mínima 20%: preço × 0,7 = custo → markup 42,9%
+    const z = buildZones({ taxPct: 10, overheadPct: 0, minMarginPct: 20, max: 200 });
+    expect(z.map((x) => x.tone)).toEqual(['danger', 'warning', 'ok']);
+    expect(z[0]!.to).toBeCloseTo(11.11, 2);
+    expect(z[1]!.to).toBeCloseTo(42.86, 2);
+    expect(z[2]).toMatchObject({ to: 200, label: 'Na meta' });
+  });
+
+  it('sem margem mínima não há faixa âmbar', () => {
+    expect(buildZones({ taxPct: 10, overheadPct: 5, minMarginPct: 0, max: 200 }).map((x) => x.tone)).toEqual(['danger', 'ok']);
+  });
+
+  it('imposto e despesas somando 100% ou mais: a escala inteira é prejuízo', () => {
+    expect(buildZones({ taxPct: 60, overheadPct: 40, minMarginPct: 10, max: 200 })).toEqual([{ from: 0, to: 200, tone: 'danger', label: 'Prejuízo depois do imposto' }]);
   });
 });
 

@@ -1,6 +1,6 @@
 # Spec — UI de custos, despesas e impostos
 
-Status: **rascunho para revisão** · Escopo: `apps/web` do Fixer (cliente dos motores) e o console interno de curadoria (`platform`) · Depende de: [tax-engine.md](../../../platform/docs/specs/tax-engine.md), [cost-engine.md](../../../platform/docs/specs/cost-engine.md) · Evolui: [pricing.md](pricing.md) §7 e [tax-rules.md](tax-rules.md) §4.12
+Status: **rascunho para revisão; fase A implementada (2026-10-19)** · Escopo: `apps/web` do Fixer (cliente dos motores) e o console interno de curadoria (`platform`) · Depende de: [tax-engine.md](../../../platform/docs/specs/tax-engine.md), [cost-engine.md](../../../platform/docs/specs/cost-engine.md) · Evolui: [pricing.md](pricing.md) §7 e [tax-rules.md](tax-rules.md) §4.12
 
 ## 1. Problema
 
@@ -335,11 +335,20 @@ UI de operador do `tax-engine`, só para o time da plataforma, no mesmo padrão 
 
 | Fase | UI | Depende de |
 |---|---|---|
-| **A** | `ConfidenceChip`, `WhyDrawer` e zonas no slider, ainda sobre o cálculo atual do Fixer; aviso de imposto de entrada na nota com o pacote PE no `tax-rules`; **Histórico da peça** (§6.8), já com a API pronta | tax-engine §12.5 (pacote PE no Fixer); `GET /parts/:id/entries` (feito) |
+| **A** (feita) | `ConfidenceChip`, `WhyDrawer` e zonas no slider, ainda sobre o cálculo atual do Fixer; aviso de imposto de entrada na nota com o pacote PE no `tax-rules`; **Histórico da peça** (§6.8), já com a API pronta | tax-engine §12.5 (pacote PE no Fixer); `GET /parts/:id/entries` (feito) |
 | **B** | Seção Custos: assistente, Despesas, Vendas, Estrutura e Visão geral | cost-engine fases 0 e 1 |
 | **C** | Impostos em `/custos/impostos`, Revisão do contador, memória de cálculo | tax-engine fase 2 |
 | **D** | Preços (lote), desconto seguro na OS, Simular | cost-engine fases 2 e 4 |
 | **E** | Console de curadoria | tax-engine fase 3 |
+
+### 14.1 O que a fase A entregou
+
+- `components/confidence-chip.tsx`: o vocabulário de §3.1; a etiqueta de imposto da nota passou a usá-lo.
+- Zonas no seletor de markup (`MarkupSlider.zones`): prejuízo, abaixo da margem mínima e na meta, com legenda e descrição para leitor de tela. **Sem a faixa de "equilíbrio"**, que depende das despesas fixas (cost-engine).
+- Gaveta "Por que esse preço?": composição do custo (vinda do plano, `costComponents`), "de cada R$ 100 do preço" e os preços-limite (mínimo sem prejuízo e margem mínima).
+- Histórico na gaveta (§6.8), com as fotografias de `GET /parts/:id/entries`: documento, custo antes e depois, resultado do preço, confiança do imposto da época, selo de integridade, como foi calculado e "o que mudou desde então". Notas antigas, sem fotografia, caem no histórico de preço anterior.
+- Alertas de imposto de entrada em PE com "Criar conta a pagar" (§9.1): valor calculado, vencimento informado pela pessoa, nada criado sozinho.
+- Ainda não: aba Histórico fora da nota (o Fixer não tem tela de peça), memória de cálculo em PDF.
 
 ## 15. Decisões
 

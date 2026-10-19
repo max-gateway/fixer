@@ -14,6 +14,20 @@ export interface SliderMark {
   price?: number;
 }
 
+/** Faixa da escala com significado (prejuízo, abaixo do mínimo, na meta). Desenhada sob o trilho e descrita em texto. */
+export interface SliderZone {
+  from: number;
+  to: number;
+  tone: 'danger' | 'warning' | 'ok';
+  label: string;
+}
+
+const ZONE_TONE: Record<SliderZone['tone'], string> = {
+  danger: 'bg-red-400/70',
+  warning: 'bg-amber-300/80',
+  ok: 'bg-emerald-400/60',
+};
+
 const TONE: Record<NonNullable<SliderMark['tone']>, string> = {
   rule: 'font-medium text-primary',
   current: 'font-medium text-foreground',
@@ -38,6 +52,7 @@ export function MarkupSlider({
   max = 200,
   step = 1,
   marks = [],
+  zones = [],
   disabled,
   error,
   className,
@@ -52,6 +67,8 @@ export function MarkupSlider({
   max?: number;
   step?: number;
   marks?: SliderMark[];
+  /** Faixas coloridas sob o trilho; a cor nunca é o único sinal (há a descrição em texto). */
+  zones?: SliderZone[];
   disabled?: boolean;
   error?: string | null;
   className?: string;
@@ -111,6 +128,20 @@ export function MarkupSlider({
         }}
         onValueCommit={([v]) => onCommit?.(clean(v!, step))}
       />
+
+      {zones.length > 0 && (
+        <>
+          <div aria-hidden className="relative h-1.5 overflow-hidden rounded-full bg-muted">
+            {zones.map((z) => {
+              const from = inside(z.from);
+              const to = inside(z.to);
+              if (to <= from) return null;
+              return <span key={`${z.tone}-${z.from}`} data-zone={z.tone} className={cn('absolute inset-y-0', ZONE_TONE[z.tone])} style={{ left: pos(from), width: `${((to - from) / (max - min)) * 100}%` }} />;
+            })}
+          </div>
+          <p className="sr-only">{zones.map((z) => `${z.label}: de ${fmt(z.from)}% a ${fmt(Math.min(z.to, max))}%`).join('; ')}</p>
+        </>
+      )}
 
       {marks.length > 0 && (
         <div className="relative h-5" aria-label="Atalhos">
