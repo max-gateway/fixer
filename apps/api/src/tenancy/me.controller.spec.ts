@@ -6,50 +6,30 @@ const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
-function build(payload: object | Error, profiles: { orgId: string; slug: string | null; name: string | null }[] = [], cfg: { orgsClaim?: string; defaultOrgId?: string } = {}) {
+type Profile = { orgId: string; slug: string | null; name: string | null };
+
+function build(payload: object | Error, member: Record<string, string[]> = {}, profiles: Profile[] = []) {
   const verify = vi.fn(async () => {
     if (payload instanceof Error) throw payload;
     return payload;
   });
   const findMany = vi.fn(async ({ where }: { where: { orgId: { in: string[] } } }) => profiles.filter((p) => where.orgId.in.includes(p.orgId)));
-  const controller = new MeController({ verify } as never, { orgsClaim: 'organization', ...cfg } as never, { orgProfile: { findMany } } as never);
+  const membership = { membershipsOf: async (sub: string) => (member[sub] ?? []).map((orgId) => ({ orgId, roles: ['member'] })) };
+  const controller = new MeController({ verify } as never, { orgProfile: { findMany } } as never, membership as never);
   return { controller, verify, findMany };
 }
 
-describe('GET /me/organizations com participação conhecida', () => {
-  it('soma o claim e a participação: token sem claim ainda lista as oficinas do usuário', async () => {
-    const profiles = [
+describe('GET /me/organizations', () => {
+  it('lista as oficinas do registro de participação do usuário, com o nome de cada uma', async () => {
+    const { controller } = build({ sub: 'u1' }, { u1: [A, B] }, [
       { orgId: A, slug: 'a', name: 'Alfa' },
       { orgId: B, slug: 'b', name: 'Beta' },
-    ];
-    const findMany = vi.fn(async ({ where }: { where: { orgId: { in: string[] } } }) => profiles.filter((p) => where.orgId.in.includes(p.orgId)));
-    const membership = { orgsFor: async (sub: string) => (sub === 'u1' ? [A, B] : []) };
-    const controller = new MeController({ verify: async () => ({ sub: 'u1' }) } as never, { orgsClaim: 'organization' } as never, { orgProfile: { findMany } } as never, membership as never);
+    ]);
     expect((await controller.organizations('Bearer t')).organizations.map((o) => o.name).sort()).toEqual(['Alfa', 'Beta']);
   });
-});
 
-describe('GET /me/organizations', () => {
-  it('lista as organizações do token com o nome de cada uma', async () => {
-    const { controller } = build({ organization: [A, B] }, [
-      { orgId: A, slug: 'alfa-1a2b3c', name: 'Oficina Alfa Ltda' },
-      { orgId: B, slug: 'beta-4d5e6f', name: null },
-    ]);
-    expect(await controller.organizations('Bearer tok')).toEqual({
-      organizations: [
-        { id: A, name: 'Oficina Alfa Ltda', slug: 'alfa-1a2b3c' },
-        { id: B, name: 'beta-4d5e6f', slug: 'beta-4d5e6f' }, // sem nome: cai para o slug
-      ],
-    });
-  });
-
-  it('organização ainda não provisionada no Fixer vem sem nome (o front mostra o id)', async () => {
-    const { controller } = build({ organization: [A] });
-    expect((await controller.organizations('Bearer tok')).organizations).toEqual([{ id: A, name: null, slug: null }]);
-  });
-
-  it('só devolve organizações DO TOKEN: nunca consulta nem expõe as de outro', async () => {
-    const { controller, findMany } = build({ organization: [A] }, [
+  it('só devolve organizações DO USUÁRIO: nunca consulta nem expõe as de outro', async () => {
+    const { controller, findMany } = build({ sub: 'u1' }, { u1: [A], u2: [C] }, [
       { orgId: A, slug: 'a', name: 'A' },
       { orgId: C, slug: 'c', name: 'Segredo de outra oficina' },
     ]);
@@ -59,20 +39,14 @@ describe('GET /me/organizations', () => {
     expect(JSON.stringify(out)).not.toContain('Segredo');
   });
 
-  it('lê o claim configurado e ignora lixo', async () => {
-    const { controller } = build({ orgs_custom: [B, 'nao-uuid', 7] }, [], { orgsClaim: 'orgs_custom' });
-    expect((await controller.organizations('Bearer tok')).organizations.map((o) => o.id)).toEqual([B]);
-  });
-
-  it('token sem claim: vazio; instalação legada: a organização padrão', async () => {
-    expect((await build({}).controller.organizations('Bearer tok')).organizations).toEqual([]);
-    const legacy = build({}, [{ orgId: A, slug: 'legado', name: 'Oficina Legada' }], { defaultOrgId: A.toUpperCase() });
-    expect((await legacy.controller.organizations('Bearer tok')).organizations).toEqual([{ id: A, name: 'Oficina Legada', slug: 'legado' }]);
-    expect(legacy.findMany).toHaveBeenCalledOnce();
+  it('o claim `organization` do token NUNCA concede: sem participação a lista é vazia (e nada é consultado)', async () => {
+    const { controller, findMany } = build({ sub: 'u1', organization: [A] });
+    expect((await controller.organizations('Bearer tok')).organizations).toEqual([]);
+    expect(findMany).not.toHaveBeenCalled();
   });
 
   it('sem token, token malformado ou inválido → 401 (e nada é consultado)', async () => {
-    const ok = build({ organization: [A] });
+    const ok = build({ sub: 'u1' }, { u1: [A] });
     await expect(ok.controller.organizations(undefined)).rejects.toBeInstanceOf(UnauthorizedException);
     await expect(ok.controller.organizations('Basic xyz')).rejects.toBeInstanceOf(UnauthorizedException);
     const bad = build(new UnauthorizedException('Token inválido'));

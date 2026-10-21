@@ -1,10 +1,8 @@
 import { Controller, Get, Headers, Inject, Optional, UnauthorizedException } from '@nestjs/common';
 import { Public } from '../auth/auth.decorators.js';
-import { AuthConfig } from '../auth/auth.config.js';
 import { AuthService } from '../auth/auth.service.js';
 import { SystemPrismaService } from '../prisma/system-prisma.service.js';
 import { MembershipService } from './membership.service.js';
-import { orgsFromClaim } from './resolve-org.js';
 
 /**
  * Rotas do próprio usuário que NÃO dependem de uma organização escolhida. Ficam fora do `TenantMiddleware` (quem participa de
@@ -15,7 +13,6 @@ import { orgsFromClaim } from './resolve-org.js';
 export class MeController {
   constructor(
     private readonly auth: AuthService,
-    private readonly config: AuthConfig,
     private readonly system: SystemPrismaService,
     @Optional() @Inject(MembershipService) private readonly membership: MembershipService | null = null,
   ) {}
@@ -30,9 +27,8 @@ export class MeController {
     if (scheme?.toLowerCase() !== 'bearer' || !token) throw new UnauthorizedException('Token ausente');
     const payload = await this.auth.verify(token);
 
-    // Claim (atalho) + participação conhecida pelo Fixer (autoridade): o claim do Keycloak 26.0 some ao acaso para quem está em várias organizações.
-    let ids = [...new Set([...orgsFromClaim(payload[this.config.orgsClaim]), ...((await this.membership?.orgsFor(payload.sub)) ?? [])])];
-    if (ids.length === 0 && this.config.defaultOrgId) ids = [this.config.defaultOrgId.toLowerCase()]; // instalação legada
+    // A participação registrada pelo Fixer é a autoridade (a mesma que o TenantMiddleware usa); o claim do token nunca concede.
+    const ids = payload.sub ? [...new Set(((await this.membership?.membershipsOf(payload.sub)) ?? []).map((m) => m.orgId))] : [];
     const profiles = ids.length ? await this.system.orgProfile.findMany({ where: { orgId: { in: ids } }, select: { orgId: true, slug: true, name: true } }) : [];
     const byId = new Map(profiles.map((p) => [p.orgId, p]));
     return {

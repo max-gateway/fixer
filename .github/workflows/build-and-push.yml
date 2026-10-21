@@ -15,6 +15,7 @@ env:
 permissions:
   id-token: write # for OIDC auth to AWS, no long-lived keys stored in GitHub
   contents: read
+  packages: read # @max-gateway/auth vem do registro de pacotes da organização
 
 jobs:
   build-and-push:
@@ -60,5 +61,7 @@ jobs:
           tags: |
             ${{ steps.ecr-login.outputs.registry }}/${{ matrix.repository }}:${{ steps.tag.outputs.tag }}
             ${{ steps.ecr-login.outputs.registry }}/${{ matrix.repository }}:latest
+          secrets: |
+            npm_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}

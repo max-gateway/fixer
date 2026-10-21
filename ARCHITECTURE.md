@@ -31,7 +31,7 @@ lá); o Fixer só os consome por URL + chave.
 - **Sem dados falsos em runtime.** Testes usam stubs/fixtures; não existe flag de mock nos serviços.
 - **Falha cedo.** API valida o env na subida (`apps/api/src/config/env.ts`); o `plate-lookup`
   não sobe sem token. Probes padrão da plataforma: `/healthz` e `/readyz` (a API usa `/health`).
-- **Multi-tenant por organização.** Um banco compartilhado; toda tabela de oficina tem `orgId` e Row Level Security (a API conecta com um papel sujeito a RLS, nunca superusuário). A organização vem do token (claim `orgs`) ou do dono do token público do portal. Detalhes e o que falta: [docs/specs/multi-tenancy.md](docs/specs/multi-tenancy.md). Instalação dedicada (um banco por oficina) segue possível com `DEFAULT_ORG_ID`; nela `TENANT_SLUG` ainda filtra eventos de outro tenant.
+- **Multi-tenant por organização.** Um banco compartilhado; toda tabela de oficina tem `orgId` e Row Level Security (a API conecta com um papel sujeito a RLS, nunca superusuário). A organização vem da participação do usuário no registro do Fixer, validada pelo token com `@max-gateway/auth` (o claim nunca concede), ou do dono do token público do portal. Detalhes e o que falta: [docs/specs/multi-tenancy.md](docs/specs/multi-tenancy.md). Instalação dedicada (um banco por oficina) segue possível (uma linha em `OrgMembership` por usuário); nela `TENANT_SLUG` ainda filtra eventos de outro tenant.
 
 ## Dev local
 

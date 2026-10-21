@@ -53,9 +53,10 @@ Em produção os papéis são criados com senhas próprias (secret manager). Mig
 ## 3. Como a organização chega ao banco
 
 1. **`TenantContext`** (AsyncLocalStorage): a organização da operação em andamento.
-2. **Requisição autenticada** — `TenantMiddleware`: valida o JWT, lê o claim `organization` (configurável em `AUTH_ORGS_CLAIM`) e define a organização.
-   Quem participa de uma só organização não precisa informar nada; quem participa de várias envia `X-Org-Id`. **O cabeçalho só escolhe entre as
-   organizações do próprio token; nunca concede acesso** (organização fora do token = 403).
+2. **Requisição autenticada** — `TenantMiddleware`: valida o JWT (`@max-gateway/auth`: JWKS, `iss`, `aud`, vida ≤ 15 min) e resolve a organização pela
+   **participação registrada no Fixer** (eventos do control plane); o claim `organization` nunca concede acesso. Quem participa de uma só organização
+   não precisa informar nada; quem participa de várias envia `X-Org-Id` (sem ele: 400). **O cabeçalho só escolhe entre as organizações do próprio
+   usuário; nunca concede acesso** (organização que ele não tem = 404, idêntico ao inexistente). Token de serviço não abre contexto de oficina.
 3. **Portal público** — `PortalTenantMiddleware`: a organização é a dona do `portalToken` da URL (o token é a credencial do cliente final). Token desconhecido = 404.
 4. **`PrismaService`** (RLS): cada operação, transação interativa ou SQL cru roda com `set_config('app.org_id', <org>, true)`, que vale só até o fim da
    transação, então a conexão volta ao pool limpa. Tabela de oficina sem organização no contexto **lança `TenantContextMissing`** (falha alto, nunca "lista vazia").
@@ -78,7 +79,8 @@ Pegadinhas conhecidas: as promessas do Prisma são **preguiçosas** (executam no
 
 A migração `20261012100000_multi_tenant` roda no lugar: todas as linhas existentes recebem a organização "legada"
 (`00000000-0000-0000-0000-000000000001`, ou o UUID passado em `PGOPTIONS="-c fixer.legacy_org_id=<uuid>"`), o contador da OS continua de onde parou e a RLS é ligada.
-Para a instância continuar funcionando sem mudar o Keycloak: `DEFAULT_ORG_ID=<mesmo uuid>` (token sem claim de organizações usa esta) e `DATABASE_URL`
+**Mudança da adoção do `@max-gateway/auth` (P4b):** `DEFAULT_ORG_ID` e `AUTH_ORGS_CLAIM` foram removidos (a plataforma não tem "organização padrão").
+A instância legada precisa de uma linha em `OrgMembership` por usuário na organização legada, o audience mapper (`fixer-api`) no client do app, e `DATABASE_URL`
 com o papel `fixer_rls`.
 
 ### Identidade: um realm, uma Organization do Keycloak por oficina

@@ -12,5 +12,6 @@ data:
   BRAND_SECONDARY_COLOR: {{ .Values.branding.secondaryColor | quote }}
   KEYCLOAK_REALM: {{ .Values.keycloak.realm | quote }}
   KEYCLOAK_AUTH_SERVER_URL: {{ .Values.keycloak.authServerUrl | quote }}
+  AUTH_AUDIENCE: {{ .Values.keycloak.audience | quote }}
   KEYCLOAK_CLIENT_ID: {{ .Values.keycloak.clientId | quote }}
   KEYCLOAK_WEB_CLIENT_ID: {{ .Values.keycloak.webClientId | quote }}

@@ -5,13 +5,14 @@ FROM node:22-alpine AS base
 WORKDIR /repo
 
 FROM base AS deps
-COPY package.json package-lock.json turbo.json ./
+COPY .npmrc package.json package-lock.json turbo.json ./
 COPY packages/db/package.json packages/db/package.json
 COPY packages/domain/package.json packages/domain/package.json
 COPY packages/catalog/package.json packages/catalog/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY apps/api/package.json apps/api/package.json
-RUN npm ci
+# O token de leitura do registro @max-gateway entra só como segredo de build (nunca em camada).
+RUN --mount=type=secret,id=npm_token NODE_AUTH_TOKEN="$(cat /run/secrets/npm_token)" npm ci
 
 FROM deps AS build
 COPY packages/db packages/db

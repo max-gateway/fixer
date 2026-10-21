@@ -5,9 +5,10 @@ FROM node:22-alpine AS base
 WORKDIR /repo
 
 FROM base AS deps
-COPY package.json package-lock.json turbo.json ./
+COPY .npmrc package.json package-lock.json turbo.json ./
 COPY apps/notifications/package.json apps/notifications/package.json
-RUN npm ci --workspace=@fixer/notifications --include-workspace-root
+# O token de leitura do registro @max-gateway entra só como segredo de build (nunca em camada).
+RUN --mount=type=secret,id=npm_token NODE_AUTH_TOKEN="$(cat /run/secrets/npm_token)" npm ci --workspace=@fixer/notifications --include-workspace-root
 
 FROM deps AS build
 COPY apps/notifications apps/notifications

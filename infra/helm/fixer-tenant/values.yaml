@@ -105,6 +105,8 @@ keycloak:
   realm: ""
   authServerUrl: ""
   clientId: "fixer-api"
+  # `aud` que o token do usuário precisa trazer (audience mapper no client web do realm).
+  audience: "fixer-api"
   webClientId: "fixer-web"
 
 autoscaling:

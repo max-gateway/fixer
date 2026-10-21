@@ -21,57 +21,81 @@ async function run(mw: { use: (...a: never[]) => Promise<void> }, req: Record<st
   return { seen, next };
 }
 
-const authWith = (payload: object | Error) => ({ verify: vi.fn(async () => { if (payload instanceof Error) throw payload; return payload; }) });
-const config = { orgsClaim: 'orgs', defaultOrgId: undefined as string | undefined };
+const authWith = (payload: object | Error) => ({
+  verify: vi.fn(async () => {
+    if (payload instanceof Error) throw payload;
+    return payload;
+  }),
+});
+const membership = (map: Record<string, string[]>) => ({
+  membershipsOf: vi.fn(async (sub: string) => (map[sub] ?? []).map((orgId) => ({ orgId, roles: ['member'] }))),
+  storesOf: async () => [],
+  catalogsOf: async () => [],
+});
+/** Token de usuário do app web: `azp` é o client que o originou. */
+const user = (sub: string, extra: object = {}) => ({ sub, azp: 'fixer-web', ...extra });
+const mwFor = (payload: object | Error, map: Record<string, string[]> = {}) => new TenantMiddleware(authWith(payload) as never, membership(map) as never);
+const status = (e: unknown) => (e as { getStatus(): number }).getStatus();
+const call = (mw: TenantMiddleware, headers: Record<string, string>, next = vi.fn()) => mw.use({ headers } as never, {} as never, next).catch((e: unknown) => e);
 
-describe('TenantMiddleware', () => {
-  it('abre a organização do token para o resto da requisição', async () => {
-    const mw = new TenantMiddleware(authWith({ sub: 'u', orgs: [A] }) as never, config as never);
+describe('TenantMiddleware (regras do @max-gateway/auth)', () => {
+  it('abre a organização do registro de participação para o resto da requisição', async () => {
+    const mw = mwFor(user('u'), { u: [A] });
     const req: Record<string, unknown> = { headers: { authorization: 'Bearer t' } };
     const { seen } = await run(mw, req);
     expect(seen).toBe(A);
     expect(req.jwt).toMatchObject({ sub: 'u' });
   });
 
-  it('X-Org-Id escolhe entre as organizações do usuário', async () => {
-    const mw = new TenantMiddleware(authWith({ orgs: [A, B] }) as never, config as never);
-    expect((await run(mw, { headers: { authorization: 'Bearer t', 'x-org-id': B } })).seen).toBe(B);
-  });
-
-  it('organização fora do token é recusada e a requisição não segue', async () => {
-    const mw = new TenantMiddleware(authWith({ orgs: [A] }) as never, config as never);
+  it('o claim `organization` NUNCA concede: sem participação a requisição é recusada e não segue', async () => {
     const next = vi.fn();
-    await expect(mw.use({ headers: { authorization: 'Bearer t', 'x-org-id': B } } as never, {} as never, next)).rejects.toThrow();
+    const err = await call(mwFor(user('u', { organization: [A] })), { authorization: 'Bearer t' }, next);
+    expect(status(err)).toBe(403);
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('sem token ou com token inválido segue SEM organização (o AuthGuard responde 401)', async () => {
-    const sem = await run(new TenantMiddleware(authWith({}) as never, config as never), { headers: {} });
-    expect(sem.seen).toBeUndefined();
-    const ruim = await run(new TenantMiddleware(authWith(new UnauthorizedException()) as never, config as never), { headers: { authorization: 'Bearer lixo' } });
-    expect(ruim.seen).toBeUndefined();
-    expect(ruim.next).toHaveBeenCalledOnce();
-  });
-});
-
-describe('TenantMiddleware com participação conhecida', () => {
-  const membership = (map: Record<string, string[]>) => ({ orgsFor: vi.fn(async (sub: string) => map[sub] ?? []) });
-  const call = (mw: TenantMiddleware, headers: Record<string, string>) => mw.use({ headers } as never, {} as never, vi.fn());
-
-  it('token SEM claim, mas com participação: abre a organização (o claim do Keycloak some ao acaso)', async () => {
-    const mw = new TenantMiddleware(authWith({ sub: 'u1' }) as never, config as never, membership({ u1: [A] }) as never);
-    expect((await run(mw, { headers: { authorization: 'Bearer t' } })).seen).toBe(A);
-  });
-
-  it('várias oficinas só pela participação: exige X-Org-Id e aceita uma delas', async () => {
-    const mw = new TenantMiddleware(authWith({ sub: 'u1' }) as never, config as never, membership({ u1: [A, B] }) as never);
-    await expect(call(mw, { authorization: 'Bearer t' })).rejects.toThrow();
+  it('várias organizações: sem X-Org-Id é 400; X-Org-Id escolhe entre as do usuário', async () => {
+    const mw = mwFor(user('u'), { u: [A, B] });
+    expect(status(await call(mw, { authorization: 'Bearer t' }))).toBe(400);
     expect((await run(mw, { headers: { authorization: 'Bearer t', 'x-org-id': B } })).seen).toBe(B);
   });
 
+  it('X-Org-Id de organização que o usuário não tem: 404 idêntico ao inexistente (nunca concede)', async () => {
+    const next = vi.fn();
+    const err = await call(mwFor(user('u'), { u: [A] }), { authorization: 'Bearer t', 'x-org-id': B }, next);
+    expect(status(err)).toBe(404);
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it('participação de OUTRO usuário não concede nada', async () => {
-    const mw = new TenantMiddleware(authWith({ sub: 'u1' }) as never, config as never, membership({ u2: [A] }) as never);
-    await expect(call(mw, { authorization: 'Bearer t' })).rejects.toThrow();
+    expect(status(await call(mwFor(user('u1'), { u2: [A] }), { authorization: 'Bearer t' }))).toBe(403);
+  });
+
+  it('token de serviço (mg_tenant) não abre contexto de oficina nesta API', async () => {
+    const next = vi.fn();
+    const err = await call(mwFor({ azp: 'job', mg_tenant: A }), { authorization: 'Bearer t' }, next);
+    expect(status(err)).toBe(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('registro indisponível: 503 (nem "sem acesso" nem "com acesso" por engano)', async () => {
+    const directory = {
+      membershipsOf: async () => {
+        throw new Error('db');
+      },
+      storesOf: async () => [],
+      catalogsOf: async () => [],
+    };
+    const mw = new TenantMiddleware(authWith(user('u')) as never, directory as never);
+    expect(status(await call(mw, { authorization: 'Bearer t' }))).toBe(503);
+  });
+
+  it('sem token ou com token inválido segue SEM organização (o AuthGuard responde 401)', async () => {
+    const sem = await run(mwFor({}), { headers: {} });
+    expect(sem.seen).toBeUndefined();
+    const ruim = await run(mwFor(new UnauthorizedException()), { headers: { authorization: 'Bearer lixo' } });
+    expect(ruim.seen).toBeUndefined();
+    expect(ruim.next).toHaveBeenCalledOnce();
   });
 });
 

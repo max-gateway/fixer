@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read # @max-gateway/auth vem do registro de pacotes da organização
 
 jobs:
   node:
@@ -23,6 +24,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npx turbo run build lint typecheck test
 
   compose:
