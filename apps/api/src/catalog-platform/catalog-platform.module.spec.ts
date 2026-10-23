@@ -92,7 +92,7 @@ describe('CatalogPlatformModule (HTTP de ponta a ponta)', () => {
     expect(seen[0]!.url).toBe('/v1/catalogs/rocket-autopecas/search?q=bieleta&limit=10&brandKey=FIAT');
     expect(seen[0]!.headers.authorization).toBe('Bearer user-jwt');
     expect(seen[0]!.headers['x-org-id']).toBe(ORG);
-    expect(seen[0]!.headers['x-store-id']).toBe(ORG);
+    expect(seen[0]!.headers['x-store-id']).toBeUndefined(); // a plataforma usa a única loja da organização
     expect(seen[0]!.headers.traceparent).toBe('00-abc-def-01');
   });
 

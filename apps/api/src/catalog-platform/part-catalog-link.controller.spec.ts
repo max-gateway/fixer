@@ -7,7 +7,7 @@ import { PartCatalogLinkController } from './part-catalog-link.controller.js';
 const ORG = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const request = (principal: object = { tenantId: ORG, storeId: ORG, catalogs: ['rocket-autopecas'] }) =>
   ({ headers: { authorization: 'Bearer user-jwt' }, principal }) as never;
-const CALLER = { token: 'user-jwt', orgId: ORG, storeId: ORG };
+const CALLER = { token: 'user-jwt', orgId: ORG };
 
 describe('PartCatalogLinkController', () => {
   const service = { createFromCatalog: vi.fn(), link: vi.fn(), unlink: vi.fn(), linkByBarcode: vi.fn(), suggestForInvoice: vi.fn() };

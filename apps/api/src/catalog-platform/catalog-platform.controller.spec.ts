@@ -13,8 +13,13 @@ const request = (over: { authorization?: string; traceparent?: string; principal
   }) as never;
 
 describe('callerFrom (quem está chamando a plataforma)', () => {
-  it('token do usuário, organização e loja do Principal, e o traceparent da requisição', () => {
-    expect(callerFrom(request({ traceparent: '00-abc-def-01' }))).toEqual({ token: 'user-jwt', orgId: ORG, storeId: ORG, traceparent: '00-abc-def-01' });
+  it('token do usuário e organização do Principal, e o traceparent da requisição', () => {
+    expect(callerFrom(request({ traceparent: '00-abc-def-01' }))).toEqual({ token: 'user-jwt', orgId: ORG, traceparent: '00-abc-def-01' });
+  });
+
+  it('a loja do Principal NÃO vai à plataforma: o Fixer não tem lojas, e a loja que a plataforma conhece (ex.: "principal") não é o id da organização. Sem X-Store-Id, vale a única loja da organização', () => {
+    const c = callerFrom(request({ principal: { tenantId: ORG, storeId: 'qualquer-loja', catalogs: ['rocket-autopecas'] } }));
+    expect(c).not.toHaveProperty('storeId');
   });
 
   it('sem traceparent ou loja, esses campos ficam de fora', () => {
@@ -32,7 +37,7 @@ describe('callerFrom (quem está chamando a plataforma)', () => {
 describe('CatalogPlatformController', () => {
   const service = { search: vi.fn(), autocomplete: vi.fn(), lookupParts: vi.fn(), lookupBarcodes: vi.fn() };
   const controller = new CatalogPlatformController(service as never);
-  const CALLER = { token: 'user-jwt', orgId: ORG, storeId: ORG };
+  const CALLER = { token: 'user-jwt', orgId: ORG };
 
   beforeEach(() => {
     for (const fn of Object.values(service)) fn.mockReset().mockResolvedValue({ ok: true });

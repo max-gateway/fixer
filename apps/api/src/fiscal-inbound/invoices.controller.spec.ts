@@ -4,7 +4,7 @@ import { InvoicesController } from './invoices.controller.js';
 
 const ORG = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const request = (principal: object = { tenantId: ORG, storeId: ORG, catalogs: ['rocket-autopecas'] }) => ({ headers: { authorization: 'Bearer user-jwt' }, principal }) as never;
-const CALLER = { token: 'user-jwt', orgId: ORG, storeId: ORG };
+const CALLER = { token: 'user-jwt', orgId: ORG };
 const live = { sku: 'cat-1', name: 'Bieleta Estabilizadora', partNumber: 'BE-123', barcodes: [], active: true, retired: false, etag: 'a'.repeat(32) };
 
 describe('InvoicesController.createPart (cadastro pelo item da nota, com ou sem peça do catálogo)', () => {

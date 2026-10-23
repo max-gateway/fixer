@@ -15,8 +15,11 @@ const header = (req: PlatformRequest, name: string): string | undefined => {
 };
 
 /**
- * Quem chama a plataforma: o token do PRÓPRIO usuário (propagado, nunca reemitido), a organização e a loja que o `TenantMiddleware` resolveu e o
- * traceparent da requisição de origem. Sem Bearer ou sem Principal, a rota nunca fala com a plataforma.
+ * Quem chama a plataforma: o token do PRÓPRIO usuário (propagado, nunca reemitido), a organização que o `TenantMiddleware` resolveu e o traceparent da
+ * requisição de origem. Sem Bearer ou sem Principal, a rota nunca fala com a plataforma.
+ *
+ * A LOJA não vai: o Fixer não tem lojas, e a loja que a plataforma conhece (em produção, "principal") não é o id da organização; um `X-Store-Id` que
+ * ela não reconhece dá 404 em qualquer rota. Sem o cabeçalho, vale a única loja da organização. A busca e a consulta em lote são do catálogo, não da loja.
  */
 export function callerFrom(req: PlatformRequest): CallerContext {
   const [scheme, token] = (header(req, 'authorization') ?? '').split(' ');
@@ -25,7 +28,6 @@ export function callerFrom(req: PlatformRequest): CallerContext {
   return {
     token,
     orgId: req.principal.tenantId,
-    ...(req.principal.storeId ? { storeId: req.principal.storeId } : {}),
     ...(traceparent ? { traceparent } : {}),
   };
 }

@@ -61,7 +61,7 @@
 **Pré-condições [verificar]:**
 - As organizações do Fixer existem em `tenant_org` com o **mesmo UUID** do control plane (G17).
 - Fixer e plataforma usam o **mesmo realm** (`maxgateway`, Organizations ligado). O dev do Fixer usa `fixer-dev` e o chart Helm usa um realm por tenant: ambos passam para o realm único (§20.7 do catalog-platform). O client web tem o audience mapper `parts-search`.
-- **Loja:** o Fixer não tem o conceito. Decisão: **uma loja implícita por organização** (`storeId` = id da organização), cadastrada pelo provisionamento.
+- **Loja (corrigido em 2026-10-23, depois de ler o registro de produção):** o Fixer não tem o conceito e **não envia `X-Store-Id`**. A loja que a plataforma conhece é a do próprio registro (a organização de dev tem uma loja chamada `principal`, não o id da organização); um `X-Store-Id` desconhecido dá 404 em qualquer rota. Busca e consulta em lote são do catálogo, não da loja, e sem o cabeçalho vale a única loja da organização. A loja só passa a importar na fase W (ofertas), e então o Fixer a lê do registro, nunca a inventa.
 - Token com vida ≤ 900 s; o proxy do web (`api/[...path]`) já injeta o access token e a renovação precisa manter a janela.
 
 ## 5. Rede: gateway de borda autenticado (plataforma, em produção)
