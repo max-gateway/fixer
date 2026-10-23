@@ -6,6 +6,7 @@ const ok = {
   KEYCLOAK_AUTH_SERVER_URL: 'http://localhost:8180',
   KEYCLOAK_REALM: 'fixer-dev',
   AUTH_AUDIENCE: 'fixer-api',
+  PARTS_SEARCH_URL: 'https://catalog.example',
 };
 
 describe('validateEnv', () => {
@@ -28,6 +29,18 @@ describe('validateEnv', () => {
     const env = validateEnv({ ...ok, DEFAULT_ORG_ID: '11111111-1111-4111-8111-111111111111', AUTH_ORGS_CLAIM: 'x' });
     expect(env).not.toHaveProperty('DEFAULT_ORG_ID');
     expect(env).not.toHaveProperty('AUTH_ORGS_CLAIM');
+  });
+
+  it('a URL da plataforma de catálogo é obrigatória (a API não sobe sem ela) e precisa ser uma URL', () => {
+    const { PARTS_SEARCH_URL: _omitted, ...semUrl } = ok;
+    expect(() => validateEnv(semUrl)).toThrow(/PARTS_SEARCH_URL/);
+    expect(() => validateEnv({ ...ok, PARTS_SEARCH_URL: 'catalog.example' })).toThrow(/PARTS_SEARCH_URL/);
+  });
+
+  it('tempo limite da plataforma: 2 s por padrão, configurável, sempre positivo', () => {
+    expect(validateEnv(ok).PARTS_SEARCH_TIMEOUT_MS).toBe(2000);
+    expect(validateEnv({ ...ok, PARTS_SEARCH_TIMEOUT_MS: '500' }).PARTS_SEARCH_TIMEOUT_MS).toBe(500);
+    expect(() => validateEnv({ ...ok, PARTS_SEARCH_TIMEOUT_MS: '0' })).toThrow(/PARTS_SEARCH_TIMEOUT_MS/);
   });
 
   it('lista de catálogos: separada por vírgula, vazia por padrão', () => {

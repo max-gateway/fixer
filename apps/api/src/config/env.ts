@@ -11,6 +11,9 @@ const schema = z.object({
   KEYCLOAK_REALM: z.string().min(1),
   /** Audiência (`aud`) desta API: o token precisa trazê-la. Sem isso, token de outro client do realm passaria. */
   AUTH_AUDIENCE: z.string().min(1),
+  /** URL da borda da plataforma de catálogo (parts-search). Obrigatória: a API não sobe sem ela (docs/specs/parts-search-integration.md §8). */
+  PARTS_SEARCH_URL: z.string().url(),
+  PARTS_SEARCH_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
   /** Catálogos globais da plataforma (parts-search) que as oficinas leem, separados por vírgula. */
   PARTS_SEARCH_CATALOGS: z
     .string()

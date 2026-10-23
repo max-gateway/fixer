@@ -15,6 +15,9 @@ data:
   KEYCLOAK_CLIENT_ID: {{ .Values.keycloak.clientId | quote }}
   # Audiência (aud) que a API exige no token; o client web precisa de um audience mapper para ela.
   AUTH_AUDIENCE: {{ .Values.keycloak.audience | default .Values.keycloak.clientId | quote }}
+  # Borda da plataforma de catálogo (parts-search). A API não sobe sem ela.
+  PARTS_SEARCH_URL: {{ required "catalogPlatform.url é obrigatório (URL da borda do parts-search)" .Values.catalogPlatform.url | quote }}
+  PARTS_SEARCH_TIMEOUT_MS: {{ .Values.catalogPlatform.timeoutMs | default 2000 | quote }}
   # Catálogos globais da plataforma (parts-search) que a oficina lê, separados por vírgula.
   PARTS_SEARCH_CATALOGS: {{ .Values.catalogPlatform.catalogs | quote }}
   KEYCLOAK_WEB_CLIENT_ID: {{ .Values.keycloak.webClientId | quote }}

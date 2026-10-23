@@ -110,6 +110,10 @@ keycloak:
   audience: ""
 
 catalogPlatform:
+  # URL da borda da plataforma de catálogo (parts-search). Obrigatória (o chart falha sem ela).
+  url: ""
+  # Tempo limite de cada chamada, em ms.
+  timeoutMs: 2000
   # Catálogos globais da plataforma (parts-search) que a oficina lê, separados por vírgula.
   catalogs: "rocket-autopecas"
 
