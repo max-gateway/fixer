@@ -9,6 +9,10 @@ export type ReadinessStep = {
   detail: string;
   optional?: boolean;
   tableId?: string;
+  /** Quem garante o passo pronto: o contador ou a conferência com a fonte oficial. */
+  basis?: 'CONTADOR' | 'FONTE_OFICIAL';
+  /** Os dados existem, mas não vieram de registro oficial: falta o contador conferir. */
+  needsAccountant?: boolean;
 };
 
 export type TaxReadiness = {
@@ -42,9 +46,18 @@ export function ReadinessCard({ readiness }: { readiness: TaxReadiness }) {
                 <p className="font-medium">
                   {s.label}
                   {s.optional && <span className="ml-1.5 text-xs font-normal text-muted-foreground">só para peças monofásicas</span>}
+                  {s.basis === 'FONTE_OFICIAL' && <span className="ml-1.5 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-normal text-emerald-900">fonte oficial</span>}
                 </p>
                 <p className="text-muted-foreground">
                   {s.detail}
+                  {s.needsAccountant && (
+                    <>
+                      {' '}
+                      <a href="#validacao-contador" className="underline underline-offset-2">
+                        Registrar a validação
+                      </a>
+                    </>
+                  )}
                   {!s.done && s.tableId && (
                     <>
                       {' '}
@@ -56,8 +69,8 @@ export function ReadinessCard({ readiness }: { readiness: TaxReadiness }) {
                   {!s.done && s.id === 'regime' && (
                     <>
                       {' '}
-                      <Link href="/configuracoes" className="underline underline-offset-2">
-                        Abrir Dados fiscais
+                      <Link href="/configuracoes/tributario" className="underline underline-offset-2">
+                        Responder em Tributário
                       </Link>
                     </>
                   )}

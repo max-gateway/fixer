@@ -1,40 +1,30 @@
-import { ArrowLeft, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError, apiGet } from '@/lib/api';
 import type { CostsOverview } from '@/lib/costs';
 import { CostsTab } from './costs-tab';
 import { RuleForm, type RuleSettings } from './pricing-settings-form';
-import { ReadinessCard, type TaxReadiness } from './readiness';
 import { RuleExceptions, type ScopedRule } from './rule-exceptions';
-import { TaxProfileForm, type TaxProfileSettings } from './tax-profile-form';
-import { TaxTables, type TaxTableView } from './tax-tables';
 
 export const metadata = { title: 'Precificação' };
 
-const TABS = ['regra', 'imposto', 'tabelas', 'despesas'] as const;
+const TABS = ['regra', 'despesas'] as const;
 type Tab = (typeof TABS)[number];
 
 export default async function PrecificacaoPage({ searchParams }: { searchParams: Promise<{ aba?: string }> }) {
   const { aba } = await searchParams;
+  // Imposto e tabelas da lei moraram aqui; agora ficam em Tributário. Links antigos (notas, e-mails) continuam funcionando.
+  if (aba === 'imposto') redirect('/configuracoes/tributario');
+  if (aba === 'tabelas') redirect('/configuracoes/tributario#tabelas');
   const tab: Tab = (TABS as readonly string[]).includes(aba ?? '') ? (aba as Tab) : 'regra';
 
   let rule: RuleSettings | null;
-  let profile: TaxProfileSettings | null;
-  let readiness: TaxReadiness;
   let all: ScopedRule[];
-  let tables: { rulesVersion: string; tables: TaxTableView[] };
   try {
     let rules: { rules: ScopedRule[] };
-    let p: { profile: TaxProfileSettings | null; readiness: TaxReadiness };
-    [{ rule }, p, rules, tables] = await Promise.all([
-      apiGet<{ rule: RuleSettings | null }>('/pricing/rule'),
-      apiGet<{ profile: TaxProfileSettings | null; readiness: TaxReadiness }>('/pricing/tax-profile'),
-      apiGet<{ rules: ScopedRule[] }>('/pricing/rules'),
-      apiGet<{ rulesVersion: string; tables: TaxTableView[] }>('/pricing/tax-tables'),
-    ]);
-    profile = p.profile;
-    readiness = p.readiness;
+    [{ rule }, rules] = await Promise.all([apiGet<{ rule: RuleSettings | null }>('/pricing/rule'), apiGet<{ rules: ScopedRule[] }>('/pricing/rules')]);
     all = rules.rules.filter((r) => r.scope !== 'DEFAULT');
   } catch (err) {
     const denied = err instanceof ApiError && err.status === 403;
@@ -51,31 +41,22 @@ export default async function PrecificacaoPage({ searchParams }: { searchParams:
   // Despesas vêm do motor de custos: se ele falhar, só a aba mostra o erro; o resto da página segue.
   const costs = tab === 'despesas' ? await apiGet<CostsOverview>('/costs').catch(() => null) : null;
 
-  const pendingTables = tables.tables.filter((t) => readiness.requiredTables.includes(t.id) && t.review?.current !== true).length;
-
   return (
     <section className="space-y-6">
       <header className="space-y-1">
-        <Link href="/configuracoes" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft aria-hidden className="size-4" /> Cadastro da oficina
-        </Link>
         <h1 className="text-2xl font-semibold tracking-tight">Precificação</h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Como o Fixer sugere o preço de venda quando uma nota de compra chega. Nada muda no preço sem a sua confirmação ao lançar a nota.
+          Como o Fixer sugere o preço de venda quando uma nota de compra chega. Nada muda no preço sem a sua confirmação ao lançar a nota. Os impostos do cálculo ficam em{' '}
+          <Link href="/configuracoes/tributario" className="underline underline-offset-2">
+            Tributário
+          </Link>
+          .
         </p>
       </header>
 
       <Tabs key={tab} defaultValue={tab} className="gap-5">
         <TabsList className="h-auto w-full max-w-xl flex-wrap sm:flex-nowrap">
           <TabsTrigger value="regra">Regra de preço</TabsTrigger>
-          <TabsTrigger value="imposto">
-            Imposto
-            {!readiness.ready && <span aria-label="pendências" className="size-2 rounded-full bg-amber-500" />}
-          </TabsTrigger>
-          <TabsTrigger value="tabelas">
-            Tabelas
-            {pendingTables > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-xs text-amber-900">{pendingTables}</span>}
-          </TabsTrigger>
           {/* Navega (em vez de só trocar a aba) para o servidor buscar as despesas, que só são carregadas nesta aba. */}
           <TabsTrigger value="despesas" asChild>
             <Link href="/configuracoes/precificacao?aba=despesas">Despesas</Link>
@@ -93,19 +74,9 @@ export default async function PrecificacaoPage({ searchParams }: { searchParams:
           </div>
         </TabsContent>
 
-        <TabsContent value="imposto" className="space-y-6">
-          <ReadinessCard readiness={readiness} />
-          {/* canReview: a API recusa quem não tem `fiscal.verify`; o botão aparece e o erro explica. */}
-          <TaxProfileForm key={JSON.stringify(profile)} initial={profile} readiness={readiness} canReview />
-        </TabsContent>
-
         <TabsContent value="despesas">
           {/* canEdit: a API recusa quem não tem `pricing.write`; o botão aparece e o erro explica. */}
           <CostsTab data={costs} canEdit />
-        </TabsContent>
-
-        <TabsContent value="tabelas">
-          <TaxTables key={JSON.stringify(tables.tables.map((t) => t.review))} tables={tables.tables} rulesVersion={tables.rulesVersion} required={readiness.requiredTables} canReview />
         </TabsContent>
       </Tabs>
     </section>

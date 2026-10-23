@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { NAV_ACTIONS, NAV_LINKS, NOTIFICATIONS_LINK, SETTINGS_LINK } from './nav-items';
+import { ALL_LINKS, NAV_ACTIONS } from './nav-items';
 
 function isTyping(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
@@ -12,6 +12,7 @@ type Options = {
   navigate: (href: string) => void;
   togglePalette: () => void;
   openPalette: () => void;
+  toggleSidebar?: () => void;
 };
 
 /**
@@ -19,14 +20,15 @@ type Options = {
  *  - Ctrl/⌘ + K ou "/"  → paleta de comandos
  *  - g p / g o / g c / g n → Painel / Ordens / Clientes / Notificações
  *  - n → nova OS
+ *  - [ → recolher/expandir a sidebar
  * Ignora quando o foco está em campo de texto. Retorna se a sequência "g" está pendente (para mostrar a dica).
  */
-export function useNavShortcuts({ navigate, togglePalette, openPalette }: Options): boolean {
+export function useNavShortcuts({ navigate, togglePalette, openPalette, toggleSidebar }: Options): boolean {
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const opts = useRef({ navigate, togglePalette, openPalette });
-  opts.current = { navigate, togglePalette, openPalette };
+  const opts = useRef({ navigate, togglePalette, openPalette, toggleSidebar });
+  opts.current = { navigate, togglePalette, openPalette, toggleSidebar };
 
   useEffect(() => {
     const setP = (v: boolean) => {
@@ -46,7 +48,7 @@ export function useNavShortcuts({ navigate, togglePalette, openPalette }: Option
       const k = e.key.toLowerCase();
 
       if (pendingRef.current) {
-        const hit = [...NAV_LINKS, NOTIFICATIONS_LINK, SETTINGS_LINK].find((l) => l.goKey === k);
+        const hit = ALL_LINKS.find((l) => l.goKey === k);
         setP(false);
         if (hit) {
           e.preventDefault();
@@ -55,6 +57,10 @@ export function useNavShortcuts({ navigate, togglePalette, openPalette }: Option
         return;
       }
       if (k === 'g') return setP(true);
+      if (k === '[' && opts.current.toggleSidebar) {
+        e.preventDefault();
+        return opts.current.toggleSidebar();
+      }
       if (k === '/') {
         e.preventDefault();
         return opts.current.openPalette();

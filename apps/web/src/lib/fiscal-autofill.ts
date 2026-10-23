@@ -4,19 +4,28 @@ export type FiscalValueSource = 'CNPJ_LOOKUP' | 'INTEGRA_PGDASD' | 'INTEGRA_PAGA
 export type FiscalValueConfidence = 'OFICIAL' | 'INFERIDO' | 'ESTIMADO' | 'INFORMADO';
 
 export type FieldProvenance = { field: string; source: FiscalValueSource; confidence: FiscalValueConfidence; fetchedAt: string; reference: string | null };
-export type AutofillProvenance = { fields: FieldProvenance[]; simplesOptant: boolean | null };
+export type AutofillProvenance = {
+  fields: FieldProvenance[];
+  simplesOptant: boolean | null;
+  /** O que o Fixer consegue buscar sozinho neste ambiente (Receita = Integra Contador; prefeitura = NFS-e Nacional). */
+  sources?: { receita: boolean; prefeitura: boolean };
+  /** Autorização para ler os dados de imposto na Receita; null = sem certificado. */
+  taxDataConsent?: { enabled: boolean; at: string | null } | null;
+};
 
+export type StepId = 'CNPJ_LOOKUP' | 'SERVICO' | 'ISS' | 'REGIME' | 'RBT12' | 'ICMS_VENDA';
+export type StepStatus = 'OK' | 'SEM_DADO' | 'FALHOU' | 'PULADO' | 'AGUARDANDO_CONSENTIMENTO';
 export type FieldOutcome = 'PREENCHIDO' | 'IGUAL' | 'CONFLITO' | 'LIMPO' | 'SEM_DADO';
 export type AutofillReport = {
   cnpj: string;
   reset: 'NENHUM' | 'MUNICIPIO' | 'EMPRESA';
-  steps: { step: 'CNPJ_LOOKUP' | 'SERVICO' | 'ICMS_VENDA'; status: 'OK' | 'SEM_DADO' | 'FALHOU' | 'PULADO'; detail?: string }[];
+  steps: { step: StepId; status: StepStatus; detail?: string }[];
   fields: { field: string; outcome: FieldOutcome; value: string | null; previous?: string | null }[];
   needsRegime: boolean;
   simplesOptant: boolean | null;
 };
 
-const FIELD_LABEL: Record<string, string> = {
+export const FIELD_LABEL: Record<string, string> = {
   municipalityIbge: 'Município (IBGE)',
   taxRegime: 'Regime tributário',
   cnae: 'CNAE principal',
@@ -28,7 +37,16 @@ const FIELD_LABEL: Record<string, string> = {
   stateTaxRegular: 'Situação na SEFAZ',
 };
 
-const REGIME_LABEL: Record<string, string> = { SIMPLES: 'Simples Nacional', PRESUMIDO: 'Lucro presumido', REAL: 'Lucro real' };
+const STEP_LABEL: Record<StepId, string> = {
+  CNPJ_LOOKUP: 'Consulta de CNPJ',
+  SERVICO: 'Serviço da oficina',
+  ISS: 'ISS da prefeitura',
+  REGIME: 'Regime na Receita',
+  RBT12: 'RBT12',
+  ICMS_VENDA: 'ICMS da venda',
+};
+
+export const REGIME_LABEL: Record<string, string> = { SIMPLES: 'Simples Nacional', PRESUMIDO: 'Lucro Presumido', REAL: 'Lucro Real' };
 
 const SOURCE_LABEL: Record<FiscalValueSource, string> = {
   CNPJ_LOOKUP: 'Receita Federal (consulta de CNPJ)',
@@ -44,9 +62,10 @@ const SOURCE_LABEL: Record<FiscalValueSource, string> = {
 export function provenanceTag(p: FieldProvenance | undefined): { text: string; estimated: boolean } | null {
   if (!p) return null;
   const base = SOURCE_LABEL[p.source];
-  if (p.confidence === 'INFERIDO') return { text: `${base}, pela CNAE`, estimated: false };
-  if (p.confidence === 'ESTIMADO') return { text: `${base}, estimado: confira com o contador`, estimated: true };
-  return { text: base, estimated: false };
+  const ref = p.reference && (p.source === 'FIXER_ESTIMATE' || p.source === 'INTEGRA_PGDASD' || p.source === 'NFSE_PARAMETROS') ? ` · ${p.reference}` : '';
+  if (p.confidence === 'INFERIDO') return { text: `${base}, pela ${p.source === 'INTEGRA_PAGAMENTOS' ? 'guia paga' : 'CNAE'}`, estimated: false };
+  if (p.confidence === 'ESTIMADO') return { text: `${base}${ref}, estimado: confira com o contador`, estimated: true };
+  return { text: `${base}${ref}`, estimated: false };
 }
 
 const show = (field: string, v: string | null | undefined) => (v == null ? 'vazio' : field === 'taxRegime' ? (REGIME_LABEL[v] ?? v) : v);
@@ -66,4 +85,11 @@ export function autofillNotices(r: AutofillReport): string[] {
   }
   if (r.steps.some((s) => s.step === 'CNPJ_LOOKUP' && s.status === 'FALHOU')) out.push('Não foi possível consultar a Receita agora. Tente de novo em instantes.');
   return out;
+}
+
+/** O que cada fonte não conseguiu trazer nesta rodada, com o motivo (passos pulados por regra não aparecem). */
+export function stepNotes(r: AutofillReport): string[] {
+  return r.steps
+    .filter((s) => s.step !== 'CNPJ_LOOKUP' && s.detail && (s.status === 'SEM_DADO' || s.status === 'FALHOU' || s.status === 'AGUARDANDO_CONSENTIMENTO'))
+    .map((s) => `${STEP_LABEL[s.step]}: ${s.detail}`);
 }

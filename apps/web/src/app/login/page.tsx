@@ -19,8 +19,8 @@ export default async function LoginPage({
   const b = getBranding();
 
   return (
-    <main className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
-      <section className="relative hidden overflow-hidden bg-brand-secondary p-12 text-white lg:flex lg:flex-col lg:justify-between">
+    <main className="bg-brand-glow grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
+      <section className="relative hidden overflow-hidden border-r border-white/[0.06] bg-brand-secondary p-12 text-white lg:flex lg:flex-col lg:justify-between">
         <div className="flex items-center gap-3">
           {b.logoUrl && <img src={b.logoUrl} alt="" className="h-10 w-auto" />}
           <span className="text-xl font-bold">{b.displayName}</span>

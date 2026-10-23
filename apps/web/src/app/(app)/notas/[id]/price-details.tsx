@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleCheck, Loader2, Lock, TriangleAlert } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { ConfidenceChip } from '@/components/confidence-chip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -13,12 +14,13 @@ import { getJson, putJson } from '@/lib/client-api';
 import { breakEvenPrice, changesSince, OUTCOME_LABEL, priceShares, type EntryView } from '@/lib/entries';
 import { COMPONENT_LABEL, type CostComponent } from '@/lib/invoice-cost';
 import { money } from '@/lib/invoices';
-import { FLAG_INFO, moneyCost, pct1, rowExpenses, RULE_SCOPE_LABEL, type PriceHistoryEntry, type PricingPlanView, type PricingRowView } from '@/lib/pricing';
+import { FLAG_INFO, moneyCost, pct1, rowExpenses, RULE_SCOPE_LABEL, type IcmsStStatus, type PriceHistoryEntry, type PricingPlanView, type PricingRowView, type TaxFlagsView } from '@/lib/pricing';
 import { TaxChip } from './tax-banner';
 
 const UNAVAILABLE: Record<NonNullable<PricingRowView['saleTax']['unavailable']>, string> = {
   SEM_ALIQUOTA: 'Falta a RBT12 (Simples) ou o ICMS da venda (Lucro Presumido) em Configurações → Precificação → Imposto.',
   RBT12_FORA_DO_SIMPLES: 'A RBT12 informada passa do teto do Simples (R$ 4,8 milhões). Confira com o contador.',
+  SUBLIMITE_ESTADUAL: 'A RBT12 passa do sublimite do Simples (R$ 3,6 milhões): o ICMS sai do DAS e é pago à parte. Peça ao contador a alíquota efetiva e informe em Configurações → Precificação → Imposto.',
   REGRA_FORA_DE_VIGENCIA: 'A tributação monofásica de autopeças acaba em 2027. Defina o percentual na regra até haver tabela nova.',
   REFORMA_SEM_ALIQUOTA: 'PIS e COFINS acabaram em 2027 e as alíquotas de CBS e IBS ainda não foram fixadas. Defina o percentual na regra.',
   REPARTICAO_FALTANDO: 'Esta peça precisa da repartição da alíquota (ICMS, PIS, COFINS), que o contador ainda não informou.',
@@ -47,16 +49,26 @@ export function PriceDetails({ plan, row: r, trigger }: { plan: PricingPlanView;
           <ol className="space-y-3">
             <Step n={1} title="Custo real da compra" value={r.cost ? `${moneyCost(r.cost)} por unidade` : '—'}>
               Já com frete, IPI, ST e créditos, conforme o regime da oficina.
-              <CostLines components={r.costComponents ?? []} />
+              <CostLines components={r.costComponents ?? []} qty={Number(r.stockQty)} />
             </Step>
             <Step n={2} title="Imposto sobre a venda" value={r.saleTax.pct === null ? 'não calculado' : pct1(r.saleTax.pct)} chip={<TaxChip tax={r.saleTax} />}>
               {r.saleTax.unavailable && <span>{UNAVAILABLE[r.saleTax.unavailable]}</span>}
             </Step>
             <Step n={3} title={`Regra${r.ruleScope ? ` (${RULE_SCOPE_LABEL[r.ruleScope]})` : ''}`} value={rule ? (rule.method === 'MARGIN' ? `margem de ${pct1(rule.value)} sobre a venda` : `markup de ${pct1(rule.value)} sobre o custo`) : 'nenhuma definida'}>
-              {rule && Number(rule.overheadPct) > 0 ? `Mais ${pct1(rule.overheadPct)} de despesas. ` : ''}O resultado é arredondado para cima.
+              {rule ? (
+                <>{Number(rule.overheadPct) > 0 ? `Mais ${pct1(rule.overheadPct)} de despesas. ` : ''}O resultado é arredondado para cima.</>
+              ) : (
+                <>
+                  Sem regra o Fixer não sugere preço.{' '}
+                  <Link href="/configuracoes/precificacao" className="underline underline-offset-2">
+                    Definir a regra de preço
+                  </Link>
+                </>
+              )}
             </Step>
             <Step n={4} title="Preço sugerido" value={r.suggested ? money(r.suggested) : '—'}>
               {r.error && <span className="text-destructive">{r.error}</span>}
+              {r.draft && <span className="block">Você digitou {money(r.draft)}: é ele que vale ao lançar e é ele que a conta abaixo usa.</span>}
             </Step>
           </ol>
 
@@ -96,24 +108,27 @@ export function PriceDetails({ plan, row: r, trigger }: { plan: PricingPlanView;
             </section>
           )}
 
-          {r.flags.length > 0 && (
+          {r.flags.some((f) => f !== 'NO_RULE') && (
             <section aria-labelledby={`flags-${r.itemNumber}`} className="space-y-1.5">
               <h3 id={`flags-${r.itemNumber}`} className="font-semibold">
                 Alertas
               </h3>
               <ul className="space-y-1 text-muted-foreground">
-                {r.flags.map((f) => (
-                  <li key={f}>
-                    <strong className="text-foreground">{FLAG_INFO[f].label}:</strong> {FLAG_INFO[f].hint}
-                  </li>
-                ))}
+                {r.flags
+                  .filter((f) => f !== 'NO_RULE')
+                  .map((f) => (
+                    <li key={f}>
+                      <strong className="text-foreground">{FLAG_INFO[f].label}:</strong>{' '}
+                      {f === 'PRICE_DOWN' && r.currentPrice && r.proposed ? `de ${money(r.currentPrice)} para ${money(r.proposed)}.` : FLAG_INFO[f].hint}
+                    </li>
+                  ))}
               </ul>
             </section>
           )}
 
           <EntryHistory row={r} enabled={open} />
-          <TaxFlagsForm partId={r.partId} />
-          <p className="text-xs text-muted-foreground">Tabelas de regra, versão {plan.rulesVersion}. Os percentuais de imposto são estimativas até o contador validar o perfil e as tabelas.</p>
+          <TaxFlagsForm key={JSON.stringify(r.taxFlags ?? null)} partId={r.partId} flags={r.taxFlags ?? null} />
+          <TaxFootnote plan={plan} row={r} />
         </div>
       </SheetContent>
     </Sheet>
@@ -138,24 +153,72 @@ function Step({ n, title, value, chip, children }: { n: number; title: string; v
   );
 }
 
-/** A cascata do custo da linha (o que a nota realmente custou), em linhas curtas. Cinza = só informa. */
-function CostLines({ components }: { components: CostComponent[] }) {
+/**
+ * O custo da linha como está na nota (totais da linha, não por unidade): o que soma ou abate, o total e a divisão pelas
+ * unidades. Tributos que já vêm dentro do preço do fornecedor ficam à parte, só para informar.
+ */
+function CostLines({ components, qty }: { components: CostComponent[]; qty?: number }) {
   if (components.length === 0) return null;
+  const counted = components.filter((c) => c.treatment !== 'INFO');
+  const info = components.filter((c) => c.treatment === 'INFO');
+  const signed = (c: CostComponent) => (c.treatment === 'CREDIT' ? -Math.abs(Number(c.amount)) : Number(c.amount));
+  const total = counted.reduce((sum, c) => sum + signed(c), 0);
+  const line = (c: CostComponent, i: number, muted = false) => {
+    const n = signed(c);
+    const sign = muted ? '' : n < 0 ? '−' : '+';
+    return (
+      <span key={`${c.code}-${i}`} className={`tabular flex justify-between gap-3 ${muted ? 'opacity-70' : 'text-foreground'}`}>
+        <span>{COMPONENT_LABEL[c.code] ?? c.code}</span>
+        <span className="shrink-0">
+          {sign} {money(Math.abs(n))}
+        </span>
+      </span>
+    );
+  };
   return (
-    <span className="mt-1 block space-y-0.5">
-      {components.map((c, i) => {
-        const n = Number(c.amount);
-        const sign = c.treatment === 'INFO' ? '' : c.treatment === 'CREDIT' || n < 0 ? '−' : '+';
-        return (
-          <span key={`${c.code}-${i}`} className={`tabular flex justify-between gap-3 ${c.treatment === 'INFO' ? 'opacity-70' : 'text-foreground'}`}>
-            <span>{COMPONENT_LABEL[c.code] ?? c.code}</span>
-            <span className="shrink-0">
-              {sign} {money(Math.abs(n))}
+    <span className="mt-1.5 block space-y-1.5">
+      {counted.length > 0 && (
+        <span className="block space-y-0.5">
+          {qty !== undefined && <span className="block font-medium">Na nota{qty > 0 ? `, para ${qty.toLocaleString('pt-BR')} un` : ''}</span>}
+          {counted.map((c, i) => line(c, i))}
+          {qty !== undefined && qty > 0 && counted.length > 1 && (
+            <span className="tabular flex justify-between gap-3 border-t pt-0.5 font-medium text-foreground">
+              <span>Total{qty > 1 ? ` ÷ ${qty.toLocaleString('pt-BR')} un` : ''}</span>
+              <span className="shrink-0">
+                {money(total)}
+                {qty > 1 && ` → ${moneyCost(total / qty)}`}
+              </span>
             </span>
-          </span>
-        );
-      })}
+          )}
+        </span>
+      )}
+      {info.length > 0 && (
+        <span className="block space-y-0.5">
+          <span className="block font-medium">Já dentro do preço do fornecedor (só para informar)</span>
+          {info.map((c, i) => line(c, i, true))}
+        </span>
+      )}
     </span>
+  );
+}
+
+/** Rodapé: por que o imposto está confirmado ou estimado, e a versão das tabelas sem despejar a lista inteira. */
+function TaxFootnote({ plan, row: r }: { plan: PricingPlanView; row: PricingRowView }) {
+  const c = r.saleTax.confidence;
+  const confirmedPart = (r.taxFlags?.confirmed ?? false) || (r.taxFlags?.auto ?? false);
+  const text =
+    c === 'DEFINIDO'
+      ? 'O percentual de imposto foi definido na regra de preço.'
+      : c === 'CONFIRMADO'
+        ? 'Imposto confirmado: perfil e tabelas garantidos pela fonte oficial ou pelo contador, e enquadramento da peça confirmado.'
+        : !plan.taxReadiness.ready
+          ? `Imposto estimado: ${plan.taxReadiness.missing.map((m) => m.label.charAt(0).toLowerCase() + m.label.slice(1)).join('; ')}${confirmedPart ? '' : '; e confirmar o enquadramento desta peça'}.`
+          : 'Imposto estimado: falta confirmar o enquadramento desta peça (acima).';
+  const count = plan.rulesVersion.split('+').length;
+  return (
+    <p className="text-xs text-muted-foreground">
+      {text} <span title={plan.rulesVersion}>{count > 1 ? `${count} tabelas de regra na versão em uso.` : `Tabelas de regra: ${plan.rulesVersion}.`}</span>
+    </p>
   );
 }
 
@@ -188,7 +251,7 @@ function PriceSplit({ row: r, rule }: { row: PricingRowView; rule: PricingPlanVi
   return (
     <section aria-labelledby={`split-${r.itemNumber}`} className="space-y-2">
       <h3 id={`split-${r.itemNumber}`} className="font-semibold">
-        De cada R$ 100 do preço de {money(price)}
+        De cada R$ 100 do {r.draft ? 'seu preço' : r.suggested ? 'preço sugerido' : 'preço'} de {money(price)}
       </h3>
       <div aria-hidden className="flex h-3 overflow-hidden rounded-full bg-muted">
         {parts.map((p) => (p.v > 0 && !(p.key === 'margin' && shares.margin < 0) ? <span key={p.key} className={SPLIT_TONE[p.key]} style={{ width: `${Math.min(100, p.v)}%` }} /> : null))}
@@ -355,36 +418,73 @@ function PriceHistory({ partId, enabled }: { partId: string; enabled: boolean })
   );
 }
 
-/** Confirmação do enquadramento tributário da peça: ato fiscal, só quem tem a permissão consegue salvar. */
-function TaxFlagsForm({ partId }: { partId: string }) {
+const ST_OPTIONS: { value: IcmsStStatus; label: string }[] = [
+  { value: 'UNKNOWN', label: 'Não sei' },
+  { value: 'NOT_ST', label: 'Sem substituição tributária' },
+  { value: 'ST_CHARGED', label: 'ST cobrada na compra' },
+  { value: 'ST_PAID_BEFORE', label: 'ST já retida antes' },
+];
+const MONO_OPTIONS = [
+  { value: 'unknown', label: 'Não sei' },
+  { value: 'yes', label: 'Sim' },
+  { value: 'no', label: 'Não' },
+] as const;
+const monoValue = (v: boolean | null) => (v === true ? 'yes' : v === false ? 'no' : 'unknown');
+
+/**
+ * Confirmação do enquadramento tributário da peça: ato fiscal (permissão "Confirmar dados fiscais"). Abre com o que está
+ * salvo, mostra o que a nota indica, e só salva quando algo muda. "Não sei" nas duas desfaz a confirmação; meia resposta
+ * não confirma.
+ */
+function TaxFlagsForm({ partId, flags }: { partId: string; flags: TaxFlagsView | null }) {
   const qc = useQueryClient();
-  const [st, setSt] = useState('UNKNOWN');
-  const [mono, setMono] = useState(false);
+  const initialSt = flags?.icmsStStatus ?? 'UNKNOWN';
+  const initialMono = monoValue(flags?.pisCofinsMonofasico ?? null);
+  const [st, setSt] = useState<IcmsStStatus>(initialSt);
+  const [mono, setMono] = useState<string>(initialMono);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const clearing = st === 'UNKNOWN' && mono === 'unknown';
+  const partial = (st === 'UNKNOWN') !== (mono === 'unknown');
+  const changed = st !== initialSt || mono !== initialMono;
   const save = useMutation({
-    mutationFn: () => putJson(`/api/parts/${partId}/tax-flags`, { icmsStStatus: st, pisCofinsMonofasico: mono }, 'Não foi possível confirmar o enquadramento.'),
+    mutationFn: () => putJson(`/api/parts/${partId}/tax-flags`, { icmsStStatus: st, pisCofinsMonofasico: mono === 'unknown' ? null : mono === 'yes' }, 'Não foi possível salvar o enquadramento.'),
     onSuccess: () => {
-      setMsg({ tone: 'ok', text: 'Enquadramento confirmado.' });
+      setMsg({ tone: 'ok', text: clearing ? 'Confirmação desfeita: o cálculo volta a usar a leitura da nota.' : 'Enquadramento confirmado.' });
       void qc.invalidateQueries({ queryKey: ['pricing'] });
     },
     onError: (e) => setMsg({ tone: 'error', text: e.message }),
   });
-  const options = [
-    { value: 'UNKNOWN', label: 'Não sei' },
-    { value: 'NOT_ST', label: 'Sem substituição tributária' },
-    { value: 'ST_CHARGED', label: 'ST cobrada na compra' },
-    { value: 'ST_PAID_BEFORE', label: 'ST já retida antes' },
-  ];
+  const xml = flags?.xml;
+  // Enquadramento resolvido sozinho (e sem confirmação manual): o formulário é só para corrigir, então fica recolhido.
+  const Manual = ({ children }: { children: React.ReactNode }) =>
+    flags?.auto && !flags.confirmed ? (
+      <details className="group">
+        <summary className="cursor-pointer text-xs font-medium underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2">Corrigir manualmente</summary>
+        <div className="mt-3 space-y-3">{children}</div>
+      </details>
+    ) : (
+      <>{children}</>
+    );
   return (
     <fieldset className="space-y-3 rounded-lg border p-3">
-      <legend className="px-1 font-semibold">Confirmar o enquadramento desta peça</legend>
-      <p className="text-xs text-muted-foreground">Ato do contador: diz se a peça tem ST e se é monofásica. Vale mais que a leitura do XML.</p>
+      <legend className="px-1 font-semibold">Enquadramento desta peça</legend>
+      <p className={`text-xs ${flags?.confirmed || flags?.auto ? 'text-emerald-800' : 'text-muted-foreground'}`}>
+        {flags?.confirmed
+          ? 'Confirmado: vale mais que a leitura da nota.'
+          : flags?.auto
+            ? flags.autoMonofasico && !flags.xml.monofasico
+              ? 'Confirmado automaticamente pela lei: o NCM está no Anexo I da Lei 10.485 e quem revende tem PIS/COFINS a 0% (art. 3º, § 2º), mesmo que o fornecedor tenha destacado normal na nota dele. Se discordar, escolha abaixo e salve.'
+              : 'Confirmado automaticamente: a nota e as tabelas concordam, não há nada a decidir. Se discordar, escolha abaixo e salve.'
+            : 'Ainda não confirmado: o cálculo usa a leitura da nota.'}
+        {xml && ` A nota indica ${xml.st ? 'ICMS-ST' : 'sem ICMS-ST'} e ${xml.monofasico ? 'PIS/COFINS monofásico' : 'PIS/COFINS normal'}.`}
+      </p>
+      <Manual>
       <div className="space-y-1.5">
         <p id={`st-${partId}`} className="text-xs font-medium">
           ICMS
         </p>
-        <RadioGroup value={st} onValueChange={setSt} aria-labelledby={`st-${partId}`} className="gap-1.5">
-          {options.map((o) => (
+        <RadioGroup value={st} onValueChange={(v) => setSt(v as IcmsStStatus)} aria-labelledby={`st-${partId}`} className="gap-1.5">
+          {ST_OPTIONS.map((o) => (
             <label key={o.value} className="flex cursor-pointer items-center gap-2">
               <RadioGroupItem value={o.value} />
               {o.label}
@@ -392,18 +492,30 @@ function TaxFlagsForm({ partId }: { partId: string }) {
           ))}
         </RadioGroup>
       </div>
-      <label className="flex cursor-pointer items-center gap-2">
-        <Checkbox checked={mono} onCheckedChange={(c) => setMono(c === true)} />
-        PIS/COFINS monofásico
-      </label>
-      <Button type="button" size="sm" variant="outline" disabled={save.isPending} onClick={() => save.mutate()}>
-        {save.isPending ? <Loader2 aria-hidden className="animate-spin" /> : <CircleCheck aria-hidden />} Confirmar
+      <div className="space-y-1.5">
+        <p id={`mono-${partId}`} className="text-xs font-medium">
+          PIS/COFINS monofásico
+        </p>
+        <RadioGroup value={mono} onValueChange={setMono} aria-labelledby={`mono-${partId}`} className="flex flex-wrap gap-x-4 gap-y-1.5">
+          {MONO_OPTIONS.map((o) => (
+            <label key={o.value} className="flex cursor-pointer items-center gap-2">
+              <RadioGroupItem value={o.value} />
+              {o.label}
+            </label>
+          ))}
+        </RadioGroup>
+      </div>
+      {partial && <p className="text-xs text-amber-800">Responda as duas perguntas para confirmar, ou marque &quot;não sei&quot; nas duas.</p>}
+      <Button type="button" size="sm" variant="outline" disabled={save.isPending || !changed || partial} onClick={() => save.mutate()}>
+        {save.isPending ? <Loader2 aria-hidden className="animate-spin" /> : <CircleCheck aria-hidden />} {clearing ? 'Desfazer a confirmação' : 'Confirmar'}
       </Button>
+      <p className="text-xs text-muted-foreground">Ato do contador: precisa da permissão &quot;Confirmar dados fiscais&quot;.</p>
       {msg && (
         <p role={msg.tone === 'error' ? 'alert' : 'status'} className={msg.tone === 'error' ? 'font-medium text-destructive' : 'text-emerald-800'}>
           {msg.text}
         </p>
       )}
+      </Manual>
     </fieldset>
   );
 }

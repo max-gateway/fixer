@@ -8,9 +8,9 @@ export type Branding = {
   secondaryColor: string;
 };
 
-// Identidade padrão do Fixer: laranja de sinalização + grafite.
-export const DEFAULT_PRIMARY = '#C2410C';
-export const DEFAULT_SECONDARY = '#1C2430';
+// Identidade padrão do Fixer: azul elétrico + preto profundo (Max Gateway).
+export const DEFAULT_PRIMARY = '#1F6BFF';
+export const DEFAULT_SECONDARY = '#080D17';
 
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 

@@ -153,7 +153,7 @@ export function VehiclePanel({
               transition={{ duration: 0.3, ease }}
               className="-mx-1 overflow-hidden px-1"
             >
-              <div className="grid gap-3 rounded-2xl bg-card p-3 text-card-foreground sm:grid-cols-2">
+              <div className="grid gap-3 rounded-2xl bg-card surface p-3 text-card-foreground sm:grid-cols-2">
                 <Field id="brand" label="Marca" error={errors.brand}>
                   <Input {...describedBy('brand', errors.brand)} value={values.brand} onChange={set('brand')} />
                 </Field>

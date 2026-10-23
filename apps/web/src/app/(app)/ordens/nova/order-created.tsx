@@ -58,7 +58,7 @@ export function OrderCreated({ order, phone, portalUrl, onNew }: { order: Create
         </div>
       </div>
 
-      <section className="grid gap-5 rounded-xl border bg-card p-5 shadow-xs sm:grid-cols-[auto_1fr]">
+      <section className="grid gap-5 rounded-xl border bg-card surface p-5 shadow-xs sm:grid-cols-[auto_1fr]">
         <div className="mx-auto w-fit rounded-lg border bg-white p-3">
           <QRCodeSVG value={portalUrl} size={176} level="M" role="img" aria-label="QR code do portal da ordem" />
         </div>

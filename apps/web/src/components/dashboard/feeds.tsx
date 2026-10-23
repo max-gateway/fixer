@@ -88,7 +88,7 @@ export function Insights({ items }: { items: Insight[] }) {
   return (
     <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {items.map((i) => (
-        <li key={i.id} className="flex gap-3 rounded-xl border bg-card p-4 shadow-xs">
+        <li key={i.id} className="flex gap-3 rounded-xl border bg-card surface p-4 shadow-xs">
           <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg ring-1', TONE[i.tone])}>
             {i.tone === 'info' ? <Lightbulb aria-hidden className="size-4" /> : <Sparkles aria-hidden className="size-4" />}
           </span>

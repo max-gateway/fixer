@@ -11,8 +11,17 @@ export type Customer = {
 };
 
 export class ApiError extends Error {
-  constructor(readonly status: number, path: string) {
+  /** `message` do corpo da resposta da API, quando veio (ex.: "Sem permissão: access.read", "Token sem organização ..."). */
+  constructor(readonly status: number, path: string, readonly detail?: string) {
     super(`API ${status} em ${path}`);
+  }
+
+  /**
+   * 403 por falta de permissão (PermissionGuard). Outros 403 têm outra causa e outra solução: oficina não resolvida pelo token,
+   * pessoa que não participa da oficina escolhida.
+   */
+  get permissionDenied(): boolean {
+    return this.status === 403 && (!this.detail || this.detail.startsWith('Sem permissão'));
   }
 }
 
@@ -24,7 +33,10 @@ export async function apiGet<T>(path: string): Promise<T> {
     cache: 'no-store',
     headers: { authorization: `Bearer ${token}`, ...(await orgHeader()) },
   });
-  if (!res.ok) throw new ApiError(res.status, path);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { message?: unknown } | null;
+    throw new ApiError(res.status, path, typeof body?.message === 'string' ? body.message : undefined);
+  }
   return res.json() as Promise<T>;
 }
 

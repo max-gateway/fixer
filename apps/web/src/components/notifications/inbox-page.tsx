@@ -41,7 +41,7 @@ export function InboxPage() {
         </TabsList>
       </Tabs>
 
-      <div className="overflow-hidden rounded border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded border border-slate-200 bg-card">
         <NotificationList store={store} filter={tab} onOpen={(item) => void store.markRead([item.id])} />
       </div>
     </section>

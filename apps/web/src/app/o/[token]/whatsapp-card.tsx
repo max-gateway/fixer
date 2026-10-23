@@ -20,7 +20,7 @@ export function WhatsappCard({ whatsapp, readOnly }: { whatsapp: PortalOrder['wh
   if (readOnly || !whatsapp.url) return null;
 
   return (
-    <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="space-y-3 rounded-2xl border border-slate-200 bg-card surface p-4 shadow-sm">
       <div>
         <h2 className="text-sm font-semibold">Receba as atualizações no WhatsApp</h2>
         <p className="mt-0.5 text-sm text-slate-600">Toque no botão e envie a mensagem que já vem pronta. Leva 5 segundos e você não precisa digitar nada.</p>
@@ -29,7 +29,7 @@ export function WhatsappCard({ whatsapp, readOnly }: { whatsapp: PortalOrder['wh
         href={whatsapp.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
+        className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
       >
         <Icon name="send" className="size-4" /> Falar com a oficina
       </a>

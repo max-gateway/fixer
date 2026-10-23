@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation';
 import { useRef, useState, type FormEvent } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { describedBy, Field } from '@/components/ui/field';
 import { Input, Select } from '@/components/ui/input';
-import { deleteJson, postJson } from '@/lib/client-api';
+import { deleteJson, postJson, putJson } from '@/lib/client-api';
 import { daysUntil, type FiscalStatus } from '@/lib/fiscal-import';
 import { formatCnpj, shortDate } from '@/lib/invoices';
 
@@ -24,7 +25,10 @@ function toBase64(file: File): Promise<string> {
   });
 }
 
-export function CertificateCard({ status, cnpjSaved }: { status: FiscalStatus; cnpjSaved: boolean }) {
+/** Leitura dos dados de imposto na Receita (Integra Contador): `available` = o ambiente tem o serviço; `enabled` = a oficina já autorizou. */
+export type ReceitaAccess = { available: boolean; enabled: boolean };
+
+export function CertificateCard({ status, cnpjSaved, receita }: { status: FiscalStatus; cnpjSaved: boolean; receita?: ReceitaAccess }) {
   const [replacing, setReplacing] = useState(false);
   const cred = status.credential;
 
@@ -56,6 +60,7 @@ export function CertificateCard({ status, cnpjSaved }: { status: FiscalStatus; c
           hasCredential={Boolean(cred)}
           enroll={enroll}
           savedCnpj={status.settings?.cnpj ?? undefined}
+          receita={receita}
           onDone={() => setReplacing(false)}
           onCancel={cred ? () => setReplacing(false) : undefined}
         />
@@ -85,7 +90,7 @@ function CurrentCertificate({ cred, onReplace, replacing }: { cred: NonNullable<
   });
 
   return (
-    <div className="space-y-3 rounded-xl border bg-card p-5 shadow-xs">
+    <div className="space-y-3 rounded-xl border bg-card surface p-5 shadow-xs">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="flex items-center gap-2 font-medium">
@@ -143,13 +148,16 @@ function CurrentCertificate({ cred, onReplace, replacing }: { cred: NonNullable<
   );
 }
 
-function UploadForm({ hasCredential, enroll, savedCnpj, onDone, onCancel }: { hasCredential: boolean; enroll?: boolean; savedCnpj?: string; onDone: () => void; onCancel?: () => void }) {
+function UploadForm({ hasCredential, enroll, savedCnpj, receita, onDone, onCancel }: { hasCredential: boolean; enroll?: boolean; savedCnpj?: string; receita?: ReceitaAccess; onDone: () => void; onCancel?: () => void }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState('');
   const [environment, setEnvironment] = useState<'PRODUCTION' | 'HOMOLOGATION'>('PRODUCTION');
   const [submitted, setSubmitted] = useState(false);
+  // Autorização separada do envio do certificado (fiscal-autofill.md §7): só liga se a pessoa marcar.
+  const [receitaConsent, setReceitaConsent] = useState(false);
+  const [receitaWarning, setReceitaWarning] = useState<string | null>(null);
 
   const errors = {
     file: !file ? 'Escolha o arquivo do certificado (.pfx)' : file.size > MAX_BYTES ? 'O arquivo é grande demais para um certificado' : null,
@@ -168,11 +176,24 @@ function UploadForm({ hasCredential, enroll, savedCnpj, onDone, onCancel }: { ha
           await postJson('/api/fiscal/autofill', { cnpj: cert.certCnpj }, 'Não foi possível salvar os dados da empresa.');
         }
       }
-      return postJson('/api/fiscal/credentials', { pfxBase64, password, environment }, 'Não foi possível enviar o certificado.');
+      const saved = await postJson('/api/fiscal/credentials', { pfxBase64, password, environment }, 'Não foi possível enviar o certificado.');
+      // Agora o certificado existe no servidor: com a autorização, o preenchimento já traz a RBT12 oficial do PGDAS-D e os fatos da
+      // declaração. A falha aqui não desfaz o envio (o certificado já está salvo): vira aviso, e "Buscar de novo" repete.
+      const authorize = Boolean(receita?.available) && receitaConsent && !receita?.enabled;
+      if (receita?.available && (authorize || (!hasCredential && receita.enabled))) {
+        try {
+          if (authorize) await putJson('/api/fiscal/autofill/consent', { enabled: true }, 'Não foi possível salvar a autorização.');
+          await postJson('/api/fiscal/autofill', {}, 'A consulta à Receita falhou agora.');
+        } catch (err) {
+          setReceitaWarning(`Certificado enviado, mas a busca na Receita não terminou: ${(err as Error).message} Use "Buscar de novo nas fontes oficiais".`);
+        }
+      }
+      return saved;
     },
     onSuccess: () => {
       setPassword('');
       setFile(null);
+      setReceitaConsent(false);
       onDone();
       router.refresh();
     },
@@ -186,7 +207,7 @@ function UploadForm({ hasCredential, enroll, savedCnpj, onDone, onCancel }: { ha
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate className="space-y-4 rounded-xl border bg-card p-5 shadow-xs">
+    <form onSubmit={onSubmit} noValidate className="space-y-4 rounded-xl border bg-card surface p-5 shadow-xs">
       <p className="font-medium">{hasCredential ? 'Enviar o certificado renovado' : 'Enviar o certificado A1 da oficina'}</p>
 
       <Note tone="warn" icon={TriangleAlert}>
@@ -222,6 +243,17 @@ function UploadForm({ hasCredential, enroll, savedCnpj, onDone, onCancel }: { ha
           className="max-w-64"
         />
       </Field>
+      {receita?.available && !receita.enabled && (
+        <div className="flex items-start gap-3 rounded-lg border bg-muted/40 p-3">
+          <Checkbox id="receita-consent-upload" checked={receitaConsent} onCheckedChange={(v) => setReceitaConsent(v === true)} className="mt-0.5" />
+          <label htmlFor="receita-consent-upload" className="space-y-1 text-sm">
+            <span className="font-medium">Buscar os dados de imposto na Receita Federal</span>
+            <span className="block text-xs text-muted-foreground">
+              O Fixer usa o certificado para ler a RBT12 da última declaração do Simples (PGDAS-D) e como a receita se divide entre as atividades, e assim calcula o imposto do preço com os números da Receita, sem digitação. Só leitura: nada é declarado nem pago. Atualiza sozinho todo mês e dá para desligar quando quiser.
+            </span>
+          </label>
+        </div>
+      )}
       <Field id="env" label="Ambiente" hint="Use Homologação só para testar com notas sem valor fiscal.">
         <Select {...describedBy('env', null, true)} value={environment} onChange={(e) => setEnvironment(e.target.value as typeof environment)} className="max-w-56">
           <option value="PRODUCTION">Produção</option>
@@ -229,6 +261,11 @@ function UploadForm({ hasCredential, enroll, savedCnpj, onDone, onCancel }: { ha
         </Select>
       </Field>
 
+      {receitaWarning && (
+        <p role="status" className="text-sm font-medium text-amber-800">
+          {receitaWarning}
+        </p>
+      )}
       {upload.error && (
         <p role="alert" className="text-sm font-medium text-destructive">
           {upload.error.message}

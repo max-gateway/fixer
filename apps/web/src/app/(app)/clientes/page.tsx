@@ -44,7 +44,7 @@ export default async function ClientesPage({
       {!error && customers.length === 0 && <p className="text-slate-600">Nenhum cliente encontrado.</p>}
 
       {customers.length > 0 && (
-        <table className="w-full overflow-hidden rounded border border-slate-200 bg-white text-left text-sm">
+        <table className="w-full overflow-hidden rounded border border-slate-200 bg-card text-left text-sm">
           <thead className="bg-slate-100 text-slate-600">
             <tr>
               <th className="px-4 py-2">Nome</th>

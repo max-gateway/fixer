@@ -41,7 +41,7 @@ export function SyncCard({ credential }: { credential: FiscalCredentialView }) {
         </div>
       </div>
 
-      <div className="space-y-4 rounded-xl border bg-card p-5 shadow-xs">
+      <div className="space-y-4 rounded-xl border bg-card surface p-5 shadow-xs">
         <Toggle
           id="sync-enabled"
           label="Buscar notas automaticamente"
@@ -90,7 +90,7 @@ export function SyncCard({ credential }: { credential: FiscalCredentialView }) {
       </div>
 
       {s && (
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border bg-card p-5 text-sm shadow-xs sm:grid-cols-3">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border bg-card surface p-5 text-sm shadow-xs sm:grid-cols-3">
           <Stat label="Última consulta ok" value={relativeTime(s.lastSuccessAt)} />
           <Stat label="Próxima consulta" value={credential.enabled ? relativeTime(s.nextPollAt) : '—'} />
           <Stat label="Último número lido" value={s.lastNsu === '0' ? '—' : s.lastNsu} />

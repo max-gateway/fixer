@@ -19,6 +19,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { ClientApiError, getJson, postJson, putJson } from '@/lib/client-api';
 import { money } from '@/lib/invoices';
 import { ACKABLE, delta, FLAG_INFO, marginOf, moneyCost, parsePrice, pct1, rowExpenses, type PricingPlanView, type PricingRowView } from '@/lib/pricing';
+import { MarginBar } from './margin-bar';
 import { PriceDetails } from './price-details';
 import { MarkupPopover } from './price-slider';
 import { TaxBanner, TaxChip } from './tax-banner';
@@ -90,6 +91,10 @@ export function PricingPanel({ invoiceId, ready }: { invoiceId: string; ready: b
   const blocked = p.rows.filter((r) => r.proposed !== null && r.blocking.length > 0);
   const margins = changing.map((r) => Number(r.marginPct)).filter(Number.isFinite);
   const avgMargin = margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : null;
+  // Totais da entrada: o que as peças custaram e quanto valem ao preço novo, por unidades que entram no estoque.
+  const stockQty = (r: PricingRowView) => Number(r.stockQty);
+  const costTotal = changing.reduce((acc, r) => acc + (r.cost ? Number(r.cost) * stockQty(r) : 0), 0);
+  const saleTotal = changing.reduce((acc, r) => acc + Number(r.proposed) * stockQty(r), 0);
 
   const attention = p.rows.filter(needsAttention);
   const noTax = p.rows.filter((r) => r.saleTax.pct === null);
@@ -99,11 +104,16 @@ export function PricingPanel({ invoiceId, ready }: { invoiceId: string; ready: b
   return (
     <section aria-labelledby="pricing-title" className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-        <div>
-          <h2 id="pricing-title" className="text-lg font-semibold">
-            Precificar
-          </h2>
-          <p className="text-sm text-muted-foreground">Sugestão = custo real + imposto + sua regra. Nada muda sem você lançar.</p>
+        <div className="flex items-center gap-3">
+          <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-brand text-sm font-semibold text-white">
+            2
+          </span>
+          <div>
+            <h2 id="pricing-title" className="text-lg font-semibold leading-tight">
+              Precificar
+            </h2>
+            <p className="text-sm text-muted-foreground">Custo real + imposto + sua regra. Nada muda até você lançar.</p>
+          </div>
         </div>
         <div className="flex gap-1">
           <Button type="button" size="sm" variant="outline" disabled={bulk.isPending || !p.rows.some((r) => r.suggested && !r.draft && !r.locked)} onClick={() => bulk.mutate('ACCEPT_SUGGESTIONS')}>
@@ -142,7 +152,7 @@ export function PricingPanel({ invoiceId, ready }: { invoiceId: string; ready: b
         </ToggleGroup>
       )}
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
+      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
         <Table className="block md:table">
           <TableHeader className="hidden md:table-header-group">
             <TableRow className="bg-muted/50">
@@ -171,17 +181,36 @@ export function PricingPanel({ invoiceId, ready }: { invoiceId: string; ready: b
         <Kbd>Enter</Kbd> grava e vai para o próximo preço · <Kbd>Esc</Kbd> desfaz a digitação
       </p>
 
-      <div className="sticky bottom-2 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/95 p-3 shadow-md backdrop-blur">
-        <p className="text-sm" aria-live="polite">
-          <strong>{changing.length}</strong> {changing.length === 1 ? 'preço muda' : 'preços mudam'}
-          {avgMargin !== null && <> · margem média {pct1(avgMargin)}</>}
-          {blocked.length > 0 ? (
-            <span className="font-medium text-destructive"> · {blocked.length} precisa{blocked.length === 1 ? '' : 'm'} de atenção</span>
-          ) : (
-            <span className="text-emerald-800"> · sem pendências</span>
+      <div className="sticky bottom-2 z-10 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-2xl border bg-background/95 p-3 shadow-lg backdrop-blur sm:px-4">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1" aria-live="polite">
+          <p className="text-sm">
+            <strong>{changing.length}</strong> {changing.length === 1 ? 'preço muda' : 'preços mudam'}
+            {blocked.length > 0 ? (
+              <span className="font-medium text-destructive"> · {blocked.length} precisa{blocked.length === 1 ? '' : 'm'} de atenção</span>
+            ) : (
+              <span className="text-emerald-800"> · sem pendências</span>
+            )}
+          </p>
+          {changing.length > 0 && (
+            <dl className="tabular flex flex-wrap gap-x-4 text-xs text-muted-foreground">
+              <div className="flex gap-1">
+                <dt>Custo</dt>
+                <dd className="font-medium text-foreground">{money(costTotal)}</dd>
+              </div>
+              <div className="flex gap-1">
+                <dt>Venda</dt>
+                <dd className="font-medium text-foreground">{money(saleTotal)}</dd>
+              </div>
+              {avgMargin !== null && (
+                <div className="flex gap-1">
+                  <dt>Margem média</dt>
+                  <dd className="font-medium text-foreground">{pct1(avgMargin)}</dd>
+                </div>
+              )}
+            </dl>
           )}
-        </p>
-        <Button type="button" disabled={!ready || blocked.length > 0 || changing.length === 0 || launch.isPending} onClick={() => setConfirming(true)}>
+        </div>
+        <Button type="button" className="w-full sm:w-auto" disabled={!ready || blocked.length > 0 || changing.length === 0 || launch.isPending} onClick={() => setConfirming(true)}>
           <PackageCheck aria-hidden /> Lançar entrada e atualizar preços
         </Button>
       </div>
@@ -278,6 +307,7 @@ function PriceRow({ invoiceId, plan, row: r, index }: { invoiceId: string; plan:
   const costDelta = delta(r.previousCost, r.cost);
   const needsAck = r.flags.some((f) => ACKABLE.includes(f) && (f !== 'TAX_UNCONFIRMED' || plan.requireTaxConfirmation));
   const changed = r.proposed !== null && r.proposed !== r.currentPrice;
+  const priceDelta = delta(r.currentPrice, r.proposed);
   // Na linha só o que pede atenção: alerta de preço, imposto indisponível, ou o motivo de não haver sugestão. O resto fica na gaveta.
   const attention = r.flags.filter((f) => FLAG_INFO[f].tone !== 'info' || r.proposed === null);
   const showTaxChip = r.saleTax.pct === null && !r.flags.includes('TAX_UNAVAILABLE');
@@ -381,6 +411,13 @@ function PriceRow({ invoiceId, plan, row: r, index }: { invoiceId: string; plan:
         <p id={`${id}-info`} className="tabular text-xs text-muted-foreground">
           atual {r.currentPrice ? money(r.currentPrice) : '—'}
           {r.draft !== null ? ' · seu preço' : changed && r.suggested !== null ? ' · sugerido' : ''}
+          {priceDelta !== null && Math.abs(priceDelta) >= 0.05 && (
+            <span className={`ml-1 font-medium ${priceDelta > 0 ? 'text-emerald-800' : 'text-amber-800'}`}>
+              {priceDelta > 0 ? '▲ +' : '▼ −'}
+              {pct1(Math.abs(priceDelta))}
+              <span className="sr-only"> contra o preço atual</span>
+            </span>
+          )}
         </p>
         {needsAck && r.proposed !== null && (
           <label className="flex cursor-pointer items-start gap-2 text-xs">
@@ -396,7 +433,10 @@ function PriceRow({ invoiceId, plan, row: r, index }: { invoiceId: string; plan:
       </TableCell>
 
       <TableCell data-label="Margem" className={`${CELL} md:text-right`}>
-        <span className="tabular text-sm font-medium">{shownMargin !== null ? pct1(shownMargin) : '—'}</span>
+        <span className="flex w-24 flex-col items-end gap-1 max-md:w-28">
+          <span className="tabular text-sm font-medium">{shownMargin !== null ? pct1(shownMargin) : '—'}</span>
+          {shownMargin !== null && <MarginBar margin={shownMargin} min={Number(plan.rule?.minMarginPct ?? 0)} target={plan.rule?.method === 'MARGIN' ? Number(plan.rule.value) : null} />}
+        </span>
       </TableCell>
     </TableRow>
   );

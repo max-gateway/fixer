@@ -45,7 +45,7 @@ export function PlateResult({
   }
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-30 grid gap-4 rounded-t-3xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-slate-900 shadow-2xl animate-in slide-in-from-bottom duration-300">
+    <div className="absolute inset-x-0 bottom-0 z-30 grid gap-4 rounded-t-3xl bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-slate-900 shadow-2xl animate-in slide-in-from-bottom duration-300">
       <div className="grid grid-cols-[112px_minmax(0,1fr)] items-center gap-4">
         <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-black">
           {thumb && (

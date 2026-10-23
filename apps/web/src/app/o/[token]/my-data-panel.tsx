@@ -173,7 +173,7 @@ export function MyDataPanel({
         autoComplete={extra.autoComplete}
         disabled={readOnly}
         aria-invalid={!!errors[key]}
-        className={`w-full rounded-xl border bg-white px-3.5 py-2.5 text-[15px] outline-none transition focus:ring-4 disabled:bg-slate-50 ${
+        className={`w-full rounded-xl border bg-card px-3.5 py-2.5 text-[15px] outline-none transition focus:ring-4 disabled:bg-slate-50 ${
           errors[key] ? 'border-red-400 focus:border-red-500 focus:ring-red-500/10' : 'border-slate-200 focus:border-brand focus:ring-brand/10'
         }`}
       />
@@ -182,7 +182,7 @@ export function MyDataPanel({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-4 rounded-3xl border border-slate-200 bg-card surface p-5 shadow-sm">
         <Ring pct={pct} />
         <div className="min-w-0 flex-1">
           <h2 className="font-semibold">{pct === 100 ? 'Cadastro completo' : 'Complete seu cadastro'}</h2>
@@ -208,7 +208,7 @@ export function MyDataPanel({
               autoComplete="off"
               disabled={readOnly}
               autoFocus
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-[15px] outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/10"
+              className="w-full rounded-xl border border-slate-200 bg-card px-3.5 py-2.5 text-[15px] outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/10"
             />
           </Field>
         )}
@@ -251,7 +251,7 @@ export function MyDataPanel({
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-3xl border border-slate-200 bg-card surface p-5 shadow-sm">
       <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-slate-500">{title}</h3>
       <div className="grid gap-4 sm:grid-cols-2">{children}</div>
     </section>
@@ -274,7 +274,7 @@ function Ring({ pct }: { pct: number }) {
   return (
     <div className="relative size-14 shrink-0" role="img" aria-label={`${pct}% do cadastro preenchido`}>
       <svg viewBox="0 0 56 56" className="size-full -rotate-90">
-        <circle cx="28" cy="28" r={r} fill="none" stroke="#e2e8f0" strokeWidth="5" />
+        <circle cx="28" cy="28" r={r} fill="none" stroke="#dde5f0" strokeWidth="5" />
         <circle cx="28" cy="28" r={r} fill="none" stroke={pct === 100 ? '#10b981' : 'var(--brand-primary)'} strokeWidth="5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)} className="transition-all duration-700" />
       </svg>
       <span className="absolute inset-0 grid place-items-center text-xs font-bold tabular-nums">{pct}%</span>

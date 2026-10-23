@@ -91,7 +91,7 @@ export function OrderDeliveries({ orderId }: { orderId: string }) {
   }
 
   return (
-    <div className="rounded border border-slate-200 bg-white p-4 text-sm">
+    <div className="rounded border border-slate-200 bg-card p-4 text-sm">
       <div className="mb-2 flex items-center justify-between">
         <h2 className="font-semibold">Notificações enviadas</h2>
         <Button size="xs" variant="ghost" onClick={() => void load(true)} disabled={refreshing} aria-label="Atualizar">

@@ -80,7 +80,7 @@ export function OrderFilters() {
               onClick={() => push({ status: o.value })}
               className={cn(
                 'h-8 shrink-0 rounded-full border px-3.5 text-[13px] font-medium transition-colors',
-                active ? 'border-slate-900 bg-slate-900 text-white' : 'bg-card text-slate-600 hover:border-slate-400 hover:text-slate-900',
+                active ? 'border-brand bg-brand text-white' : 'bg-card text-slate-600 hover:border-slate-400 hover:text-slate-900',
               )}
             >
               {o.label}

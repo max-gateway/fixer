@@ -1,22 +1,24 @@
 'use client';
 
-import { Plus } from 'lucide-react';
+import { Menu, Plus } from 'lucide-react';
 import { AnimatePresence, LayoutGroup, motion, useMotionValueEvent, useReducedMotion, useScroll } from 'motion/react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { useInbox } from '@/components/notifications/inbox-provider';
-import { isActive, NAV_ACTIONS, NAV_LINKS, NOTIFICATIONS_LINK, type NavLink } from './nav-items';
+import { activeLinkId, NAV_ACTIONS, NAV_LINKS, type NavLink } from './nav-items';
 
 const LEFT = NAV_LINKS.slice(0, 2);
 // A barra tem 5 vagas (2 + botão central + 2): links marcados `mobile: false` ficam de fora.
-const RIGHT = [...NAV_LINKS.slice(2).filter((l) => l.mobile !== false), NOTIFICATIONS_LINK];
+// O resto vive na gaveta ("Menu").
+const RIGHT = NAV_LINKS.slice(2).filter((l) => l.mobile !== false).slice(0, 1);
 const NEW_ORDER = NAV_ACTIONS[0]!;
 
 /** Barra flutuante para o polegar: some ao rolar para baixo, volta ao rolar para cima; "Nova OS" é o botão central. */
-export function MobileTabBar() {
+export function MobileTabBar({ onOpenMenu }: { onOpenMenu: () => void }) {
   const pathname = usePathname();
   const reduce = useReducedMotion();
+  const active = activeLinkId(pathname);
   const { unreadCount } = useInbox();
   const [hidden, setHidden] = useState(false);
   const { scrollY } = useScroll();
@@ -37,7 +39,7 @@ export function MobileTabBar() {
       <LayoutGroup id="tabbar">
         <ul className="grid grid-cols-5 items-center rounded-2xl border border-white/10 bg-brand-secondary/90 p-1.5 shadow-[0_12px_32px_-8px_rgb(0_0_0/0.5)] backdrop-blur-xl">
           {LEFT.map((l) => (
-            <Tab key={l.id} link={l} active={isActive(pathname, l)} spring={spring} />
+            <Tab key={l.id} link={l} active={l.id === active} spring={spring} />
           ))}
           <li className="flex justify-center">
             <motion.div whileTap={reduce ? undefined : { scale: 0.88 }} whileHover={reduce ? undefined : { y: -2 }}>
@@ -51,8 +53,22 @@ export function MobileTabBar() {
             </motion.div>
           </li>
           {RIGHT.map((l) => (
-            <Tab key={l.id} link={l} active={isActive(pathname, l)} spring={spring} badge={l.id === 'notificacoes' ? unreadCount : 0} />
+            <Tab key={l.id} link={l} active={l.id === active} spring={spring} />
           ))}
+          <li>
+            <button
+              type="button"
+              onClick={onOpenMenu}
+              aria-label={unreadCount > 0 ? `Menu: ${unreadCount} notificações não lidas` : 'Menu'}
+              className="relative flex h-12 w-full flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-medium text-white/55 outline-none transition-colors active:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-white/60"
+            >
+              <span className="relative">
+                <Menu className="size-5" />
+                {unreadCount > 0 && <span aria-hidden className="absolute -top-0.5 -right-1 size-2 rounded-full bg-brand ring-2 ring-brand-secondary" />}
+              </span>
+              <span>Menu</span>
+            </button>
+          </li>
         </ul>
       </LayoutGroup>
     </motion.nav>

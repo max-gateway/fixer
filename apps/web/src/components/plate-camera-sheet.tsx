@@ -202,7 +202,7 @@ export function PlateCameraSheet({
 
   const g = size.w ? guideRect(size.w, size.h) : null;
   const guideTone = hint.key === 'ok' ? 'border-green-400' : hint.key === 'none' ? 'border-white' : 'border-amber-400';
-  const hintTone = hint.key === 'ok' ? 'bg-green-400 text-green-950' : hint.key === 'none' ? 'bg-slate-900/80 text-white' : 'bg-amber-400 text-amber-950';
+  const hintTone = hint.key === 'ok' ? 'bg-green-400 text-black' : hint.key === 'none' ? 'bg-black/70 text-white' : 'bg-amber-400 text-black';
   const zoomLevels = zoomCaps ? [1, 2, 3].filter((l) => zoomCaps.min * l <= zoomCaps.max) : [];
 
   return (
@@ -261,7 +261,7 @@ export function PlateCameraSheet({
               onClick={() => applyTorch(!torch)}
               aria-pressed={torch}
               aria-label="Lanterna"
-              className={`grid size-10 place-items-center rounded-full backdrop-blur ${torch ? 'bg-amber-400 text-slate-900' : 'bg-white/15'}`}
+              className={`grid size-10 place-items-center rounded-full backdrop-blur ${torch ? 'bg-amber-400 text-black' : 'bg-white/15'}`}
             >
               {torch ? <Zap className="size-5" /> : <ZapOff className="size-5" />}
             </button>
@@ -278,7 +278,7 @@ export function PlateCameraSheet({
                     type="button"
                     onClick={() => applyZoom(l)}
                     aria-pressed={zoom === l}
-                    className={`h-8 min-w-11 rounded-full text-sm font-semibold ${zoom === l ? 'bg-white text-slate-900' : ''}`}
+                    className={`h-8 min-w-11 rounded-full text-sm font-semibold ${zoom === l ? 'bg-white text-black' : ''}`}
                   >
                     {l}×
                   </button>
@@ -316,7 +316,7 @@ export function PlateCameraSheet({
                     className="transition-[stroke-dashoffset] duration-100"
                   />
                 </svg>
-                <span className={`grid size-14.5 place-items-center rounded-full text-slate-900 transition-colors ${hint.key === 'ok' ? 'bg-green-400' : 'bg-white'}`}>
+                <span className={`grid size-14.5 place-items-center rounded-full text-black transition-colors ${hint.key === 'ok' ? 'bg-green-400' : 'bg-white'}`}>
                   <Camera className="size-6" />
                 </span>
               </button>

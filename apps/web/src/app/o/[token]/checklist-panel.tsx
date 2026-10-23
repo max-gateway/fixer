@@ -13,7 +13,7 @@ export function ChecklistPanel({ items, readOnly, onAnswer }: { items: Checklist
 
   return (
     <div className="space-y-5">
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-slate-200 bg-card surface p-5 shadow-sm">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="font-semibold">Checklist de entrada</h2>
           <span className="text-sm tabular-nums text-slate-500">
@@ -58,7 +58,7 @@ function Item({ item, readOnly, onAnswer }: { item: ChecklistItem; readOnly: boo
 
   return (
     <div
-      className={`rounded-2xl border bg-white p-4 shadow-sm transition-colors ${
+      className={`rounded-2xl border bg-card p-4 shadow-sm transition-colors ${
         ok ? 'border-emerald-300 bg-emerald-50/40' : issue ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200'
       }`}
     >
@@ -105,7 +105,7 @@ function Item({ item, readOnly, onAnswer }: { item: ChecklistItem; readOnly: boo
               tabIndex={issue ? 0 : -1}
               rows={2}
               placeholder="Descreva o que chamou atenção…"
-              className="w-full resize-none rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10"
+              className="w-full resize-none rounded-xl border border-amber-200 bg-card px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10"
             />
           </label>
         </div>

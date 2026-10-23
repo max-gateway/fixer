@@ -40,7 +40,7 @@ export function NotificationBell() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={label} className="relative text-white hover:bg-white/10 hover:text-white">
+        <Button variant="ghost" size="icon" aria-label={label} className="relative">
           <motion.span animate={bell} style={{ display: 'inline-flex', transformOrigin: '50% 0%' }}>
             <Bell />
           </motion.span>
@@ -52,7 +52,7 @@ export function NotificationBell() {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.4, opacity: 0 }}
                 transition={{ type: 'spring', stiffness: 520, damping: 22 }}
-                className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand px-1 text-[11px] leading-none font-semibold text-white tabular ring-2 ring-brand-secondary"
+                className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand px-1 text-[11px] leading-none font-semibold text-white tabular ring-2 ring-background"
                 aria-hidden
               >
                 {count > 99 ? '99+' : count}

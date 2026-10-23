@@ -1,8 +1,9 @@
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { auth, signOut } from '@/auth';
 import { CertificateBanner } from '@/components/certificate-banner';
-import { AppHeader } from '@/components/nav/app-header';
+import { AppShell, SIDEBAR_COOKIE } from '@/components/nav/app-shell';
 import { InboxProvider } from '@/components/notifications/inbox-provider';
 import { QueryProvider } from '@/components/query-provider';
 import { apiGet } from '@/lib/api';
@@ -37,22 +38,27 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const current = ctx.active ? (await listOrganizations()).find((o) => o.id === ctx.active) : undefined;
   const org = ctx.active ? { name: current ? orgLabel(current) : `Oficina ${ctx.active.slice(0, 8)}`, canSwitch: ctx.orgs.length > 1 } : null;
   const certAlert = ctx.active ? await loadCertificateAlert() : null;
+  const defaultCollapsed = (await cookies()).get(SIDEBAR_COOKIE)?.value === 'rail';
   const user = session?.user ? { name: session.user.name ?? session.user.email ?? 'Usuário', email: session.user.email } : null;
   return (
     <QueryProvider>
       <InboxProvider>
         <a
           href="#conteudo"
-          className="sr-only z-50 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+          className="sr-only z-50 rounded-lg bg-card px-3 py-2 text-sm font-medium text-slate-900 focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
         >
           Pular para o conteúdo
         </a>
-        <AppHeader brand={{ name: b.displayName, logoUrl: b.logoUrl }} user={user} org={org} signOutAction={signOutAction} />
-        {certAlert && ctx.active && <CertificateBanner alert={certAlert} orgId={ctx.active} />}
-        {/* pb-28 no mobile abre espaço para a tab bar flutuante */}
-        <main id="conteudo" className="mx-auto max-w-6xl px-4 py-6 pb-28 sm:px-6 sm:py-8 md:pb-8">
+        <AppShell
+          brand={{ name: b.displayName, logoUrl: b.logoUrl }}
+          user={user}
+          org={org}
+          signOutAction={signOutAction}
+          defaultCollapsed={defaultCollapsed}
+          banner={certAlert && ctx.active ? <CertificateBanner alert={certAlert} orgId={ctx.active} /> : null}
+        >
           {children}
-        </main>
+        </AppShell>
       </InboxProvider>
     </QueryProvider>
   );

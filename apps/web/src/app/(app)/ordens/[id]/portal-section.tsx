@@ -101,7 +101,7 @@ export function PortalSection({
     <section className="space-y-4">
       <h2 className="text-lg font-semibold">Portal do cliente</h2>
 
-      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-card surface p-4 text-sm">
         <p className="text-slate-600">Quem tem este link acessa a ordem sem login. Envie só para o cliente.</p>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input readOnly value={portalUrl} onFocus={(e) => e.target.select()} aria-label="Link do portal" className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs" />
@@ -111,7 +111,7 @@ export function PortalSection({
               {copied ? 'Copiado!' : 'Copiar'}
             </button>
             {whatsapp ? (
-              <a href={whatsapp} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 font-medium text-white hover:bg-emerald-700">
+              <a href={whatsapp} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 font-medium text-white hover:bg-emerald-500">
                 <Icon name="send" className="size-4" /> WhatsApp
               </a>
             ) : (
@@ -156,7 +156,7 @@ export function PortalSection({
         </p>
       )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+      <div className="rounded-2xl border border-slate-200 bg-card surface p-4 text-sm">
         <h3 className="mb-2 font-semibold">
           Checklist de entrada <span className="font-normal text-slate-500">· {answered}/{checklist.length} respondidos</span>
         </h3>

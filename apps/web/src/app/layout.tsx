@@ -19,7 +19,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
 
   return (
     <html lang="pt-BR" style={theme}>
-      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
+      <body className="bg-brand-glow min-h-screen bg-slate-50 text-slate-900 antialiased">
         {children}
       </body>
     </html>

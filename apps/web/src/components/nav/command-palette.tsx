@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Dialog } from 'radix-ui';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { Kbd } from './kbd';
-import { NAV_ACTIONS, NAV_LINKS, NOTIFICATIONS_LINK, SETTINGS_LINK, normalize } from './nav-items';
+import { ALL_LINKS, NAV_ACTIONS, normalize } from './nav-items';
 
 type Command = {
   id: string;
@@ -71,7 +71,7 @@ function PaletteBody({ close, signOutAction }: { close: () => void; signOutActio
       router.push(href);
     };
     return [
-      ...[...NAV_LINKS, NOTIFICATIONS_LINK, SETTINGS_LINK].map<Command>((l) => ({
+      ...ALL_LINKS.map<Command>((l) => ({
         id: l.id, group: 'Ir para', label: l.label, icon: l.icon, keys: ['g', l.goKey], keywords: l.keywords, run: go(l.href),
       })),
       ...NAV_ACTIONS.map<Command>((a) => ({

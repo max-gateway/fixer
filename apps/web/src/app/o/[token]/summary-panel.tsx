@@ -5,7 +5,7 @@ export function SummaryPanel({ order }: { order: PortalOrder }) {
   const empty = order.services.length + order.parts.length === 0;
   return (
     <div className="space-y-5">
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-3xl border border-slate-200 bg-card surface p-5 shadow-sm">
         <h2 className="mb-4 font-semibold">Serviços e peças</h2>
         {empty ? (
           <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
@@ -43,7 +43,7 @@ export function SummaryPanel({ order }: { order: PortalOrder }) {
         )}
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 text-sm shadow-sm">
+      <section className="rounded-3xl border border-slate-200 bg-card surface p-5 text-sm shadow-sm">
         <h2 className="mb-3 font-semibold">Veículo</h2>
         <dl className="grid grid-cols-[7rem_1fr] gap-y-2">
           <dt className="text-slate-500">Modelo</dt>

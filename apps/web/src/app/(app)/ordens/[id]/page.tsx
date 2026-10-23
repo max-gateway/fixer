@@ -60,7 +60,7 @@ export default async function OrdemPage({ params }: { params: Promise<{ id: stri
       </div>
 
       {order.nextStatuses.length > 0 && (
-        <div className="rounded-xl border bg-card p-4 shadow-xs md:sticky md:top-2 md:z-20 md:bg-card/90 md:backdrop-blur">
+        <div className="rounded-xl border bg-card surface p-4 shadow-xs md:sticky md:top-2 md:z-20 md:bg-card/90 md:backdrop-blur">
           <p className="mb-2 text-xs font-medium text-muted-foreground">Avançar ordem</p>
           <StatusActions orderId={order.id} nextStatuses={order.nextStatuses} />
         </div>

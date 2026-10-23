@@ -1,17 +1,21 @@
-import { Info, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { ApiError, apiGet } from '@/lib/api';
 import type { AutofillProvenance } from '@/lib/fiscal-autofill';
 import type { FiscalStatus } from '@/lib/fiscal-import';
 import { CertificateCard } from './certificate-card';
 import { CompanyForm } from './company-form';
-import { CompanyOverview } from './company-overview';
-import { FiscalSettingsForm, type FiscalSettings } from './fiscal-settings-form';
+import { FiscalOverview, type TaxSummary } from './fiscal-overview';
+import type { FiscalSettings } from './fiscal-settings-form';
 import { SyncCard } from './sync-card';
 
-export const metadata = { title: 'Cadastro da oficina' };
+export const metadata = { title: 'Oficina' };
 
-export default async function CadastroPage() {
+/**
+ * Configurações da oficina. O certificado é a única coisa que a pessoa precisa dar: com ele o Fixer busca a empresa, o
+ * regime, o serviço, o ISS da prefeitura e a receita, e mostra de onde veio cada valor. Digitar fica em "Ajustes manuais".
+ */
+export default async function OficinaPage() {
   let status: FiscalStatus;
   try {
     status = await apiGet<FiscalStatus>('/fiscal/status');
@@ -19,6 +23,7 @@ export default async function CadastroPage() {
     const denied = err instanceof ApiError && err.status === 403;
     return (
       <section className="space-y-5">
+        <h1 className="text-2xl font-semibold tracking-tight">Oficina</h1>
         <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
           <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
           <div>
@@ -30,92 +35,74 @@ export default async function CadastroPage() {
     );
   }
 
-  // Sem registro ainda (oficina nova): o formulário começa vazio.
-  const [fiscal, provenance] = await Promise.all([
+  // Sem registro ainda (oficina nova): tudo começa vazio. O imposto depende de permissão de precificação: sem ela, some só essa parte.
+  const [fiscal, provenance, tax] = await Promise.all([
     apiGet<FiscalSettings | null>('/fiscal/settings').catch(() => null),
     apiGet<AutofillProvenance>('/fiscal/autofill').catch((): AutofillProvenance => ({ fields: [], simplesOptant: null })),
+    apiGet<TaxSummary>('/pricing/tax-profile').catch(() => null),
   ]);
   const company = status.settings;
-  const missingTax = !fiscal?.issRate || !fiscal?.municipalServiceCode;
+  const cred = status.credential;
 
   return (
-    <section className="space-y-8">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Cadastro da oficina</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Envie o certificado digital da oficina: o Fixer lê o CNPJ dele e preenche sozinho a empresa, o município, o regime (quando é Simples Nacional) e o serviço da oficina. É com o mesmo certificado que as notas de compra são buscadas na SEFAZ.
+    <section className="space-y-10">
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Oficina</h1>
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Os dados da empresa e o certificado digital. Com o certificado o Fixer busca a empresa, os impostos e as notas de compra na SEFAZ. Tudo de imposto fica em{' '}
+          <Link href="/configuracoes/tributario" className="underline underline-offset-2">
+            Tributário
+          </Link>
+          .
         </p>
       </header>
 
-      <p className="text-sm">
-        <Link href="/configuracoes/precificacao" className="font-medium underline underline-offset-2">
-          Precificação
-        </Link>
-        <span className="text-muted-foreground"> · regra de preço e perfil tributário usados para sugerir o preço de venda quando uma nota chega.</span>
-      </p>
-
-      <Step n={1} title="Certificado digital" done={Boolean(status.credential)}>
-        <CertificateCard status={status} cnpjSaved={Boolean(company?.cnpj)} />
-      </Step>
+      {!cred && (
+        <Block title="Comece pelo certificado digital" description="É a única coisa que você precisa enviar.">
+          <CertificateCard status={status} cnpjSaved={Boolean(company?.cnpj)} receita={{ available: Boolean(provenance.sources?.receita), enabled: Boolean(provenance.taxDataConsent?.enabled) }} />
+        </Block>
+      )}
 
       {company?.cnpj && (
-        <Step n={2} title="Dados da oficina" done>
-          <CompanyOverview
-            cnpj={company.cnpj}
-            legalName={company.legalName}
-            ufCode={company.ufCode}
-            municipalityIbge={fiscal?.municipalityIbge ?? null}
-            taxRegime={fiscal?.taxRegime ?? null}
-            lc116Item={fiscal?.lc116Item ?? null}
+        <Block title="Dados da empresa" description="Vieram do certificado e da consulta de CNPJ.">
+          <FiscalOverview
+            company={{ cnpj: company.cnpj, legalName: company.legalName, ufCode: company.ufCode }}
+            fiscal={fiscal}
             provenance={provenance}
+            tax={tax}
+            hasCredential={Boolean(cred)}
+            scope="company"
           />
-          {!status.credential && (
-            <details className="max-w-xl text-sm">
-              <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">Corrigir dados manualmente</summary>
-              <div className="mt-3">
-                <CompanyForm key={`${company.cnpj}|${company.legalName}|${company.ufCode}`} initial={company} locked={false} />
-              </div>
-            </details>
-          )}
-        </Step>
+        </Block>
       )}
 
-      {company?.cnpj && (
-        <Step n={3} title="Impostos" done={!missingTax && Boolean(fiscal?.taxRegime)}>
-          {missingTax && (
-            <p role="note" className="flex max-w-xl items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
-              <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
-              <span>
-                A alíquota de ISS e o código de tributação são definidos por cada prefeitura e não constam no CNPJ: confirme com o seu contador ou na prefeitura do município acima.
-              </span>
-            </p>
-          )}
-          <FiscalSettingsForm key={JSON.stringify(fiscal)} initial={fiscal} />
-        </Step>
+      {cred && (
+        <div className="grid gap-10 xl:grid-cols-2">
+          <Block title="Certificado digital">
+            <CertificateCard status={status} cnpjSaved={Boolean(company?.cnpj)} receita={{ available: Boolean(provenance.sources?.receita), enabled: Boolean(provenance.taxDataConsent?.enabled) }} />
+          </Block>
+          <Block title="Busca de notas de compra">
+            <SyncCard credential={cred} />
+          </Block>
+        </div>
       )}
 
-      {status.credential && (
-        <Step n={4} title="Busca de notas de compra" done={status.credential.enabled}>
-          <SyncCard credential={status.credential} />
-        </Step>
+      {company?.cnpj && !cred && (
+        <Block title="Ajustes manuais" description="Sem certificado, a empresa pode ser informada à mão. Regime, ISS e valor da hora ficam em Tributário.">
+          <CompanyForm key={`${company.cnpj}|${company.legalName}|${company.ufCode}`} initial={company} locked={false} />
+        </Block>
       )}
     </section>
   );
 }
 
-function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) {
+function Block({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
-      <h2 className="flex items-center gap-2.5 text-lg font-semibold">
-        <span
-          aria-hidden
-          className={`grid size-6 place-items-center rounded-full text-xs font-bold ${done ? 'bg-emerald-600 text-white' : 'bg-muted text-muted-foreground'}`}
-        >
-          {done ? '✓' : n}
-        </span>
-        {title}
-        <span className="sr-only">{done ? ' (concluído)' : ''}</span>
-      </h2>
+      <div>
+        <h2 className="text-lg font-semibold">{title}</h2>
+        {description && <p className="max-w-2xl text-sm text-muted-foreground">{description}</p>}
+      </div>
       {children}
     </div>
   );

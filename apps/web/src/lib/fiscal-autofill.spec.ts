@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autofillNotices, provenanceTag, type AutofillReport } from './fiscal-autofill';
+import { autofillNotices, provenanceTag, stepNotes, type AutofillReport } from './fiscal-autofill';
 
 const report = (over: Partial<AutofillReport> = {}): AutofillReport => ({
   cnpj: '11222333000181',
@@ -40,5 +40,26 @@ describe('autofillNotices', () => {
     expect(notes[1]).toMatch(/não é mais do Simples Nacional, mas o salvo é Simples Nacional/);
     expect(notes[2]).toMatch(/não consta mais como Simples Nacional/);
     expect(notes[3]).toMatch(/Não foi possível consultar a Receita/);
+  });
+});
+
+describe('stepNotes', () => {
+  it('diz por que cada fonte não trouxe o valor, sem repetir o que foi pulado por regra', () => {
+    const notes = stepNotes(
+      report({
+        steps: [
+          { step: 'CNPJ_LOOKUP', status: 'OK' },
+          { step: 'ISS', status: 'SEM_DADO', detail: 'A prefeitura não cadastrou a alíquota deste serviço na NFS-e Nacional.' },
+          { step: 'RBT12', status: 'SEM_DADO', detail: 'O Fixer ainda não tem 12 meses de ordens de serviço.' },
+          { step: 'REGIME', status: 'PULADO', detail: 'Consulta à Receita não contratada.' },
+          { step: 'ICMS_VENDA', status: 'PULADO' },
+        ],
+      }),
+    );
+    expect(notes).toEqual(['ISS da prefeitura: A prefeitura não cadastrou a alíquota deste serviço na NFS-e Nacional.', 'RBT12: O Fixer ainda não tem 12 meses de ordens de serviço.']);
+  });
+
+  it('a referência da estimativa aparece na etiqueta da origem', () => {
+    expect(provenanceTag({ field: 'rbt12', source: 'FIXER_ESTIMATE', confidence: 'ESTIMADO', fetchedAt: '', reference: 'OS de 10/2025 a 09/2026' })?.text).toBe('Estimativa do Fixer · OS de 10/2025 a 09/2026, estimado: confira com o contador');
   });
 });

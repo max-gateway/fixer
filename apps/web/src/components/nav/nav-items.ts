@@ -1,7 +1,8 @@
-import { ClipboardList, FileText, Receipt, LayoutDashboard, Plus, UserPlus, Users, Bell, Settings, type LucideIcon } from 'lucide-react';
+import { ClipboardList, FileText, Receipt, LayoutDashboard, Plus, UserPlus, Users, Bell, Settings, KeyRound, type LucideIcon } from 'lucide-react';
 
-// Fonte única da navegação: header, tab bar mobile, paleta de comandos e atalhos leem daqui.
-// Para criar uma nova seção basta adicionar um item.
+// Fonte única da navegação: sidebar, tab bar mobile, paleta de comandos e atalhos leem daqui.
+// Para criar uma nova seção: declare o link e coloque-o em um grupo de NAV_GROUPS (ele aparece na sidebar, na gaveta
+// do celular, na paleta e no atalho "g").
 export type NavLink = {
   id: string;
   href: string;
@@ -44,7 +45,29 @@ export const SETTINGS_LINK: NavLink = {
   keywords: ['configuracoes', 'ajustes', 'cadastro', 'empresa', 'cnpj', 'certificado', 'fiscal', 'oficina'],
 };
 
+export const ACCESS_LINK: NavLink = {
+  id: 'acessos',
+  href: '/configuracoes/acessos',
+  label: 'Acessos',
+  icon: KeyRound,
+  goKey: 'u',
+  match: 'prefix',
+  keywords: ['usuarios', 'pessoas', 'equipe', 'papeis', 'permissoes', 'convidar', 'senha', 'admin', 'funcionarios'],
+};
+
 export type NavAction = { id: string; href: string; label: string; short: string; icon: LucideIcon; key?: string; keywords: string[] };
+
+export type NavGroup = { id: string; label: string; items: NavLink[] };
+
+/** Agrupamento da sidebar e da gaveta do celular. Cada grupo é recolhível; a ordem aqui é a ordem na tela. */
+export const NAV_GROUPS: NavGroup[] = [
+  { id: 'operacao', label: 'Operação', items: NAV_LINKS.filter((l) => ['painel', 'ordens', 'clientes'].includes(l.id)) },
+  { id: 'financeiro', label: 'Financeiro', items: NAV_LINKS.filter((l) => ['contas-a-pagar', 'notas'].includes(l.id)) },
+  { id: 'oficina', label: 'Oficina', items: [NOTIFICATIONS_LINK, SETTINGS_LINK, ACCESS_LINK] },
+];
+
+/** Todos os destinos navegáveis, na ordem dos grupos (paleta, atalhos "g" e dica). */
+export const ALL_LINKS: NavLink[] = NAV_GROUPS.flatMap((g) => g.items);
 
 export const NAV_ACTIONS: NavAction[] = [
   { id: 'nova-os', href: '/ordens/nova', label: 'Nova ordem de serviço', short: 'Nova OS', icon: Plus, key: 'n', keywords: ['criar', 'abrir', 'placa', 'os'] },
@@ -55,6 +78,13 @@ export const NAV_ACTIONS: NavAction[] = [
 export function isActive(pathname: string, link: Pick<NavLink, 'href' | 'match'>): boolean {
   if (link.match === 'exact') return pathname === link.href;
   return pathname === link.href || pathname.startsWith(`${link.href}/`);
+}
+
+/** Item ativo: o destino mais específico que casa com a rota (/configuracoes/acessos vence /configuracoes). */
+export function activeLinkId(pathname: string): string | null {
+  const hits = ALL_LINKS.filter((l) => isActive(pathname, l));
+  hits.sort((a, b) => b.href.length - a.href.length);
+  return hits[0]?.id ?? null;
 }
 
 /** Remove acentos e caixa para a busca. */

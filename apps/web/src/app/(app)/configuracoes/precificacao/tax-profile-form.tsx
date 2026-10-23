@@ -31,6 +31,8 @@ export type TaxProfileSettings = {
   reviewedBy: string | null;
   reviewedAt: string | null;
   rulesVersion: string;
+  /** Quem garante o perfil: contador, fonte oficial (ex.: RBT12 do PGDAS-D) ou ninguém ainda. */
+  trust?: 'CONTADOR' | 'FONTE_OFICIAL' | null;
 };
 
 const REGULAR_OPTIONS = [
@@ -107,8 +109,8 @@ export function TaxProfileForm({ initial, readiness, canReview }: { initial: Tax
       <p className="text-sm text-muted-foreground">
         Regime: <strong className="text-foreground">{REGIME_LABEL[regime]}</strong>
         {!readiness.regimeInformed && ' (assumido)'} ·{' '}
-        <Link href="/configuracoes" className="underline underline-offset-2">
-          alterar em Dados fiscais
+        <Link href="#ajustes" className="underline underline-offset-2">
+          alterar no formulário acima
         </Link>
       </p>
 
@@ -206,14 +208,18 @@ export function TaxProfileForm({ initial, readiness, canReview }: { initial: Tax
       </form>
 
       {readiness.supported && (
-        <div className="space-y-2 rounded-lg border p-4">
+        <div id="validacao-contador" className="scroll-mt-24 space-y-2 rounded-lg border p-4">
           <h3 className="text-sm font-semibold">Validação do contador</h3>
-          {initial?.reviewedAt ? (
+          {initial?.trust === 'FONTE_OFICIAL' && !initial.reviewedAt ? (
+            <p className="flex items-start gap-2 text-sm text-emerald-800">
+              <ShieldCheck aria-hidden className="mt-0.5 size-4 shrink-0" /> Dispensada: os valores em uso vieram de registro oficial. Se você digitar um valor, ele passa a pedir a validação.
+            </p>
+          ) : initial?.reviewedAt ? (
             <p className="flex items-start gap-2 text-sm text-emerald-800">
               <ShieldCheck aria-hidden className="mt-0.5 size-4 shrink-0" /> Validados por {initial.reviewedBy} em {new Date(initial.reviewedAt).toLocaleDateString('pt-BR')}. Mudar um valor acima pede nova validação.
             </p>
           ) : (
-            <p className="text-sm text-muted-foreground">Os dados acima ainda não foram validados. As tabelas da lei são validadas na aba &quot;Tabelas&quot;.</p>
+            <p className="text-sm text-muted-foreground">Os dados acima não vieram de registro oficial (foram digitados ou estimados): o contador precisa conferir. As tabelas da lei são conferidas automaticamente.</p>
           )}
           {canReview && (initial?.simplesEffectiveRatePct != null || initial?.rbt12 != null || initial?.icmsSalePct != null) && (
             <div className="flex flex-wrap items-end gap-2">

@@ -13,9 +13,9 @@ const badgeVariants = cva(
         destructive: "border-transparent bg-destructive text-white",
         outline: "text-foreground",
         // Semânticas fixas para todos os tenants (estado de entrega significa o mesmo em qualquer cliente).
-        success: "border-transparent bg-emerald-100 text-emerald-800",
-        warning: "border-transparent bg-amber-100 text-amber-900",
-        danger: "border-transparent bg-red-100 text-red-800",
+        success: "border-emerald-600/15 bg-emerald-100 text-emerald-800",
+        warning: "border-amber-600/20 bg-amber-100 text-amber-900",
+        danger: "border-red-600/15 bg-red-100 text-red-800",
       },
     },
     defaultVariants: {

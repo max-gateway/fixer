@@ -81,7 +81,7 @@ export function ProblemDialog({ open, onClose, onSubmit }: { open: boolean; onCl
                   type="button"
                   aria-pressed={on}
                   onClick={() => setWhen(on ? null : key)}
-                  className={`rounded-full border px-3.5 py-2 text-sm transition active:scale-95 ${on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 hover:border-slate-900'}`}
+                  className={`rounded-full border px-3.5 py-2 text-sm transition active:scale-95 ${on ? 'border-brand bg-brand text-white' : 'border-slate-200 hover:border-brand'}`}
                 >
                   {label}
                 </button>

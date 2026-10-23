@@ -49,11 +49,11 @@ const entry: EntryView = {
   },
 };
 
-async function openDrawer(r: PricingRowView, entries: EntryView[]) {
+async function openDrawer(r: PricingRowView, entries: EntryView[], over: Partial<PricingPlanView> = {}) {
   api.getJson.mockImplementation((url: string) => Promise.resolve(url.endsWith('/entries') ? { entries } : { history: [] }));
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <PriceDetails plan={plan(r)} row={r} trigger={<button type="button">Detalhes</button>} />
+      <PriceDetails plan={{ ...plan(r), ...over }} row={r} trigger={<button type="button">Detalhes</button>} />
     </QueryClientProvider>,
   );
   await userEvent.click(screen.getByRole('button', { name: 'Detalhes' }));
@@ -72,7 +72,10 @@ describe('PriceDetails (gaveta "Por que esse preço?")', () => {
   it('mostra a composição do custo, de cada R$ 100 do preço e os preços-limite', async () => {
     await openDrawer(row(), [entry]);
     expect(screen.getByText('ICMS-ST pago por você na entrada (PE)')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /De cada R\$ 100 do preço de R\$\s?160,00/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /De cada R\$ 100 do preço sugerido de R\$\s?160,00/ })).toBeTruthy();
+    // custo da nota: total da linha e a divisão pelas 2 unidades
+    expect(screen.getByText('Na nota, para 2 un')).toBeTruthy();
+    expect(screen.getByText('Total ÷ 2 un').nextSibling!.textContent).toMatch(/100,00 → R\$\s?50,00/);
     // custo 100 de 160 = 62,5; imposto 6; despesas 4; margem 27,5
     expect(screen.getByText('Margem').closest('li')!.textContent).toMatch(/27,50/);
     // 100 ÷ (1 − 0,10) = 111,11; 100 ÷ (1 − 0,30) = 142,86
@@ -96,6 +99,53 @@ describe('PriceDetails (gaveta "Por que esse preço?")', () => {
   it('preço abaixo do custo mais imposto aparece como prejuízo', async () => {
     await openDrawer(row({ proposed: '100' }), []);
     expect(screen.getByText('Prejuízo')).toBeTruthy();
+  });
+
+  it('tributos que já estão no preço do fornecedor ficam à parte e não somam', async () => {
+    await openDrawer(
+      row({
+        stockQty: '6',
+        costComponents: [
+          { code: 'PRODUTO', treatment: 'COST', amount: '150', source: 'vProd', allocated: false },
+          { code: 'ICMS_PROPRIO', treatment: 'INFO', amount: '30.75', source: 'vICMS', allocated: false },
+        ],
+      }),
+      [],
+    );
+    expect(screen.getByText(/Já dentro do preço do fornecedor/)).toBeTruthy();
+    expect(screen.queryByText(/^Total/)).toBeNull(); // uma linha só: o total é ela mesma
+  });
+
+  it('sem regra: diz no passo 3 onde definir, sem repetir nos alertas; o preço digitado é dito como tal', async () => {
+    await openDrawer(row({ rule: null, ruleScope: null, suggested: null, draft: '39.9', proposed: '39.9', currentPrice: '45', flags: ['NO_RULE', 'PRICE_DOWN'] }), [], { rule: null, hasRule: false });
+    expect(screen.getByRole('link', { name: 'Definir a regra de preço' }).getAttribute('href')).toBe('/configuracoes/precificacao');
+    expect(screen.queryByText(/Sem regra:/)).toBeNull();
+    expect(screen.getByText(/Você digitou R\$\s?39,90/)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /do seu preço de R\$\s?39,90/ })).toBeTruthy();
+    expect(screen.getByText(/Preço baixa:/).closest('li')!.textContent).toMatch(/de R\$\s?45,00 para R\$\s?39,90\./);
+  });
+
+  it('enquadramento abre com o que está salvo e só salva quando muda; meia resposta não confirma', async () => {
+    api.putJson.mockResolvedValue({});
+    await openDrawer(row({ taxFlags: { confirmed: true, icmsStStatus: 'ST_CHARGED', pisCofinsMonofasico: false, xml: { st: true, monofasico: false } } }), []);
+    expect(screen.getByText(/Confirmado: vale mais que a leitura da nota/)).toBeTruthy();
+    expect((screen.getByRole('radio', { name: 'ST cobrada na compra' }) as HTMLButtonElement).getAttribute('aria-checked')).toBe('true');
+    const confirm = screen.getByRole('button', { name: /Confirmar/ });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+
+    await userEvent.click(screen.getAllByRole('radio', { name: 'Não sei' })[0]!);
+    expect(screen.getByText(/Responda as duas perguntas/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Confirmar/ }) as HTMLButtonElement).disabled).toBe(true);
+
+    await userEvent.click(screen.getAllByRole('radio', { name: 'Não sei' })[1]!);
+    await userEvent.click(screen.getByRole('button', { name: /Desfazer a confirmação/ }));
+    expect(api.putJson).toHaveBeenCalledWith('/api/parts/p1/tax-flags', { icmsStStatus: 'UNKNOWN', pisCofinsMonofasico: null }, expect.any(String));
+  });
+
+  it('rodapé diz por que o imposto está estimado, sem a lista inteira de tabelas', async () => {
+    await openDrawer(row(), []);
+    expect(screen.getByText(/Imposto estimado: falta confirmar o enquadramento desta peça/)).toBeTruthy();
+    expect(screen.queryByText(/estimativas até o contador/)).toBeNull();
   });
 
   it('lista as entradas com a fotografia: documento, custo, preço, integridade e o que mudou desde então', async () => {

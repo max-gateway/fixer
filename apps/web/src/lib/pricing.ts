@@ -21,7 +21,7 @@ export type PriceFlag =
 export type SaleTaxView = {
   pct: string | null;
   confidence: 'CONFIRMADO' | 'ESTIMADO' | 'DEFINIDO';
-  unavailable: 'REGIME_NAO_SUPORTADO' | 'SEM_ALIQUOTA' | 'REPARTICAO_FALTANDO' | 'RBT12_FORA_DO_SIMPLES' | 'REGRA_FORA_DE_VIGENCIA' | 'REFORMA_SEM_ALIQUOTA' | null;
+  unavailable: 'REGIME_NAO_SUPORTADO' | 'SEM_ALIQUOTA' | 'REPARTICAO_FALTANDO' | 'RBT12_FORA_DO_SIMPLES' | 'SUBLIMITE_ESTADUAL' | 'REGRA_FORA_DE_VIGENCIA' | 'REFORMA_SEM_ALIQUOTA' | null;
   components: { code: string; pct: string; reason: string }[];
 };
 
@@ -75,7 +75,12 @@ export type PricingRowView = {
   locked: boolean;
   /** Despesas que o preço usou: do perfil de custos (estrutura + venda + extra por unidade) ou da regra. */
   overhead?: { source: 'PROFILE' | 'RULE'; variablePct: string; fixedPct: string; extraUnitCost: string };
+  /** Enquadramento da peça: o confirmado por alguém (quando há) e o que o XML desta nota indica. */
+  taxFlags?: TaxFlagsView;
 };
+
+export type IcmsStStatus = 'UNKNOWN' | 'NOT_ST' | 'ST_CHARGED' | 'ST_PAID_BEFORE';
+export type TaxFlagsView = { confirmed: boolean; /** A nota e as tabelas concordam: vale como confirmado sem clique. */ auto?: boolean; /** Com auto: o monofásico que a lei determina para o NCM. */ autoMonofasico?: boolean | null; icmsStStatus: IcmsStStatus; pisCofinsMonofasico: boolean | null; xml: { st: boolean; monofasico: boolean } };
 
 export type CostProfileStatus =
   | { status: 'OK'; version: number; channel: string; fixedPct: string; variablePct: string; financialPct: string; extraUnitCost: string; confidence: 'CONFIRMADO' | 'ESTIMADO' }

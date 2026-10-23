@@ -114,7 +114,7 @@ export function RuleForm({ initial }: { initial: RuleSettings | null }) {
 
   return (
     <form onSubmit={onSubmit} className="max-w-2xl space-y-6" noValidate>
-      <div className="space-y-4 rounded-xl border bg-card p-4">
+      <div className="space-y-4 rounded-xl border bg-card surface p-4">
         <div className="space-y-1.5">
           <p id="rule-method-label" className="text-sm font-medium">
             Como calcular

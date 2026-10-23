@@ -56,7 +56,7 @@ export function Conversation({
   const groups = groupByDay(events);
 
   return (
-    <div className={`flex flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm ${className}`}>
+    <div className={`flex flex-col overflow-hidden rounded-3xl border border-slate-200 bg-card shadow-sm ${className}`}>
       <div className="relative min-h-0 flex-1">
         <div
           ref={scroller}
@@ -141,7 +141,7 @@ function Composer({ onSend, quickReplies, actions }: { onSend: (t: string) => vo
   };
 
   return (
-    <div className="space-y-2 border-t border-slate-200 bg-white p-3">
+    <div className="space-y-2 border-t border-slate-200 bg-card p-3">
       {(quickReplies.length > 0 || actions) && !text && (
         <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
           {actions}
@@ -168,7 +168,7 @@ function Composer({ onSend, quickReplies, actions }: { onSend: (t: string) => vo
           rows={1}
           placeholder="Escreva uma mensagem…"
           aria-label="Mensagem"
-          className="max-h-36 min-h-11 flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-[15px] outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-brand/10"
+          className="max-h-36 min-h-11 flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-[15px] outline-none transition focus:border-brand focus:bg-card focus:ring-4 focus:ring-brand/10"
         />
         <button
           onClick={submit}
@@ -229,7 +229,7 @@ function Bubble({ ev, mine, continued, onRetry }: { ev: OrderEvent; mine: boolea
       {!mine && !continued && <span className="mb-1 ml-3 text-xs font-medium text-slate-500">{ev.authorName}</span>}
       <div
         className={`max-w-[85%] whitespace-pre-wrap break-words rounded-3xl px-4 py-2.5 text-[15px] leading-snug shadow-sm sm:max-w-[75%] ${
-          mine ? 'rounded-br-lg bg-brand text-white' : 'rounded-bl-lg bg-white text-slate-800 ring-1 ring-slate-200'
+          mine ? 'rounded-br-lg bg-brand text-white' : 'rounded-bl-lg bg-card text-slate-800 ring-1 ring-slate-200'
         } ${ev.pending ? 'opacity-60' : ''} ${ev.failed ? 'ring-2 ring-red-400' : ''}`}
       >
         {ev.body}
@@ -254,7 +254,7 @@ function ProblemCard({ ev, mine }: { ev: OrderEvent; mine: boolean }) {
   const when = ev.data?.when as string | null | undefined;
   return (
     <div className={`animate-rise flex pt-3 ${mine ? 'justify-end' : 'justify-start'}`}>
-      <div className="w-full max-w-[90%] overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-amber-200 sm:max-w-[80%]">
+      <div className="w-full max-w-[90%] overflow-hidden rounded-3xl bg-card shadow-sm ring-1 ring-amber-200 sm:max-w-[80%]">
         <div className="flex items-center gap-2 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900">
           <Icon name="wrench" className="size-4" />
           Problema relatado

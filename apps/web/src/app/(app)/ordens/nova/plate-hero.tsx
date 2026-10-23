@@ -112,7 +112,7 @@ export function PlateHero({
                 spellCheck={false}
                 maxLength={7}
                 placeholder="ABC1D23"
-                className={`w-full bg-transparent px-4 text-center font-mono font-bold ${compact ? 'py-2 text-[clamp(1.75rem,7vw,2.5rem)]' : 'py-4 text-[clamp(2.25rem,10vw,4.5rem)]'} uppercase leading-none tracking-[0.14em] text-[#0f141b] outline-none placeholder:text-slate-200`}
+                className={`w-full bg-transparent px-4 text-center font-mono font-bold ${compact ? 'py-2 text-[clamp(1.75rem,7vw,2.5rem)]' : 'py-4 text-[clamp(2.25rem,10vw,4.5rem)]'} uppercase leading-none tracking-[0.14em] text-[#0f141b] outline-none placeholder:text-slate-300`}
               />
               {kind === 'loading' && !reduce && (
                 <motion.span

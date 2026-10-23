@@ -34,7 +34,7 @@ export default async function OrganizationsPage() {
                 <input type="hidden" name="org" value={o.id} />
                 <button
                   type="submit"
-                  className="group flex w-full items-center gap-3 rounded-xl bg-white px-4 py-3.5 text-left shadow-sm ring-1 ring-slate-200 transition hover:ring-brand focus-visible:ring-2 focus-visible:ring-brand active:scale-[0.99]"
+                  className="group flex w-full items-center gap-3 rounded-xl bg-card px-4 py-3.5 text-left shadow-sm ring-1 ring-slate-200 transition hover:ring-brand focus-visible:ring-2 focus-visible:ring-brand active:scale-[0.99]"
                 >
                   <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
                     <Building2 className="size-5" />

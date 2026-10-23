@@ -4,7 +4,8 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import { useEffect, useState } from 'react';
 import { getJson, postJson } from '@/lib/client-api';
 import type { FiscalStatus } from '@/lib/fiscal-import';
-import type { InvoiceDetail, Listing, View } from '@/lib/invoices';
+import type { InvoiceFull } from '@/lib/invoice-view';
+import type { Listing, View } from '@/lib/invoices';
 
 export type Initial = { view: View; q: string; listing: Listing; counts: Record<View, number>; status: FiscalStatus | null };
 
@@ -45,12 +46,12 @@ export const useSyncStatus = (initial: Initial) =>
 export const detailKey = (id: string) => [...KEY, 'detail', id] as const;
 
 export const useDetail = (id: string | null) =>
-  useQuery({ queryKey: detailKey(id ?? ''), queryFn: () => getJson<InvoiceDetail>(`/api/invoices/${id}`), enabled: !!id, staleTime: 15_000 });
+  useQuery({ queryKey: detailKey(id ?? ''), queryFn: () => getJson<InvoiceFull>(`/api/invoices/${id}`), enabled: !!id, staleTime: 15_000 });
 
 /** Aquece o cache do painel quando o ponteiro chega na linha, então o clique abre instantâneo. */
 export function usePrefetchDetail() {
   const qc = useQueryClient();
-  return (id: string) => void qc.prefetchQuery({ queryKey: detailKey(id), queryFn: () => getJson<InvoiceDetail>(`/api/invoices/${id}`), staleTime: 15_000 });
+  return (id: string) => void qc.prefetchQuery({ queryKey: detailKey(id), queryFn: () => getJson<InvoiceFull>(`/api/invoices/${id}`), staleTime: 15_000 });
 }
 
 export type ActionKind = 'confirm' | 'manifest' | 'clear-review';

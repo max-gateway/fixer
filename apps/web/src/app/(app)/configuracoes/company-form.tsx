@@ -38,7 +38,7 @@ export function CompanyForm({ initial, locked }: { initial: FiscalStatus['settin
 
   const hint = locked ? 'Vem do certificado. Para trocar de empresa, remova o certificado no passo 1.' : 'Aceita o CNPJ novo com letras e números.';
   return (
-    <form onSubmit={onSubmit} noValidate className="max-w-xl space-y-4 rounded-xl border bg-card p-5 shadow-xs">
+    <form onSubmit={onSubmit} noValidate className="max-w-xl space-y-4 rounded-xl border bg-card surface p-5 shadow-xs">
       <Field id="cnpj" label="CNPJ da oficina" error={shown} hint={hint}>
         <Input
           {...describedBy('cnpj', shown, hint)}

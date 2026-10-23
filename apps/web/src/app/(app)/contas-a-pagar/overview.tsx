@@ -119,7 +119,7 @@ function ForecastChart({ forecast, filters, onBucket }: { forecast: Forecast; fi
   const peak = buckets.reduce((best, b) => (Number(b.amount) > Number(best.amount) ? b : best), buckets[0]!);
 
   return (
-    <section aria-labelledby="forecast-title" className="rounded-xl border bg-card p-4 shadow-xs">
+    <section aria-labelledby="forecast-title" className="rounded-xl border bg-card surface p-4 shadow-xs">
       <header className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 id="forecast-title" className="text-sm font-semibold">

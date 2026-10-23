@@ -5,6 +5,7 @@
 @import '@fontsource/bai-jamjuree/700.css';
 
 /*
+ * Identidade Max Gateway: conteúdo claro e arejado, com header/login/hero em preto profundo e azul elétrico.
  * Camadas de tema:
  *  - marca (por tenant): --brand-primary / --brand-secondary, injetados no <html> pelo layout
  *    (lib/branding.ts garante contraste mínimo com branco);
@@ -12,35 +13,35 @@
  *  - estrutura e semânticas: fixas para todos os tenants (status de OS significa a mesma coisa em qualquer cliente).
  */
 :root {
-  --brand-primary: #c2410c;
-  --brand-secondary: #1c2430;
+  --brand-primary: #1f6bff;
+  --brand-secondary: #080d17;
   --brand-hover: color-mix(in oklab, var(--brand-primary) 85%, black);
-  --brand-soft: color-mix(in oklab, var(--brand-primary) 10%, white);
+  --brand-soft: color-mix(in oklab, var(--brand-primary) 9%, white);
 }
 
 /*
  * Tokens do shadcn/ui ligados à identidade: --primary segue a cor do tenant (white-label),
- * o resto é o cinza quente fixo do Fixer.
+ * o resto é o branco-gelo e a tinta azulada fixos do Fixer.
  */
 :root {
   --radius: 0.5rem;
-  --background: #f7f6f3;
-  --foreground: #1c2430;
+  --background: #f3f6fb;
+  --foreground: #0b1220;
   --card: #ffffff;
-  --card-foreground: #1c2430;
+  --card-foreground: #0b1220;
   --popover: #ffffff;
-  --popover-foreground: #1c2430;
+  --popover-foreground: #0b1220;
   --primary: var(--brand-primary);
   --primary-foreground: #ffffff;
-  --secondary: #efede8;
-  --secondary-foreground: #1c2430;
-  --muted: #efede8;
-  --muted-foreground: #5b6472;
-  --accent: #efede8;
-  --accent-foreground: #1c2430;
-  --destructive: #b91c1c;
-  --border: #e5e2dc;
-  --input: #e5e2dc;
+  --secondary: #eaf0f8;
+  --secondary-foreground: #0b1220;
+  --muted: #eaf0f8;
+  --muted-foreground: #5a6a82;
+  --accent: #e3edff;
+  --accent-foreground: #0b1220;
+  --destructive: #dc2626;
+  --border: #dde5f0;
+  --input: #cfd9e8;
   --ring: var(--brand-primary);
 }
 
@@ -77,16 +78,20 @@
 }
 
 /*
- * As telas usam a escala slate do Tailwind; aqui ela vira o cinza quente da identidade Fixer
+ * As telas usam a escala slate do Tailwind; aqui ela vira o cinza-azulado da identidade Max Gateway
  * (fundo, bordas, texto suave e tinta) sem precisar reescrever cada classe.
  */
 @theme {
-  --color-slate-50: #f7f6f3;
-  --color-slate-100: #efede8;
-  --color-slate-200: #e5e2dc;
-  --color-slate-500: #5b6472;
-  --color-slate-600: #4b5362;
-  --color-slate-900: #1c2430;
+  --color-slate-50: #f3f6fb;
+  --color-slate-100: #eaf0f8;
+  --color-slate-200: #dde5f0;
+  --color-slate-300: #c5d1e3;
+  --color-slate-400: #8b9bb3;
+  --color-slate-500: #5a6a82;
+  --color-slate-600: #46566e;
+  --color-slate-700: #334258;
+  --color-slate-800: #1c2a40;
+  --color-slate-900: #0b1220;
 }
 
 @layer base {
@@ -98,7 +103,30 @@
     outline: 2px solid var(--brand-primary);
     outline-offset: 2px;
   }
+  ::selection {
+    background: color-mix(in oklab, var(--brand-primary) 45%, transparent);
+  }
 }
+
+/* Atmosfera da marca: halo azul suave no topo, atrás do conteúdo. */
+@utility bg-brand-glow {
+  background-image:
+    radial-gradient(60rem 22rem at 50% -8rem, color-mix(in oklab, var(--brand-primary) 13%, transparent), transparent 70%);
+  background-repeat: no-repeat;
+}
+
+/* Superfície elevada: branco com realce de 1px no topo e sombra azulada difusa. */
+@utility surface {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9), 0 1px 2px rgb(11 18 32 / 0.04), 0 12px 28px -16px rgb(31 80 160 / 0.28);
+}
+
+/* Botão primário: degradê + brilho azul. */
+@utility btn-glow {
+  background-image: linear-gradient(180deg, color-mix(in oklab, var(--primary) 82%, white), var(--primary));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), 0 8px 20px -8px var(--primary);
+}
+
+html { scrollbar-color: #c5d1e3 transparent; }
 
 /* Números alinhados em colunas (placas, valores, nº de OS). */
 @utility tabular {
@@ -125,7 +153,7 @@
 @utility animate-pop { animation: pop 0.2s ease-out both; }
 @utility animate-tick { stroke-dasharray: 24; animation: tick 0.35s ease-out 0.05s both; }
 @utility skeleton {
-  background: linear-gradient(90deg, #e5e2dc 25%, #efede8 50%, #e5e2dc 75%) 0 0 / 200% 100%;
+  background: linear-gradient(90deg, #eaf0f8 25%, #dde5f0 50%, #eaf0f8 75%) 0 0 / 200% 100%;
   animation: shimmer 1.4s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {

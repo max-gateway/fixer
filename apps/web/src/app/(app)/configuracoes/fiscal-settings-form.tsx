@@ -16,6 +16,7 @@ export type FiscalSettings = {
   municipalServiceCode: string | null;
   hourlyRate: string | number | null;
   lc116Item?: string | null;
+  cnae?: string | null;
 };
 
 const num = (v: string): number | null | 'invalid' => {
@@ -62,7 +63,7 @@ export function FiscalSettingsForm({ initial }: { initial: FiscalSettings | null
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate className="max-w-xl space-y-4 rounded-xl border bg-card p-5 shadow-xs">
+    <form onSubmit={onSubmit} noValidate className="max-w-xl space-y-4 rounded-xl border bg-card surface p-5 shadow-xs">
       <Field id="regime" label="Regime tributário" optional>
         <Select {...describedBy('regime')} value={regime} onChange={(e) => setRegime(e.target.value as typeof regime)}>
           <option value="">Não informado</option>
@@ -76,12 +77,12 @@ export function FiscalSettingsForm({ initial }: { initial: FiscalSettings | null
         <Field id="ibge" label="Município (código IBGE)" optional error={shown.ibge} hint="7 dígitos, ex.: 3550308">
           <Input {...describedBy('ibge', shown.ibge, true)} inputMode="numeric" maxLength={7} value={ibge} onChange={(e) => setIbge(e.target.value.replace(/\D/g, ''))} />
         </Field>
-        <Field id="iss" label="Alíquota de ISS (%)" optional error={shown.iss} hint="Conforme o seu município">
+        <Field id="iss" label="Alíquota de ISS (%)" optional error={shown.iss} hint="Vem da prefeitura (NFS-e Nacional) quando ela cadastrou">
           <Input {...describedBy('iss', shown.iss, true)} inputMode="decimal" placeholder="ex.: 2,5" value={iss} onChange={(e) => setIss(e.target.value)} />
         </Field>
       </div>
 
-      <Field id="svc-code" label="Código de tributação municipal" optional hint="O código do serviço no seu município">
+      <Field id="svc-code" label="Código de tributação municipal" optional hint="Só se a prefeitura exigir na nota de serviço; a NFS-e Nacional usa o código nacional do serviço.">
         <Input {...describedBy('svc-code', null, true)} value={code} maxLength={20} onChange={(e) => setCode(e.target.value)} />
       </Field>
 

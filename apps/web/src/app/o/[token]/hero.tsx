@@ -6,12 +6,12 @@ import type { PortalOrder } from '@/lib/portal';
 export function PlateBadge({ plate }: { plate: string }) {
   const text = plate.length === 7 ? `${plate.slice(0, 3)}${plate.slice(3)}` : plate;
   return (
-    <div className="inline-flex flex-col overflow-hidden rounded-lg border-2 border-slate-800 bg-white shadow-sm" aria-label={`Placa ${plate}`}>
+    <div className="inline-flex flex-col overflow-hidden rounded-lg border-2 border-slate-800 bg-card shadow-sm" aria-label={`Placa ${plate}`}>
       <div className="flex items-center justify-between bg-[#003399] px-2 py-0.5 text-[8px] font-bold tracking-widest text-white">
         <span>BRASIL</span>
         <span aria-hidden="true">★</span>
       </div>
-      <div className="px-3 py-1 font-mono text-xl font-bold tracking-[0.18em] text-slate-900">{text}</div>
+      <div className="px-3 py-1 font-mono text-xl font-bold tracking-[0.18em] text-[#0f141b]">{text}</div>
     </div>
   );
 }
@@ -84,7 +84,7 @@ export function Hero({ order }: { order: PortalOrder }) {
                     }`}
                   >
                     {done && <Icon name="check" className="size-3" strokeWidth={3} />}
-                    {active && <span className="size-2 rounded-full bg-white" />}
+                    {active && <span className="size-2 rounded-full bg-card" />}
                   </span>
                   <span className={`text-[11px] leading-tight ${active ? 'font-semibold text-white' : 'text-white/60'}`}>{step.label}</span>
                 </li>

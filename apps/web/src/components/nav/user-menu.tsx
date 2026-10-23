@@ -1,13 +1,13 @@
 'use client';
 
-import { Bell, Building2, ChevronDown, Command, LogOut, Repeat, Search, Settings } from 'lucide-react';
+import { Bell, Building2, ChevronDown, Command, KeyRound, LogOut, Repeat, Search, Settings } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useInbox } from '@/components/notifications/inbox-provider';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Kbd } from './kbd';
-import { NOTIFICATIONS_LINK, SETTINGS_LINK } from './nav-items';
+import { ACCESS_LINK, NOTIFICATIONS_LINK, SETTINGS_LINK } from './nav-items';
 import { UserAvatar, type NavUser } from './user-avatar';
 
 type Props = {
@@ -34,28 +34,28 @@ export function UserMenu({ user, org, signOutAction, onOpenPalette }: Props) {
           type="button"
           aria-label={`Conta de ${user.name}`}
           whileTap={reduce ? undefined : { scale: 0.96 }}
-          className="group flex h-10 items-center gap-2 rounded-full py-1 pr-1 pl-1 text-white outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/60 data-[state=open]:bg-white/10 md:pr-3"
+          className="group flex h-10 items-center gap-2 rounded-full py-1 pr-1 pl-1 outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent md:pr-3"
         >
           <span className="relative grid size-9 place-items-center">
             {/* Anel cônico na cor da marca; gira devagar quando o menu está aberto ou sob o cursor. */}
             <span
               aria-hidden
-              className={`absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,var(--brand-primary),#fbbf24,var(--brand-primary))] transition-opacity group-hover:opacity-100 group-data-[state=open]:opacity-100 ${
+              className={`absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,var(--brand-primary),#60a5fa,var(--brand-primary))] transition-opacity group-hover:opacity-100 group-data-[state=open]:opacity-100 ${
                 reduce ? 'opacity-90' : 'opacity-70 group-hover:animate-[spin_3s_linear_infinite] group-data-[state=open]:animate-[spin_3s_linear_infinite]'
               }`}
             />
-            <span className="absolute inset-[2px] rounded-full bg-brand-secondary" />
+            <span className="absolute inset-[2px] rounded-full bg-background" />
             <UserAvatar name={user.name} className="relative size-[30px]" />
             <span
               aria-hidden
               title={live ? 'Tempo real ativo' : 'Sem tempo real'}
-              className={`absolute right-0 bottom-0 size-2.5 rounded-full ring-2 ring-brand-secondary ${live ? 'bg-emerald-400' : 'bg-amber-400'}`}
+              className={`absolute right-0 bottom-0 size-2.5 rounded-full ring-2 ring-background ${live ? 'bg-emerald-400' : 'bg-amber-400'}`}
             >
               {live && !reduce && <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/70" />}
             </span>
           </span>
           <span className="hidden max-w-28 truncate text-sm font-medium md:block">{firstName}</span>
-          <ChevronDown className="hidden size-4 text-white/60 transition-transform group-data-[state=open]:rotate-180 md:block" />
+          <ChevronDown className="hidden size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180 md:block" />
         </motion.button>
       </PopoverTrigger>
 
@@ -108,6 +108,9 @@ export function UserMenu({ user, org, signOutAction, onOpenPalette }: Props) {
           </MenuLink>
           <MenuLink href={SETTINGS_LINK.href} onClick={() => setOpen(false)}>
             <Settings /> {SETTINGS_LINK.label}
+          </MenuLink>
+          <MenuLink href={ACCESS_LINK.href} onClick={() => setOpen(false)}>
+            <KeyRound /> {ACCESS_LINK.label}
           </MenuLink>
           <MenuButton
             onClick={() => {

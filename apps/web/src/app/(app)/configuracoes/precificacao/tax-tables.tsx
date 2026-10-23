@@ -1,10 +1,11 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { ExternalLink, Loader2, ShieldCheck } from 'lucide-react';
+import { CircleCheck, ExternalLink, Loader2, ShieldCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -19,6 +20,10 @@ export type TaxTableView = {
   caveats: string[];
   /** Aceite do contador desta organização; `current` é falso quando foi dado a outra versão da tabela. */
   review: { reviewedBy: string; reviewedAt: string; version: string; current: boolean } | null;
+  /** Conferência automática da versão em uso com o texto oficial; vale como validação. */
+  sourceCheck?: { checkedAt: string; checks: string[] } | null;
+  /** Quem garante a tabela hoje: o contador (versão em uso) ou a conferência com a fonte. */
+  basis?: 'CONTADOR' | 'FONTE_OFICIAL' | null;
 };
 
 const LABEL: Record<string, string> = {
@@ -35,22 +40,31 @@ const LABEL: Record<string, string> = {
 };
 
 const GROUPS: { title: string; hint: string; ids: string[] }[] = [
-  { title: 'Cálculo do imposto na venda', hint: 'Entram direto no percentual de imposto do preço. O contador valida estas.', ids: ['simples-comercio', 'federal-lucro', 'monofasico-autopecas'] },
+  { title: 'Cálculo do imposto na venda', hint: 'Entram direto no percentual de imposto do preço.', ids: ['simples-comercio', 'federal-lucro', 'monofasico-autopecas'] },
   { title: 'Reforma tributária (2027 em diante)', hint: 'Ainda não entram no preço: guardam o calendário e esperam as alíquotas do Senado.', ids: ['ibs-cbs-transition', 'ibs-cbs-referencia'] },
   { title: 'Leitura da nota de compra', hint: 'Servem para conferir o XML do fornecedor e gerar avisos. Não mudam o preço.', ids: ['cfop', 'cst-csosn', 'st-autopecas-anexo-ii', 'st-autopecas-protocolo', 'icms-interestadual'] },
 ];
 
 const date = (iso: string) => new Date(iso.length === 10 ? `${iso}T00:00:00` : iso).toLocaleDateString('pt-BR');
 const isCurrent = (t: TaxTableView) => t.review?.current === true;
+/** Garantida pelo contador ou pela conferência com a lei: não precisa de ação. */
+const isTrusted = (t: TaxTableView) => isCurrent(t) || Boolean(t.basis ?? t.sourceCheck);
 
 function Status({ t }: { t: TaxTableView }) {
-  if (!t.review) return <span className="text-amber-800">não validada</span>;
-  if (!t.review.current) return <span className="text-amber-800">validada numa versão anterior</span>;
-  return (
-    <span className="text-emerald-800">
-      validada por {t.review.reviewedBy} em {date(t.review.reviewedAt)}
-    </span>
-  );
+  if (isCurrent(t))
+    return (
+      <Badge variant="success">
+        <ShieldCheck aria-hidden /> Validada por {t.review!.reviewedBy} em {date(t.review!.reviewedAt)}
+      </Badge>
+    );
+  if (t.sourceCheck)
+    return (
+      <Badge variant="success">
+        <CircleCheck aria-hidden /> Conferida com a lei em {date(t.sourceCheck.checkedAt)}
+      </Badge>
+    );
+  if (t.review) return <Badge variant="warning">Validada numa versão anterior</Badge>;
+  return <Badge variant="warning">Não conferida</Badge>;
 }
 
 /**
@@ -61,7 +75,7 @@ export function TaxTables({ tables, rulesVersion, required, canReview }: { table
   const router = useRouter();
   const [reviewer, setReviewer] = useState('');
   const byId = new Map(tables.map((t) => [t.id, t]));
-  const toReview = required.map((id) => byId.get(id)).filter((t): t is TaxTableView => !!t && !isCurrent(t));
+  const toReview = required.map((id) => byId.get(id)).filter((t): t is TaxTableView => !!t && !isTrusted(t));
 
   const review = useMutation({
     mutationFn: async (ids: string[]) => {
@@ -74,19 +88,19 @@ export function TaxTables({ tables, rulesVersion, required, canReview }: { table
   return (
     <div className="max-w-3xl space-y-6">
       <p className="text-sm text-muted-foreground">
-        O Fixer calcula o imposto a partir de tabelas copiadas do texto oficial da lei, cada uma com a fonte e a vigência. Quando a lei muda e a tabela é atualizada, a validação daquela tabela cai e o imposto volta a aparecer como estimado.
+        O Fixer calcula o imposto a partir de tabelas copiadas do texto oficial da lei, cada uma com a fonte e a vigência. Toda versão é conferida automaticamente com o texto publicado (Planalto, Confaz): conferida, ela vale como validada. O contador pode validar também; quando a tabela muda, vale de novo a conferência da versão nova.
       </p>
 
       {canReview && (
         <div className="space-y-2 rounded-lg border p-4">
-          <h3 className="text-sm font-semibold">Validação do contador</h3>
+          <h3 className="text-sm font-semibold">Validação do contador (opcional)</h3>
           <div className="flex flex-wrap items-end gap-2">
             <Field id="tables-reviewer" label="Quem validou">
               <Input id="tables-reviewer" value={reviewer} onChange={(e) => setReviewer(e.target.value)} placeholder="Nome do contador" className="max-w-64" />
             </Field>
             <Button type="button" disabled={review.isPending || !nameOk || toReview.length === 0} onClick={() => review.mutate(toReview.map((t) => t.id))}>
               {review.isPending ? <Loader2 aria-hidden className="animate-spin" /> : <ShieldCheck aria-hidden />}
-              {toReview.length === 0 ? 'Tabelas do seu regime validadas' : `Validar as tabelas do seu regime (${toReview.length})`}
+              {toReview.length === 0 ? 'Tabelas do seu regime garantidas' : `Validar as tabelas do seu regime (${toReview.length})`}
             </Button>
           </div>
           {review.error && (
@@ -103,7 +117,7 @@ export function TaxTables({ tables, rulesVersion, required, canReview }: { table
             <h3 className="text-sm font-semibold">{g.title}</h3>
             <p className="text-xs text-muted-foreground">{g.hint}</p>
           </div>
-          <Accordion type="multiple" className="rounded-lg border px-3">
+          <Accordion type="multiple" className="rounded-xl border bg-card px-4 shadow-xs">
             {g.ids
               .map((id) => byId.get(id))
               .filter((t): t is TaxTableView => !!t)

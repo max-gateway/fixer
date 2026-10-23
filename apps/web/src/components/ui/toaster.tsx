@@ -69,7 +69,7 @@ function ToastItem({ t, onDone }: { t: Toast; onDone: () => void }) {
       role={tone === 'error' ? 'alert' : 'status'}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
-      className="pointer-events-auto flex w-full max-w-sm animate-rise items-start gap-3 rounded-xl border bg-card p-3.5 shadow-lg"
+      className="pointer-events-auto flex w-full max-w-sm animate-rise items-start gap-3 rounded-xl border bg-card surface p-3.5 shadow-lg"
     >
       <Icon aria-hidden className={cn('mt-0.5 size-5 shrink-0', tone === 'error' ? 'text-red-700' : tone === 'info' ? 'text-muted-foreground' : 'text-emerald-700')} />
       <div className="min-w-0 flex-1">

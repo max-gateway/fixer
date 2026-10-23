@@ -1,48 +1,22 @@
 'use client';
 
-import { ArrowUpRight, CheckCheck, CircleCheck, CircleDashed, CircleSlash, FileDown, Info, Loader2, MousePointerClick, PackageCheck, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { ArrowUpRight, CheckCheck, CircleCheck, CircleDashed, CircleSlash, FileDown, Loader2, MousePointerClick, PackageCheck, ShieldCheck, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
+import { CostAlerts } from '@/components/invoice/cost-alerts';
+import { InvoiceFacts } from '@/components/invoice/facts';
+import { ItemFiscalLine, ItemLandedCost } from '@/components/invoice/item-fiscal';
+import { InvoiceNotices } from '@/components/invoice/notices';
+import { TaxIncidence } from '@/components/invoice/tax-incidence';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  describeInvoice,
-  FINALITY_LABEL,
-  formatCnpj,
-  formatKey,
-  IGNORED_REASON,
-  money,
-  nextAction,
-  qty,
-  shortDate,
-  type InvoiceDetail,
-  type InvoiceItem,
-} from '@/lib/invoices';
+import type { WithCost } from '@/lib/invoice-cost';
+import { invoiceMeta, invoiceNotices, type InvoiceFull } from '@/lib/invoice-view';
+import { describeInvoice, formatKey, money, nextAction, qty, type InvoiceItem } from '@/lib/invoices';
 import { cn } from '@/lib/utils';
 import type { ActionKind } from './hooks';
 
-type Guidance = { tone: 'info' | 'warning' | 'danger'; text: string };
-
-/** Uma frase só, em linguagem de balcão, dizendo o que fazer (ou por que nada). A página completa tem o texto longo. */
-function guidance(inv: InvoiceDetail): Guidance | null {
-  if (inv.status === 'CANCELED') return inv.exportStatus === 'POSTED' ? { tone: 'danger', text: 'Cancelada pelo fornecedor depois de entrar no estoque. Confira se a mercadoria chegou e, se não, estorne a entrada.' } : { tone: 'info', text: 'O fornecedor cancelou esta nota. Ela não entra no estoque.' };
-  if (inv.status === 'IGNORED') return { tone: 'info', text: (inv.ignoredReason && IGNORED_REASON[inv.ignoredReason]) ?? 'Esta nota não é uma compra para a oficina.' };
-  if (inv.manifestError && inv.status === 'SUMMARY') return { tone: 'danger', text: `A SEFAZ recusou a ciência: ${inv.manifestError}` };
-  if (inv.status === 'SUMMARY') return { tone: 'warning', text: 'Só chegou o resumo. Dê a ciência da operação para a SEFAZ liberar o XML (isso não confirma o recebimento).' };
-  if (inv.status === 'MANIFESTED') return { tone: 'info', text: 'Ciência registrada. O XML completo chega na próxima sincronização, em até 1 hora.' };
-  if (inv.needsReview) return { tone: 'warning', text: `Nota de finalidade “${inv.finality ? (FINALITY_LABEL[inv.finality] ?? inv.finality) : '—'}”: confira os itens e marque como revisada para seguir.` };
-  if (inv.exportStatus === 'POSTED') return { tone: 'info', text: `Entrada lançada no estoque em ${shortDate(inv.postedAt)}.` };
-  if (inv.exportStatus === 'READY') return { tone: 'info', text: 'Todos os itens estão vinculados. Lançar a entrada soma as peças ao estoque e atualiza o custo.' };
-  return null;
-}
-
-const TONE = {
-  info: 'border-sky-200 bg-sky-50 text-sky-950',
-  warning: 'border-amber-200 bg-amber-50 text-amber-950',
-  danger: 'border-red-200 bg-red-50 text-red-900',
-} as const;
-
-function ItemLine({ item }: { item: InvoiceItem }) {
+function ItemLine({ item }: { item: WithCost<InvoiceItem> }) {
   const Icon = item.resolution === 'UNRESOLVED' ? CircleDashed : item.resolution === 'IGNORED' ? CircleSlash : CircleCheck;
   return (
     <li className="flex items-start gap-2.5 py-2">
@@ -52,11 +26,17 @@ function ItemLine({ item }: { item: InvoiceItem }) {
         <p className="truncate text-xs text-muted-foreground">
           {item.part ? <span className="text-foreground/80">→ {item.part.sku} · {item.part.name}</span> : item.resolution === 'IGNORED' ? 'Ignorado' : `Código ${item.supplierCode}`}
         </p>
+        <p className="truncate text-xs text-muted-foreground">
+          <ItemFiscalLine item={item} />
+        </p>
       </div>
       <div className="tabular shrink-0 text-right">
         <p className="text-sm">{money(item.totalPrice)}</p>
         <p className="text-xs text-muted-foreground">
           {qty(item.quantity)} {item.unit}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          <ItemLandedCost item={item} />
         </p>
       </div>
     </li>
@@ -65,7 +45,7 @@ function ItemLine({ item }: { item: InvoiceItem }) {
 
 export function PreviewEmpty() {
   return (
-    <div className="grid h-full min-h-64 place-items-center rounded-xl border border-dashed bg-card/50 p-8 text-center">
+    <div className="grid h-full min-h-64 place-items-center rounded-xl border border-dashed bg-card surface/50 p-8 text-center">
       <div className="space-y-2">
         <MousePointerClick aria-hidden className="mx-auto size-6 text-muted-foreground" />
         <p className="text-sm font-medium">Escolha uma nota</p>
@@ -86,12 +66,12 @@ export function PreviewPane({
   canAct,
   onAction,
 }: {
-  detail: InvoiceDetail | undefined;
+  detail: InvoiceFull | undefined;
   loading: boolean;
   error: boolean;
   pending: ActionKind | null;
   canAct: boolean;
-  onAction: (kind: ActionKind, inv: InvoiceDetail) => void;
+  onAction: (kind: ActionKind, inv: InvoiceFull) => void;
 }) {
   if (loading && !detail) {
     return (
@@ -114,8 +94,7 @@ export function PreviewPane({
   const inv = detail;
   const s = describeInvoice(inv);
   const action = nextAction(inv);
-  const g = guidance(inv);
-  const unresolved = inv.items.filter((i) => i.resolution === 'UNRESOLVED').length;
+  const notices = invoiceNotices(inv);
   const busy = (k: ActionKind) => pending === k;
 
   return (
@@ -124,31 +103,15 @@ export function PreviewPane({
         <header className="space-y-1 pr-8">
           <Badge variant={s.tone}>{s.label}</Badge>
           <h2 className="pt-1 text-lg leading-tight font-semibold tracking-tight">{inv.issuerName || 'Fornecedor não identificado'}</h2>
-          <p className="text-xs text-muted-foreground">
-            {formatCnpj(inv.issuerCnpj)}
-            {inv.number != null && ` · NF ${inv.number}${inv.series != null ? `/${inv.series}` : ''}`} · {shortDate(inv.issuedAt)}
-          </p>
+          <p className="text-xs text-muted-foreground">{invoiceMeta(inv)}</p>
         </header>
 
-        <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border bg-border text-sm">
-          {[
-            ['Valor', money(inv.totalAmount)],
-            ['Itens', inv.items.length ? String(inv.items.length) : '—'],
-            ['Sem peça', inv.status === 'FULL' ? String(unresolved) : '—'],
-          ].map(([k, v]) => (
-            <div key={k} className="bg-card px-3 py-2">
-              <dt className="text-[11px] text-muted-foreground">{k}</dt>
-              <dd className={cn('tabular font-semibold', k === 'Sem peça' && unresolved > 0 && 'text-amber-800')}>{v}</dd>
-            </div>
-          ))}
-        </dl>
+        <InvoiceFacts inv={inv} />
 
-        {g && (
-          <p role={g.tone === 'danger' ? 'alert' : 'status'} className={cn('flex items-start gap-2 rounded-lg border p-3 text-sm', TONE[g.tone])}>
-            {g.tone === 'info' ? <Info aria-hidden className="mt-0.5 size-4 shrink-0" /> : <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />}
-            <span>{g.text}</span>
-          </p>
-        )}
+        <InvoiceNotices notices={notices} max={1} />
+        <CostAlerts alerts={inv.costAlerts ?? []} />
+
+        <TaxIncidence items={inv.items} stacked />
 
         {inv.items.length > 0 && (
           <div>

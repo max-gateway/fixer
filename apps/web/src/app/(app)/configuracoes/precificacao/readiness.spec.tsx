@@ -38,11 +38,28 @@ describe('ReadinessCard', () => {
     expect(out).not.toContain('?aba=tabelas');
   });
 
-  it('regime não informado leva aos Dados fiscais', () => {
+  it('regime não informado leva a Tributário', () => {
     const out = renderToStaticMarkup(
       <ReadinessCard readiness={{ ...base, regimeInformed: false, steps: [{ id: 'regime', label: 'Regime tributário da oficina', done: false, detail: 'Não informado: o Fixer assume Simples Nacional.' }] }} />,
     );
-    expect(out).toContain('href="/configuracoes"');
-    expect(out).toContain('Abrir Dados fiscais');
+    expect(out).toContain('href="/configuracoes/tributario"');
+    expect(out).toContain('Responder em Tributário');
+  });
+
+  it('marca o que a fonte oficial garante e leva à validação quando falta só o contador', () => {
+    const out = renderToStaticMarkup(
+      <ReadinessCard
+        readiness={{
+          ...base,
+          steps: [
+            { id: 'perfil', label: 'Conferência dos dados', done: false, needsAccountant: true, detail: 'O contador precisa conferir: a RBT12 não veio do PGDAS-D.' },
+            { id: 'tabela', label: 'Validação da tabela do Simples Nacional (Anexo I)', done: true, basis: 'FONTE_OFICIAL', tableId: 'simples-comercio', detail: 'Conferida automaticamente com o texto da lei em 19/10/2026.' },
+          ],
+        }}
+      />,
+    );
+    expect(out).toContain('fonte oficial');
+    expect(out).toContain('href="#validacao-contador"');
+    expect(out).not.toContain('?aba=tabelas');
   });
 });

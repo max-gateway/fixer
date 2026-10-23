@@ -202,7 +202,7 @@ export function Portal({ token, initial, shop }: { token: string; initial: Porta
           <nav
             role="tablist"
             aria-label="Seções"
-            className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:static sm:mb-4 sm:grid-cols-4 sm:gap-1 sm:rounded-2xl sm:border sm:bg-white sm:p-1 sm:shadow-sm"
+            className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:static sm:mb-4 sm:grid-cols-4 sm:gap-1 sm:rounded-2xl sm:border sm:bg-card surface sm:p-1 sm:shadow-sm"
           >
             {tabs.map((t) => {
               const active = tab === t.id;
@@ -219,7 +219,7 @@ export function Portal({ token, initial, shop }: { token: string; initial: Porta
                 >
                   <span className="relative">
                     <Icon name={t.icon} className="size-5" />
-                    {t.dot && !active && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-amber-500 ring-2 ring-white" />}
+                    {t.dot && !active && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-amber-500 ring-2 ring-card" />}
                   </span>
                   {t.label}
                   {!!t.badge && (

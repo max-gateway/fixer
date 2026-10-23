@@ -17,7 +17,7 @@ export function Plate({ value, className }: { value: string; className?: string 
   return (
     <span
       className={cn(
-        'tabular inline-flex items-center rounded-[5px] border border-slate-900/70 bg-white px-1.5 py-0.5 font-mono text-[11px] font-bold tracking-[0.12em] text-slate-900 shadow-xs',
+        'tabular inline-flex items-center rounded-[5px] border border-[#0f141b]/70 bg-white px-1.5 py-0.5 font-mono text-[11px] font-bold tracking-[0.12em] text-[#0f141b] shadow-xs',
         className,
       )}
     >

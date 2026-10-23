@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { Loader2, PackagePlus, Link2, Undo2, Ban } from 'lucide-react';
+import { Ban, CircleCheck, CircleDashed, Link2, Loader2, PackagePlus, Undo2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,8 @@ import type { InvoiceItem } from '@/lib/invoices';
 import { money, qty } from '@/lib/invoices';
 import type { Part } from '@/lib/orders';
 import type { WithCost } from '@/lib/invoice-cost';
+import { cn } from '@/lib/utils';
+import { ItemFiscalLine } from '@/components/invoice/item-fiscal';
 import { CostBreakdown } from './cost-breakdown';
 import { PartPicker } from './part-picker';
 
@@ -54,19 +56,37 @@ export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item
   const factor = Number(item.unitFactor);
 
   return (
-    <li className="space-y-3 px-4 py-4">
+    <li
+      id={`item-${item.itemNumber}`}
+      className={cn(
+        'scroll-mt-24 space-y-3 rounded-xl border border-l-4 bg-card px-4 py-4 shadow-xs transition-shadow target:ring-2 target:ring-brand/40',
+        !resolved && 'border-l-amber-400',
+        resolved && item.resolution !== 'IGNORED' && 'border-l-emerald-500',
+        item.resolution === 'IGNORED' && 'border-l-muted-foreground/30',
+      )}
+    >
       <div className="grid gap-x-6 gap-y-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <div className="min-w-0">
-          <p className="text-sm font-medium">
-            <span className="tabular mr-2 text-muted-foreground">{item.itemNumber}.</span>
-            {item.description}
+          <p className="flex items-start gap-2.5 text-sm font-medium">
+            <span aria-hidden className="tabular mt-px grid size-6 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+              {item.itemNumber}
+            </span>
+            <span className="min-w-0">
+              <span className="sr-only">Item {item.itemNumber}: </span>
+              {item.description}
+            </span>
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Código {item.supplierCode}
-            {item.ean && ` · GTIN ${item.ean}`} · NCM {item.ncm}
+          <p className="tabular mt-2 inline-flex flex-wrap items-center gap-x-2 rounded-lg bg-muted/50 px-2.5 py-1 text-sm">
+            <span>
+              {qty(item.quantity)} {item.unit} × {money(item.unitPrice)}
+            </span>
+            <span aria-hidden className="text-muted-foreground">
+              =
+            </span>
+            <strong>{money(item.totalPrice)}</strong>
           </p>
-          <p className="tabular mt-1 text-sm">
-            {qty(item.quantity)} {item.unit} × {money(item.unitPrice)} = <strong>{money(item.totalPrice)}</strong>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Código {item.supplierCode} · <ItemFiscalLine item={item} />
           </p>
           {item.cost && <CostBreakdown cost={item.cost} />}
         </div>
@@ -80,6 +100,9 @@ export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item
           )}
           {resolved && item.part && (
             <div className="space-y-1">
+              <Badge variant="success">
+                <CircleCheck aria-hidden /> Vinculado
+              </Badge>
               <p className="text-sm font-medium">{item.part.name}</p>
               <p className="text-xs text-muted-foreground">
                 {item.part.sku} · {ORIGIN[item.resolution]}
@@ -90,7 +113,11 @@ export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item
               </p>
             </div>
           )}
-          {!resolved && <Badge variant="warning">Sem peça</Badge>}
+          {!resolved && (
+            <Badge variant="warning">
+              <CircleDashed aria-hidden /> Sem peça
+            </Badge>
+          )}
 
           {editable && mode === 'idle' && (
             <div className="flex flex-wrap gap-2 pt-1">
