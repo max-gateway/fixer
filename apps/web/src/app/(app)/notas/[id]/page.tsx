@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { TaxIncidence } from '@/components/invoice/tax-incidence';
 import { ApiError, apiGet } from '@/lib/api';
+import { loadSuggestions } from '@/lib/catalog-suggestions';
 import { invoiceNotices, type InvoiceFull } from '@/lib/invoice-view';
 import { AttentionPanel } from './attention';
 import { EntryTaxPayable } from './entry-tax-payable';
@@ -37,6 +38,8 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
   const canManifest = inv.status === 'SUMMARY';
   const unresolvedCount = inv.items.filter((i) => i.resolution === 'UNRESOLVED').length;
   const ready = editable && inv.exportStatus === 'READY' && !inv.needsReview;
+  // Só vale a pena perguntar ao catálogo quando há item sem peça numa nota que ainda aceita conciliação. Falha do catálogo = sem sugestões.
+  const suggestions = await loadSuggestions(apiGet, inv.id, editable && unresolvedCount > 0);
   const hasPricing = editable && inv.items.some((i) => i.resolution !== 'UNRESOLVED' && i.resolution !== 'IGNORED');
   // Itens sem peça primeiro: é o trabalho que falta, e o resto fica abaixo para conferir.
   const items = [...inv.items].sort((a, b) => Number(b.resolution === 'UNRESOLVED') - Number(a.resolution === 'UNRESOLVED') || a.itemNumber - b.itemNumber);
@@ -80,7 +83,7 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
             <StepHeading n={1} id="conciliar-title" title="Conciliar itens" hint={unresolvedCount > 0 ? `${unresolvedCount} ${unresolvedCount === 1 ? 'item sem peça' : 'itens sem peça'}` : 'Todos os itens vinculados'} warn={unresolvedCount > 0} />
             <ul className="space-y-3">
               {items.map((item) => (
-                <ItemRow key={item.id} invoiceId={inv.id} item={item} editable={editable} />
+                <ItemRow key={item.id} invoiceId={inv.id} item={item} editable={editable} suggestion={suggestions.get(item.id)} />
               ))}
             </ul>
           </section>

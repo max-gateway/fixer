@@ -1,13 +1,15 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { Ban, CircleCheck, CircleDashed, Link2, Loader2, PackagePlus, Undo2 } from 'lucide-react';
+import { Ban, CircleCheck, CircleDashed, Library, Link2, Loader2, PackagePlus, Sparkles, Undo2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
+import { CatalogPartPicker } from '@/components/catalog/catalog-part-picker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { describedBy, Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import type { CatalogHit, InvoiceSuggestion } from '@/lib/catalog';
 import { postJson, putJson } from '@/lib/client-api';
 import type { InvoiceItem } from '@/lib/invoices';
 import { money, qty } from '@/lib/invoices';
@@ -18,7 +20,7 @@ import { ItemFiscalLine } from '@/components/invoice/item-fiscal';
 import { CostBreakdown } from './cost-breakdown';
 import { PartPicker } from './part-picker';
 
-type Mode = 'idle' | 'link' | 'create';
+type Mode = 'idle' | 'link' | 'create' | 'catalog';
 
 const ORIGIN: Record<InvoiceItem['resolution'], string | null> = {
   UNRESOLVED: null,
@@ -34,13 +36,15 @@ const toNumber = (v: string) => {
 };
 
 /** Um item da nota: dados do XML à esquerda, vínculo com a peça à direita, com as ações da conciliação. */
-export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item: WithCost<InvoiceItem>; editable: boolean }) {
+export function ItemRow({ invoiceId, item, editable, suggestion }: { invoiceId: string; item: WithCost<InvoiceItem>; editable: boolean; suggestion?: InvoiceSuggestion }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('idle');
+  const [fromSuggestion, setFromSuggestion] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const done = () => {
     setMode('idle');
+    setFromSuggestion(false);
     setError(null);
     router.refresh();
   };
@@ -54,6 +58,9 @@ export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item
 
   const resolved = item.resolution !== 'UNRESOLVED';
   const factor = Number(item.unitFactor);
+  // A sugestão só vale para item ainda sem peça, em nota que ainda aceita conciliação.
+  const showSuggestion = !!suggestion && editable && !resolved && mode === 'idle';
+  const canLinkCatalog = editable && resolved && !!item.part && item.part.catalogSku === null;
 
   return (
     <li
@@ -100,9 +107,12 @@ export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item
           )}
           {resolved && item.part && (
             <div className="space-y-1">
-              <Badge variant="success">
-                <CircleCheck aria-hidden /> Vinculado
-              </Badge>
+              <span className="flex flex-wrap items-center gap-1.5">
+                <Badge variant="success">
+                  <CircleCheck aria-hidden /> Vinculado
+                </Badge>
+                {item.part.catalogSku ? <Badge variant="secondary">No catálogo</Badge> : <Badge variant="outline">Só da oficina</Badge>}
+              </span>
               <p className="text-sm font-medium">{item.part.name}</p>
               <p className="text-xs text-muted-foreground">
                 {item.part.sku} · {ORIGIN[item.resolution]}
@@ -117,6 +127,28 @@ export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item
             <Badge variant="warning">
               <CircleDashed aria-hidden /> Sem peça
             </Badge>
+          )}
+          {showSuggestion && (
+            <section aria-label="Sugestão do catálogo" className="space-y-2 rounded-lg border border-brand/30 bg-brand/5 p-3">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-brand">
+                <Sparkles aria-hidden className="size-3.5" /> Sugestão
+              </p>
+              <p className="text-sm">
+                Esta peça já está no seu estoque: <strong>{suggestion.partName}</strong>
+                <span className="text-muted-foreground"> ({suggestion.partSku})</span>
+              </p>
+              <p className="text-xs text-muted-foreground">Achada pelo código de barras no catálogo. Confira as unidades por embalagem antes de salvar.</p>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  setFromSuggestion(true);
+                  setMode('link');
+                }}
+              >
+                <Link2 aria-hidden /> Usar esta peça
+              </Button>
+            </section>
           )}
 
           {editable && mode === 'idle' && (
@@ -134,6 +166,11 @@ export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item
                   </Button>
                 </>
               )}
+              {canLinkCatalog && (
+                <Button type="button" size="sm" variant="outline" onClick={() => setMode('catalog')}>
+                  <Library aria-hidden /> Vincular ao catálogo
+                </Button>
+              )}
               {resolved && (
                 <Button type="button" size="sm" variant="ghost" disabled={act.isPending} onClick={() => act.mutate({ action: 'reset' })}>
                   {act.isPending ? <Loader2 aria-hidden className="animate-spin" /> : <Undo2 aria-hidden />} Desfazer
@@ -149,7 +186,19 @@ export function ItemRow({ invoiceId, item, editable }: { invoiceId: string; item
         </div>
       </div>
 
-      {mode === 'link' && <LinkForm invoiceId={invoiceId} item={item} onCancel={() => setMode('idle')} onDone={done} />}
+      {mode === 'link' && (
+        <LinkForm
+          invoiceId={invoiceId}
+          item={item}
+          preselect={fromSuggestion && suggestion ? { id: suggestion.partId, sku: suggestion.partSku, name: suggestion.partName } : undefined}
+          onCancel={() => {
+            setMode('idle');
+            setFromSuggestion(false);
+          }}
+          onDone={done}
+        />
+      )}
+      {mode === 'catalog' && item.part && <CatalogLinkForm part={item.part} onCancel={() => setMode('idle')} onDone={done} />}
       {mode === 'create' && <CreatePartForm invoiceId={invoiceId} item={item} onCancel={() => setMode('idle')} onDone={done} />}
     </li>
   );
@@ -206,8 +255,8 @@ function RememberField({ id, checked, onChange }: { id: string; checked: boolean
   );
 }
 
-function LinkForm({ invoiceId, item, onCancel, onDone }: { invoiceId: string; item: InvoiceItem; onCancel: () => void; onDone: () => void }) {
-  const [part, setPart] = useState<Pick<Part, 'id' | 'sku' | 'name'> | null>(item.part ? { id: item.part.id, sku: item.part.sku, name: item.part.name } : null);
+function LinkForm({ invoiceId, item, preselect, onCancel, onDone }: { invoiceId: string; item: InvoiceItem; preselect?: Pick<Part, 'id' | 'sku' | 'name'>; onCancel: () => void; onDone: () => void }) {
+  const [part, setPart] = useState<Pick<Part, 'id' | 'sku' | 'name'> | null>(preselect ?? (item.part ? { id: item.part.id, sku: item.part.sku, name: item.part.name } : null));
   const [factor, setFactor] = useState(String(Number(item.unitFactor)).replace('.', ','));
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -239,7 +288,35 @@ function LinkForm({ invoiceId, item, onCancel, onDone }: { invoiceId: string; it
   );
 }
 
+/** Vincula uma peça que já está no estoque da oficina a uma peça do catálogo da plataforma. */
+function CatalogLinkForm({ part, onCancel, onDone }: { part: NonNullable<InvoiceItem['part']>; onCancel: () => void; onDone: () => void }) {
+  const [hit, setHit] = useState<CatalogHit | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (body: object) => putJson(`/api/parts/${part.id}/catalog-link`, body, 'Não foi possível vincular ao catálogo.'),
+    onSuccess: onDone,
+    onError: (e) => setError(e.message),
+  });
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!hit) return setError('Escolha a peça do catálogo na lista.');
+    setError(null);
+    save.mutate({ catalogSku: hit.sku });
+  }
+
+  const id = `catalog-${part.id}`;
+  return (
+    <FormShell title={`Vincular “${part.name}” ao catálogo`} onSubmit={submit} pending={save.isPending} error={error} onCancel={onCancel} submitLabel="Vincular">
+      <Field id={`${id}-part`} label="Peça do catálogo" hint="A peça continua sendo a do seu estoque; o vínculo só diz qual peça do catálogo ela é.">
+        <CatalogPartPicker id={`${id}-part`} value={hit} onChange={setHit} initialQuery={part.name} />
+      </Field>
+    </FormShell>
+  );
+}
+
 function CreatePartForm({ invoiceId, item, onCancel, onDone }: { invoiceId: string; item: InvoiceItem; onCancel: () => void; onDone: () => void }) {
+  const [catalogHit, setCatalogHit] = useState<CatalogHit | null>(null);
   const [sku, setSku] = useState(item.supplierCode.toUpperCase());
   const [name, setName] = useState(item.description);
   const [price, setPrice] = useState('');
@@ -269,7 +346,7 @@ function CreatePartForm({ invoiceId, item, onCancel, onDone }: { invoiceId: stri
     setSubmitted(true);
     if (Object.values(errors).some(Boolean)) return;
     setError(null);
-    create.mutate({ sku: sku.trim(), name: name.trim(), sellPrice: p, unitFactor: f, saveMapping: remember });
+    create.mutate({ sku: sku.trim(), name: name.trim(), sellPrice: p, unitFactor: f, saveMapping: remember, ...(catalogHit ? { catalogSku: catalogHit.sku } : {}) });
   }
 
   const id = `new-${item.id}`;
@@ -278,6 +355,20 @@ function CreatePartForm({ invoiceId, item, onCancel, onDone }: { invoiceId: stri
       <p className="text-xs text-muted-foreground">
         NCM, CEST, origem, código de barras, unidade e o custo (com frete, IPI e ST) vêm do XML. Falta só o preço de venda.
       </p>
+      <Field id={`${id}-catalog`} label="Peça do catálogo (opcional)" hint="Ao escolher, o nome e o SKU vêm do catálogo (você pode ajustar); o fiscal e o custo vêm da nota.">
+        <CatalogPartPicker
+          id={`${id}-catalog`}
+          value={catalogHit}
+          initialQuery={item.description}
+          onChange={(hit) => {
+            setCatalogHit(hit);
+            if (hit) {
+              setSku(hit.partNumber);
+              setName(hit.name);
+            }
+          }}
+        />
+      </Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id={`${id}-sku`} label="SKU" error={shown.sku}>
           <Input {...describedBy(`${id}-sku`, shown.sku)} value={sku} onChange={(e) => setSku(e.target.value)} />

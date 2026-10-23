@@ -50,7 +50,8 @@ export type InvoiceItem = {
   resolution: ItemResolution;
   unitFactor: string;
   partId: string | null;
-  part: { id: string; sku: string; name: string; stockQty: string } | null;
+  /** `catalogSku` nulo = peça só da oficina (o catálogo da plataforma ainda não a tem vinculada). */
+  part: { id: string; sku: string; name: string; stockQty: string; catalogSku: string | null } | null;
 };
 
 export type InvoiceDetail = Omit<InvoiceRow, 'itemCount' | 'unresolvedCount'> & {
