@@ -36,7 +36,7 @@ DATABASE_URL=postgresql://fixer_app:password@localhost:5432/fixer_itest npm run 
 FISCAL_TEST_DATABASE_URL=postgresql://fixer_app:password@localhost:5432/fixer_itest \
 WHATSAPP_TEST_REDIS_URL=redis://localhost:6379/15 npm test -w @fixer/api          # integração
 DATABASE_URL=postgresql://fixer_app:password@localhost:5432/fixer_itest KEYCLOAK_AUTH_SERVER_URL=http://localhost:8180 \
-KEYCLOAK_REALM=fixer-dev npm run test:e2e -w @fixer/api                            # sobe o AppModule inteiro
+KEYCLOAK_REALM=fixer-dev AUTH_AUDIENCE=fixer-api npm run test:e2e -w @fixer/api    # sobe o AppModule inteiro
 ```
 
 Os testes de integração conectam como `fixer_rls` (papel sujeito a RLS, como em produção); os papéis são criados sozinhos pelo `globalSetup` do vitest

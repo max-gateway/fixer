@@ -22,7 +22,23 @@
       "directAccessGrantsEnabled": false,
       "redirectUris": ["http://localhost:3001/*", "http://${DEV_HOST:localhost}:3001/*", "https://unturpentined-lichtly-delena.ngrok-free.dev/*"],
       "webOrigins": ["http://localhost:3001", "http://${DEV_HOST:localhost}:3001", "https://unturpentined-lichtly-delena.ngrok-free.dev"],
-      "defaultClientScopes": ["basic", "web-origins", "profile", "email", "roles", "organization"]
+      "defaultClientScopes": ["basic", "web-origins", "profile", "email", "roles", "organization"],
+      "protocolMappers": [
+        {
+          "name": "audience-fixer-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": { "included.custom.audience": "fixer-api", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" }
+        },
+        {
+          "name": "audience-parts-search",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": { "included.custom.audience": "parts-search", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" }
+        }
+      ]
     },
     {
       "clientId": "fixer-access",
