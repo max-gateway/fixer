@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser, type AuthUser } from '../auth/auth.decorators.js';
 import { RequirePermission } from '../auth/permissions.js';
 import { RequireFeature } from '../control-plane/feature.guard.js';
 import { parse } from '../common/parse.js';
+import { callerFrom, pickCatalog, type PlatformRequest } from '../catalog-platform/catalog-platform.controller.js';
+import { PartCatalogLinkService } from '../catalog-platform/part-catalog-link.service.js';
 import { CreatePartSchema, InvoicesService, ItemActionSchema, ListQuerySchema } from './invoices.service.js';
 import { ManifestService } from './sync/manifest.service.js';
 
@@ -14,6 +16,7 @@ export class InvoicesController {
   constructor(
     private readonly invoices: InvoicesService,
     private readonly manifest: ManifestService,
+    private readonly catalogLinks: PartCatalogLinkService,
   ) {}
 
   @Get()
@@ -59,8 +62,13 @@ export class InvoicesController {
 
   @Post(':id/items/:n/create-part')
   @RequirePermission('invoices.reconcile')
-  createPart(@Param('id') id: string, @Param('n', ParseIntPipe) n: number, @Body() body: unknown) {
-    return this.invoices.createPartFromItem(id, n, parse(CreatePartSchema, body));
+  async createPart(@Param('id') id: string, @Param('n', ParseIntPipe) n: number, @Body() body: unknown, @Req() req: PlatformRequest) {
+    const { catalog, ...input } = parse(CreatePartSchema, body);
+    if (catalog !== undefined && input.catalogSku === undefined) throw new BadRequestException('O catálogo só vale junto com a peça do catálogo');
+    if (input.catalogSku === undefined) return this.invoices.createPartFromItem(id, n, input, undefined);
+    // A peça do catálogo é resolvida ANTES da transação, com o token da própria pessoa; nome e SKU padrão vêm de lá, nunca do corpo.
+    const live = await this.catalogLinks.resolveLive(callerFrom(req), pickCatalog(req, catalog), input.catalogSku);
+    return this.invoices.createPartFromItem(id, n, input, { sku: live.sku, name: live.name, partNumber: live.partNumber });
   }
 
   /** Lança a entrada no estoque (nota READY). */

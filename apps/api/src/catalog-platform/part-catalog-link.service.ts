@@ -19,6 +19,15 @@ export interface CreateFromCatalogInput {
   supplierName?: string | null;
 }
 
+/** Sugestão para um item da nota: a peça da oficina (com nome e SKU, para a tela) já vinculada à peça do catálogo daquele GTIN. */
+export interface InvoiceSuggestion {
+  itemId: string;
+  partId: string;
+  partSku: string;
+  partName: string;
+  catalogSku: string;
+}
+
 export interface LinkByBarcodeReport {
   scanned: number;
   /** Havia mais peças candidatas que o limite por chamada: rode de novo para as demais. */
@@ -41,8 +50,8 @@ export class PartCatalogLinkService {
     private readonly platform: CatalogPlatformService,
   ) {}
 
-  /** A peça existe no catálogo e está viva. */
-  private async liveCatalogPart(caller: CallerContext, catalog: string, catalogSku: string) {
+  /** A peça existe no catálogo e está viva (404 se não existe, 422 se retirada ou inativa). Fluxos de usuário: o token da pessoa vai à plataforma. */
+  async resolveLive(caller: CallerContext, catalog: string, catalogSku: string) {
     const { items } = await this.platform.lookupParts(caller, catalog, [catalogSku]);
     const item = items.find((i) => i.sku === catalogSku);
     if (!item) throw new NotFoundException('Peça não encontrada no catálogo');
@@ -66,7 +75,7 @@ export class PartCatalogLinkService {
 
   /** Cria a peça da oficina a partir de uma peça do catálogo: nome, GTIN e (por padrão) o SKU vêm de lá, e o vínculo nasce junto. */
   async createFromCatalog(caller: CallerContext, catalog: string, input: CreateFromCatalogInput) {
-    const item = await this.liveCatalogPart(caller, catalog, input.catalogSku);
+    const item = await this.resolveLive(caller, catalog, input.catalogSku);
     try {
       return await this.prisma.part.create({
         data: {
@@ -91,7 +100,7 @@ export class PartCatalogLinkService {
     const part = await this.prisma.part.findUnique({ where: { id: partId }, select: { id: true, catalogSku: true } });
     if (!part) throw new NotFoundException('Peça não encontrada');
     if (part.catalogSku !== null) throw new ConflictException('Esta peça já está vinculada ao catálogo');
-    await this.liveCatalogPart(caller, catalog, catalogSku);
+    await this.resolveLive(caller, catalog, catalogSku);
     let count: number;
     try {
       ({ count } = await this.prisma.part.updateMany({
@@ -197,19 +206,19 @@ export class PartCatalogLinkService {
       where: { invoiceId, resolution: 'UNRESOLVED', ean: { not: null } },
       select: { id: true, ean: true },
     });
-    if (items.length === 0) return { suggestions: [] as { itemId: string; partId: string; catalogSku: string }[], unmatched: 0 };
+    if (items.length === 0) return { suggestions: [] as InvoiceSuggestion[], unmatched: 0 };
 
     const matches = await this.barcodeMatches(caller, catalog, items.map((i) => i.ean!));
     const skuByEan = new Map(matches.filter((m) => m.skus.length === 1).map((m) => [m.barcode, m.skus[0]!]));
     const wanted = [...new Set(skuByEan.values())];
-    const parts = wanted.length ? await this.prisma.part.findMany({ where: { catalogSku: { in: wanted } }, select: { id: true, catalogSku: true } }) : [];
-    const partBySku = new Map(parts.map((p) => [p.catalogSku!, p.id]));
+    const parts = wanted.length ? await this.prisma.part.findMany({ where: { catalogSku: { in: wanted } }, select: { id: true, sku: true, name: true, catalogSku: true } }) : [];
+    const partBySku = new Map(parts.map((p) => [p.catalogSku!, p]));
 
-    const suggestions: { itemId: string; partId: string; catalogSku: string }[] = [];
+    const suggestions: InvoiceSuggestion[] = [];
     for (const item of items) {
       const catalogSku = skuByEan.get(item.ean!);
-      const partId = catalogSku ? partBySku.get(catalogSku) : undefined;
-      if (catalogSku && partId) suggestions.push({ itemId: item.id, partId, catalogSku });
+      const part = catalogSku ? partBySku.get(catalogSku) : undefined;
+      if (catalogSku && part) suggestions.push({ itemId: item.id, partId: part.id, partSku: part.sku, partName: part.name, catalogSku });
     }
     return { suggestions, unmatched: items.length - suggestions.length };
   }

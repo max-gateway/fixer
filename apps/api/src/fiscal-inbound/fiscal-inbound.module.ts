@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CatalogPlatformModule } from '../catalog-platform/catalog-platform.module.js';
 import { CostsModule } from '../costs/costs.module.js';
 import { CredentialService, KEY_PROVIDER } from './credentials/credential.service.js';
 import { EnvKeyProvider } from './crypto/key-provider.js';
@@ -22,7 +23,7 @@ import { InvoiceTaxBackfill } from './tax/backfill.service.js';
  * responde "indisponível" nos endpoints que dependem da chave.
  */
 @Module({
-  imports: [CostsModule],
+  imports: [CostsModule, CatalogPlatformModule],
   controllers: [FiscalInboundController, InvoicesController],
   providers: [
     CredentialService,

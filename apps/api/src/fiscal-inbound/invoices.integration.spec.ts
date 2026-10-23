@@ -312,6 +312,57 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
     });
   });
 
+  describe('cadastrar peça a partir do item, a partir de uma peça do catálogo', () => {
+    const catalogPart = { sku: 'itest-cat-1', name: 'Pastilha do catálogo', partNumber: 'ITEST-PN-1' };
+    const input = { sellPrice: 70, unitFactor: 1, saveMapping: true, catalogSku: 'itest-cat-1' };
+
+    it('grava o vínculo com o catálogo junto; fiscal e custo seguem do XML, e nome e SKU padrão vêm do catálogo', async () => {
+      const inv = await receive();
+      const view = await service.createPartFromItem(inv.id, 1, input, catalogPart);
+      const created = await db.part.findFirstOrThrow({ where: { catalogSku: 'itest-cat-1' } });
+      expect(created).toMatchObject({
+        sku: 'ITEST-PN-1',
+        name: 'Pastilha do catálogo',
+        catalogLinkSource: 'CREATED_FROM_CATALOG',
+        ncm: '87083090',
+        ean: '7891234567895',
+        supplierName: 'AUTO PECAS DISTRIBUIDORA LTDA',
+      });
+      expect(created.catalogLinkedAt).toBeInstanceOf(Date);
+      expect(created.costPrice.toString()).toBe('46.075');
+      expect(view.items[0]).toMatchObject({ resolution: 'MANUAL', partId: created.id });
+    });
+
+    it('o que a pessoa digitar (SKU e nome) vale mais que o do catálogo', async () => {
+      const inv = await receive();
+      await service.createPartFromItem(inv.id, 1, { ...input, sku: 'ITEST-MEU-SKU', name: 'Meu nome' }, catalogPart);
+      expect(await db.part.findFirstOrThrow({ where: { catalogSku: 'itest-cat-1' } })).toMatchObject({ sku: 'ITEST-MEU-SKU', name: 'Meu nome' });
+    });
+
+    it('a peça do catálogo já está no estoque: 409 com a mensagem do catálogo, e nada é gravado nem vinculado', async () => {
+      await db.part.create({ data: { sku: 'ITEST-HAS', name: 'Já tenho', costPrice: 1, sellPrice: 1, catalogSku: 'itest-cat-1', catalogLinkedAt: new Date(), catalogLinkSource: 'MANUAL' } });
+      const inv = await receive();
+      const err = await service.createPartFromItem(inv.id, 1, { ...input, sku: 'ITEST-OTHER' }, catalogPart).catch((e: unknown) => e);
+      expect(err).toMatchObject({ status: 409 });
+      expect((err as Error).message).toMatch(/já está no estoque/);
+      expect((await items(inv.id))[0]).toMatchObject({ resolution: 'UNRESOLVED' });
+    });
+
+    it('SKU repetido com a peça do catálogo ainda livre: 409 com a mensagem do SKU', async () => {
+      await part('DUP2');
+      const inv = await receive();
+      const err = await service.createPartFromItem(inv.id, 1, { ...input, sku: 'ITEST-DUP2' }, catalogPart).catch((e: unknown) => e);
+      expect(err).toMatchObject({ status: 409 });
+      expect((err as Error).message).toMatch(/SKU/);
+    });
+
+    it('catalogSku sem a peça do catálogo resolvida antes é erro de uso (400): o serviço nunca confia só no texto do corpo', async () => {
+      const inv = await receive();
+      await expect(service.createPartFromItem(inv.id, 1, input)).rejects.toMatchObject({ status: 400 });
+      expect(await db.part.findFirst({ where: { catalogSku: 'itest-cat-1' } })).toBeNull();
+    });
+  });
+
   describe('consulta', () => {
     it('lista por aba, com a contagem de itens sem vínculo, e o resumo bate com as abas', async () => {
       const pending = await receive({ number: 1 });

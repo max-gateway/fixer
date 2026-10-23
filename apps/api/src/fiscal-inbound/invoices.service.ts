@@ -52,7 +52,18 @@ export const CreatePartSchema = z.object({
   sellPrice: z.number({ required_error: 'Informe o preço de venda', invalid_type_error: 'Preço inválido' }).nonnegative('Preço não pode ser negativo'),
   unitFactor: z.number().positive().max(1_000_000).default(1),
   saveMapping: z.boolean().default(true),
+  /** Peça do catálogo global que a nova peça da oficina passa a representar (a API a resolve antes; nome e GTIN nunca vêm do corpo). */
+  catalogSku: z.string().trim().min(1).max(64).optional(),
+  /** Catálogo da peça; só vale junto com `catalogSku`. */
+  catalog: z.string().trim().min(1).max(64).optional(),
 });
+
+/** O que o serviço precisa saber da peça do catálogo, já resolvida (e viva) pela camada que fala com a plataforma. */
+export interface CatalogPartRef {
+  sku: string;
+  name: string;
+  partNumber: string;
+}
 
 /** Só notas completas e ainda não lançadas aceitam conciliação. */
 const EDITABLE = ['PENDING_MATCH', 'READY'];
@@ -122,7 +133,7 @@ export class InvoicesService {
 
   async get(id: string) {
     // `nsu` é BigInt (o JSON puro não o serializa) e a tela não precisa dele; o XML nunca sai por aqui.
-    const { xmlGz, xmlSha256: _sha, nsu: _nsu, ...invoice } = await this.require(id, { items: { orderBy: { itemNumber: 'asc' }, include: { part: { select: { id: true, sku: true, name: true, stockQty: true } } } } });
+    const { xmlGz, xmlSha256: _sha, nsu: _nsu, ...invoice } = await this.require(id, { items: { orderBy: { itemNumber: 'asc' }, include: { part: { select: { id: true, sku: true, name: true, stockQty: true, catalogSku: true } } } } });
     if (invoice.status !== 'FULL' || invoice.items.length === 0) {
       const empty = { costAlerts: [] as LedgerAlert[], costRegime: null, costRulesVersion: null };
       return { ...invoice, items: invoice.items.map((i) => ({ ...i, cost: null })), hasXml: xmlGz !== null, ...empty };
@@ -180,7 +191,11 @@ export class InvoicesService {
    * Cadastra a peça a partir do item da nota (NCM, CEST, origem, GTIN, unidade e custo vêm do XML) e já a
    * vincula. É o caminho de cadastro por XML do service-catalog §4.3.1.
    */
-  async createPartFromItem(invoiceId: string, itemNumber: number, input: z.infer<typeof CreatePartSchema>) {
+  async createPartFromItem(invoiceId: string, itemNumber: number, input: Omit<z.infer<typeof CreatePartSchema>, 'catalog'>, catalogPart?: CatalogPartRef) {
+    // A plataforma é consultada FORA da transação (é uma chamada de rede), por quem tem o token do usuário; aqui só se confere que veio o que foi pedido.
+    if ((input.catalogSku === undefined) !== (catalogPart === undefined) || (catalogPart && catalogPart.sku !== input.catalogSku)) {
+      throw new BadRequestException('A peça do catálogo precisa ser resolvida antes do cadastro');
+    }
     try {
       await this.prisma.$transaction(async (tx) => {
         const { invoice, item } = await this.editableItem(tx, invoiceId, itemNumber);
@@ -190,8 +205,9 @@ export class InvoicesService {
 
         const part = await tx.part.create({
           data: {
-            sku: input.sku ?? item.supplierCode.toUpperCase().slice(0, 60),
-            name: input.name ?? item.description.slice(0, 200),
+            sku: input.sku ?? catalogPart?.partNumber.slice(0, 60) ?? item.supplierCode.toUpperCase().slice(0, 60),
+            name: input.name ?? catalogPart?.name.slice(0, 200) ?? item.description.slice(0, 200),
+            ...(catalogPart ? { catalogSku: catalogPart.sku, catalogLinkedAt: new Date(), catalogLinkSource: 'CREATED_FROM_CATALOG' as const } : {}),
             costPrice: cost,
             sellPrice: input.sellPrice,
             supplierName: invoice.issuerName,
@@ -211,7 +227,11 @@ export class InvoicesService {
         await recomputeExportStatus(tx, invoiceId);
       });
     } catch (err) {
-      if ((err as { code?: string }).code === 'P2002') throw new ConflictException('Já existe uma peça com este SKU');
+      if ((err as { code?: string }).code === 'P2002') {
+        // O Prisma não diz qual campo violou (com o cliente de tenant, `meta.target` vem nulo): a causa se descobre no banco.
+        const taken = catalogPart ? await this.prisma.part.findFirst({ where: { catalogSku: catalogPart.sku }, select: { id: true } }) : null;
+        throw new ConflictException(taken ? 'Esta peça do catálogo já está no estoque da oficina' : 'Já existe uma peça com este SKU');
+      }
       throw err;
     }
     return this.get(invoiceId);

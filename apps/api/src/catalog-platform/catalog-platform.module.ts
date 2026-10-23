@@ -13,6 +13,6 @@ import { PartsSearchConfig } from './parts-search.config.js';
 @Module({
   controllers: [CatalogPlatformController, PartCatalogLinkController],
   providers: [PartsSearchConfig, CatalogPlatformService, PartCatalogLinkService],
-  exports: [CatalogPlatformService],
+  exports: [CatalogPlatformService, PartCatalogLinkService],
 })
 export class CatalogPlatformModule {}

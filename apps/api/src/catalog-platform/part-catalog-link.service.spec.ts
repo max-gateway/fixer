@@ -105,6 +105,23 @@ describe('PartCatalogLinkService.createFromCatalog', () => {
   });
 });
 
+describe('PartCatalogLinkService.resolveLive (a peça do catálogo que pode ser usada)', () => {
+  it('devolve a peça quando existe e está viva', async () => {
+    const ctx = build();
+    ctx.platform.lookupParts.mockResolvedValue({ items: [catalogPart()], missing: [] });
+    await expect(ctx.service.resolveLive(caller, CATALOG, 'cat-1')).resolves.toMatchObject({ sku: 'cat-1', partNumber: 'BE-123' });
+    expect(ctx.platform.lookupParts).toHaveBeenCalledWith(caller, CATALOG, ['cat-1']);
+  });
+
+  it('inexistente: 404; retirada ou inativa: 422', async () => {
+    const ctx = build();
+    ctx.platform.lookupParts.mockResolvedValue({ items: [], missing: ['cat-1'] });
+    await expect(ctx.service.resolveLive(caller, CATALOG, 'cat-1')).rejects.toBeInstanceOf(NotFoundException);
+    ctx.platform.lookupParts.mockResolvedValue({ items: [catalogPart({ retired: true, active: false })], missing: [] });
+    await expect(ctx.service.resolveLive(caller, CATALOG, 'cat-1')).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
+});
+
 describe('PartCatalogLinkService.link e unlink', () => {
   let ctx: ReturnType<typeof build>;
   beforeEach(() => {
@@ -256,12 +273,12 @@ describe('PartCatalogLinkService.suggestForInvoice (itens da nota × catálogo)'
         { barcode: '7893333333333', skus: ['cat-3', 'cat-4'] },
       ],
     });
-    ctx.prisma.part.findMany.mockResolvedValue([{ id: 'p1', catalogSku: 'cat-1' }]);
+    ctx.prisma.part.findMany.mockResolvedValue([{ id: 'p1', sku: 'BE-1', name: 'Bieleta da oficina', catalogSku: 'cat-1' }]);
   });
 
-  it('sugere a peça da oficina já vinculada à peça do catálogo do GTIN; GTIN ambíguo ou sem peça vinculada não sugere', async () => {
+  it('sugere a peça da oficina já vinculada à peça do catálogo do GTIN, com o nome e o SKU dela para a tela; GTIN ambíguo ou sem peça vinculada não sugere', async () => {
     const out = await ctx.service.suggestForInvoice(caller, CATALOG, 'inv1');
-    expect(out.suggestions).toEqual([{ itemId: 'i1', partId: 'p1', catalogSku: 'cat-1' }]);
+    expect(out.suggestions).toEqual([{ itemId: 'i1', partId: 'p1', partSku: 'BE-1', partName: 'Bieleta da oficina', catalogSku: 'cat-1' }]);
     expect(out.unmatched).toBe(2);
   });
 
