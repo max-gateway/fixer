@@ -47,7 +47,9 @@ describe('toHttpException (o que o usuário do Fixer recebe)', () => {
     ['window_too_deep', 400, 400, 'resultados'],
     ['not_found', 404, 404, 'não encontrada'],
     ['invalid_request', 400, 400, ''],
-    ['unauthorized', 401, 401, 'sessão'],
+    // A plataforma recusou um token que o Fixer JÁ aceitou: a sessão da pessoa está boa. É emissor/audiência/registro de organização, ou seja, configuração.
+    // 401 aqui faria o web mandar a pessoa entrar de novo em loop; é falha do serviço de trás (502), com a causa dita com clareza.
+    ['unauthorized', 401, 502, 'não reconheceu'],
     ['forbidden', 403, 403, 'permissão'],
   ];
   it.each(cases)('%s (%i) → %i', (code, status, expected, fragment) => {
@@ -55,6 +57,12 @@ describe('toHttpException (o que o usuário do Fixer recebe)', () => {
     expect(ex).toBeInstanceOf(HttpException);
     expect(ex.getStatus()).toBe(expected);
     expect(JSON.stringify(ex.getResponse()).toLowerCase()).toContain(fragment.toLowerCase());
+  });
+
+  it('login recusado pela plataforma NÃO diz que a sessão expirou (a sessão do Fixer está boa) e não vira 401, que faria o web mandar entrar de novo', () => {
+    const ex = toHttpException(err(401, 'unauthorized'));
+    expect(ex.getStatus()).toBe(502);
+    expect(JSON.stringify(ex.getResponse()).toLowerCase()).not.toContain('sessão expirou');
   });
 
   it('leva o requestId da plataforma para o suporte rastrear', () => {

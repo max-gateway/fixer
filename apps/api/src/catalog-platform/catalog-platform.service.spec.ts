@@ -81,10 +81,10 @@ describe('CatalogPlatformService: o que vai à plataforma', () => {
     expect(url.searchParams.get('limit')).toBe('5');
   });
 
-  it('sem token: 401 antes de ir à rede', async () => {
+  it('sem token: falha antes de ir à rede (e é 502, não 401: a sessão do Fixer não é o problema)', async () => {
     const { service, fetch } = build(() => json(lookupOk));
     const e = await fail(service.lookupParts(caller({ token: '' }), CATALOG, ['a']));
-    expect(status(e)).toBe(401);
+    expect(status(e)).toBe(502);
     expect(fetch).not.toHaveBeenCalled();
   });
 });
@@ -105,13 +105,13 @@ describe('CatalogPlatformService: erros e repetição', () => {
   });
 
   it.each([
-    [400, 'invalid_request'],
-    [401, 'unauthorized'],
-    [403, 'forbidden'],
-    [404, 'not_found'],
-  ])('%i não é repetido e vira o mesmo status para o usuário', async (st, code) => {
+    [400, 'invalid_request', 400],
+    [401, 'unauthorized', 502], // a plataforma recusou o token que o Fixer aceitou: configuração, não sessão
+    [403, 'forbidden', 403],
+    [404, 'not_found', 404],
+  ])('%i não é repetido e chega ao usuário como %i', async (st, code, expected) => {
     const { service, fetch } = build(() => apiError(st, code));
-    expect(status(await fail(service.lookupParts(caller(), CATALOG, ['a'])))).toBe(st);
+    expect(status(await fail(service.lookupParts(caller(), CATALOG, ['a'])))).toBe(expected);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 

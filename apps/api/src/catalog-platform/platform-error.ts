@@ -30,7 +30,9 @@ const BY_CODE: Record<string, { status: number; message: string }> = {
   window_too_deep: { status: 400, message: 'Resultados demais para listar: refine a busca.' },
   not_found: { status: 404, message: 'Peça não encontrada no catálogo.' },
   invalid_request: { status: 400, message: 'Busca inválida.' },
-  unauthorized: { status: 401, message: 'Sua sessão expirou. Entre novamente.' },
+  // A plataforma recusou um token que o Fixer JÁ aceitou: a sessão da pessoa está boa; o problema é emissor, audiência ou organização não registrada.
+  // Responder 401 mandaria o web pedir login de novo em loop, e dizer "sessão expirou" mandaria a pessoa na direção errada.
+  unauthorized: { status: 502, message: 'O catálogo de peças não reconheceu o seu login (configuração de identidade). Não é a sua sessão: avise o suporte.' },
   forbidden: { status: 403, message: 'Você não tem permissão para esta operação no catálogo.' },
 };
 
