@@ -44,12 +44,14 @@ export const PRESUMIDO_SURCHARGE = {
   to: null as string | null,
   relativeIncreasePct: '10',
   yearlyRevenueThresholdCents: 500_000_000n,
+  /** Limite proporcional por trimestre (IN RFB 2.305/2025, art. 15, § 2º, com a IN RFB 2.306/2026): R$ 1.250.000,00. */
+  quarterlyRevenueThresholdCents: 125_000_000n,
   source: 'LC 224/2025, art. 4º, § 4º, VII e § 5º; vigência pelo art. 14, III',
 };
 
 export const FEDERAL_LUCRO_META: TableMeta = {
   id: 'federal-lucro',
-  version: '2026-10-13.1',
+  version: '2026-10-22.4',
   effectiveFrom: '2018-01-01',
   effectiveTo: null,
   sources: [
@@ -61,11 +63,12 @@ export const FEDERAL_LUCRO_META: TableMeta = {
   ],
   validatedBy: null,
   caveats: [
-    'Os percentuais de presunção são do comércio em geral; combustíveis (1,6%) e serviços (16% e 32%) têm outros e não estão modelados.',
+    'Presunção por atividade em data/presuncao.ts (comércio/indústria 8%, combustível 1,6%, transporte de passageiros 16%, serviços 32%, ESC 38,4%); qual atividade vale para a receita é decisão de quem chama. Receita mista exige segregação (art. 15, § 2º).',
     'O adicional de 10% do IRPJ depende do lucro do período, não do preço de uma peça: o preço usa só o percentual proporcional à receita.',
     'A majoração da LC 224/2025 está sendo questionada no STF (ADI da OAB, março de 2026, segundo fontes secundárias); o texto da lei vale até decisão contrária.',
     'O Lucro Real não tem alíquota "sobre a venda": IRPJ e CSLL incidem sobre o lucro apurado, PIS e Cofins admitem crédito.',
     'Há PIS/Cofins com alíquotas específicas para outras atividades (combustíveis, medicamentos etc.) que não estão aqui.',
-    'A LC 224/2025 também mexe em outros benefícios federais, que não afetam o comércio de peças.',
+    'LC 224/2025, art. 4º: só reduz o que consta do demonstrativo de gastos tributários da LOA 2026 e dos regimes que ela lista (IN RFB 2.305/2025). O monofásico de autopeças (Lei 10.485) não consta da planilha do DGT da PLOA 2026 lida em 2026-10-22; o anexo da LOA final não foi lido. Outras alíquotas zero e isenções de PIS/Cofins que constem do DGT passam a pagar 10% da alíquota-padrão desde 2026-04-01 e não estão modeladas aqui.',
+    'A majoração da presunção só incide sobre a parcela da receita acima de R$ 1,25 milhão por trimestre (IN RFB 2.305/2025, art. 15, com a IN 2.306/2026). Passando { quarterRevenueBeforeCents, operationCents } a presumidoCommerce/presumidoByActivity o acréscimo é exato por operação; com true é o teto e superestima o IRPJ/CSLL de quem passa pouco do limite. O Fixer usa a receita do trimestre das OS concluídas (a venda nova leva o acréscimo se o trimestre já passou de R$ 1,25 milhão); sem esse dado, cai no teto pela RBT12 acima de R$ 5 milhões. Só a venda que cruza o limite erra, e por pouco. Compensação entre trimestres e ajuste do último trimestre (§§ 4º e 5º) ficam com quem apura.',
   ],
 };

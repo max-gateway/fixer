@@ -1,4 +1,5 @@
 import { SIMPLES_COMERCIO, type SimplesBracket, type SimplesPeriod, type SimplesShare } from '../data/simples-comercio.js';
+import { SIMPLES_SERVICOS_ANEXO_III, type ServicoShare } from '../data/simples-servicos.js';
 
 // Alíquota efetiva do Simples Nacional, Anexo I (comércio): (RBT12 × alíquota nominal − parcela a deduzir) ÷ RBT12
 // (LC 123/2006, art. 18, § 1º). Aritmética em bigint para não depender de ponto flutuante nem de biblioteca decimal;
@@ -23,13 +24,13 @@ export function parseCents(value: string): bigint | null {
   return BigInt(m[1]!) * 100n + BigInt((m[2] ?? '').padEnd(2, '0') || '0');
 }
 
-const roundDiv = (num: bigint, den: bigint) => (num * 2n + den) / (2n * den); // meio para cima, num e den positivos
+export const roundDiv = (num: bigint, den: bigint) => (num * 2n + den) / (2n * den); // meio para cima, num e den positivos
 
 /** Valor escalado por 10^4 -> "12.3456". */
-const fmt4 = (scaled: bigint) => `${scaled / 10_000n}.${(scaled % 10_000n).toString().padStart(4, '0')}`;
+export const fmt4 = (scaled: bigint) => `${scaled / 10_000n}.${(scaled % 10_000n).toString().padStart(4, '0')}`;
 
 /** "14.30" -> 1430n (centésimos de ponto percentual). */
-const hundredths = (pct: string) => BigInt(pct.replace('.', ''));
+export const hundredths = (pct: string) => BigInt(pct.replace('.', ''));
 
 export function simplesPeriodFor(asOf: string): SimplesPeriod | null {
   return SIMPLES_COMERCIO.find((p) => asOf >= p.from && (p.to === null || asOf <= p.to)) ?? null;
@@ -64,3 +65,38 @@ export function simplesRate(rbt12: string, asOf: string = today()): SimplesRate 
     components: { irpj: part(s.irpj), csll: part(s.csll), cofins: part(s.cofins), pis: part(s.pis), cbs: part(s.cbs), cpp: part(s.cpp), icms: part(s.icms), ibs: part(s.ibs) },
   };
 }
+
+export interface ServicoRate {
+  periodId: string;
+  bracket: 1 | 2 | 3 | 4;
+  /** Alíquota efetiva, em %. */
+  effectivePct: string;
+  /** Cada tributo da repartição, em % da RECEITA (já multiplicado pela alíquota efetiva). */
+  components: ServicoShare;
+}
+
+/**
+ * @deprecated Use `simplesNacional('III', ...)` (src/simples-nacional.ts): cobre as 6 faixas, o teto do ISS e 2027 em diante, e é
+ * conferido contra a lei por `verify:sources`. Esta função fica só até os consumidores migrarem.
+ *
+ * Anexo III (serviços): alíquota efetiva e repartição para a RBT12 na data `asOf`. Devolve null fora do que a tabela cobre
+ * (RBT12 inválida, acima de R$ 1,8 milhão, ou data fora de 2018-01-01..2026-12-31). Ver data/simples-servicos.ts: tabela ainda
+ * sem carimbo de conferência oficial.
+ */
+export function simplesServicoRate(rbt12: string, asOf: string = today()): ServicoRate | null {
+  const rbt = parseCents(rbt12);
+  const t = SIMPLES_SERVICOS_ANEXO_III;
+  if (rbt === null || rbt <= 0n || asOf < t.from || asOf > t.to) return null;
+  const b = t.brackets.find((x) => rbt <= x.upToCents);
+  if (!b) return null;
+  const effScaled = roundDiv((rbt * hundredths(b.nominalPct) - b.deductionCents * 10_000n) * 100n, rbt);
+  const part = (sharePct: string) => fmt4(roundDiv(effScaled * hundredths(sharePct), 10_000n));
+  const s = b.share;
+  return {
+    periodId: t.id,
+    bracket: b.bracket,
+    effectivePct: fmt4(effScaled),
+    components: { irpj: part(s.irpj), csll: part(s.csll), cofins: part(s.cofins), pis: part(s.pis), cpp: part(s.cpp), iss: part(s.iss) },
+  };
+}
+

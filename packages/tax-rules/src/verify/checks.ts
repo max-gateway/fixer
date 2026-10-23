@@ -3,10 +3,20 @@ import { CNAE_LC116, LC116_ITEM_14_01 } from '../../data/cnae-lc116.js';
 import { CRT, CSOSN, CST_ICMS } from '../../data/cst-csosn.js';
 import { IBS_CBS_REDUCED_AUTOPECAS, IBS_CBS_REFERENCE } from '../../data/ibs-cbs-referencia.js';
 import { MONOFASICO_AUTOPECAS } from '../../data/monofasico-autopecas.js';
+import { IBS_CBS_REDUCTIONS } from '../../data/ibs-cbs-reducoes.js';
+import { ISS_PLACE_RULES, LC116_GROUPS, LC116_ITEMS } from '../../data/iss-lc116.js';
+import { TIPI_LAST_UPDATE, TIPI_TABLE } from '../../data/tipi.js';
+import { PE_ICMS_ANNEX_OVERLAPS_REVIEWED } from '../../data/pe-icms-interno.js';
+import { SIMPLES_ANEXOS, type AnnexPeriod } from '../../data/simples-anexos.js';
 import { SIMPLES_COMERCIO } from '../../data/simples-comercio.js';
+import { PE_ST_PNEUS } from '../../data/pe-icms.js';
 import { ST_AUTOPECAS_ANEXO_II } from '../../data/st-autopecas-anexo-ii.js';
 import { ST_AUTOPECAS_PROTOCOLO } from '../../data/st-autopecas-protocolo.js';
 import { decodeEntities, flat, htmlToText, pctBR, reaisBR } from './html.js';
+import { parseAllAnnexes } from './simples-parse.js';
+import { parseLc116Items } from './lc116-parse.js';
+import { parseReductions } from './reducoes-parse.js';
+import { parseTipi, renderTipiTable } from './tipi-parse.js';
 
 // Cada verificação baixa o texto oficial de uma tabela, extrai de novo os dados e compara com o que o pacote tem. Serve para
 // descobrir que a lei mudou (ou que a transcrição estava errada) sem depender de ninguém lembrar de conferir.
@@ -107,6 +117,162 @@ export function simplesReform(lc214Html: string): CheckResult {
     problems.push(...missing(block, need));
   }
   return result(problems);
+}
+
+// ---------- Simples: Anexos II a V (LC 123 e LC 214, Anexos XIX a XXII) ----------
+
+// Chaves ordenadas: a ordem em que o objeto foi montado não pode virar divergência.
+const annexJson = (p: AnnexPeriod) =>
+  JSON.stringify(p, (_k, v) => (typeof v === 'bigint' ? v.toString() : v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v));
+
+/** Extrai de novo os Anexos II a V do texto oficial e compara, período a período, com o que o pacote tem. */
+export function simplesAnexos(lc123Html: string, lc214Html: string): CheckResult {
+  let theirs: AnnexPeriod[];
+  try {
+    theirs = parseAllAnnexes(lc123Html, lc214Html);
+  } catch (e) {
+    return result([`não consegui ler os anexos no texto oficial: ${(e as Error).message}`]);
+  }
+  const ours = new Map(SIMPLES_ANEXOS.map((p) => [p.id, annexJson(p)]));
+  const problems: string[] = [];
+  for (const p of theirs) {
+    const mine = ours.get(p.id);
+    if (mine === undefined) problems.push(`${p.id}: só no texto oficial`);
+    else if (mine !== annexJson(p)) problems.push(`${p.id}: o pacote diverge do texto oficial`);
+    ours.delete(p.id);
+  }
+  for (const id of ours.keys()) problems.push(`${id}: só no pacote`);
+  return result(problems);
+}
+
+// ---------- IPI: TIPI (planilha da Receita) ----------
+
+/** Lê de novo a planilha oficial da TIPI e compara, linha a linha, com o pacote. */
+export function tipi(xlsxLatin1: string): CheckResult {
+  let parsed: ReturnType<typeof parseTipi>;
+  try {
+    parsed = parseTipi(Buffer.from(xlsxLatin1, 'latin1'));
+  } catch (e) {
+    return result([`não consegui ler a planilha da TIPI: ${(e as Error).message}`]);
+  }
+  const problems: string[] = [];
+  if (parsed.lastUpdate.date !== TIPI_LAST_UPDATE.date) problems.push(`a Receita publicou atualização nova da TIPI: ${parsed.lastUpdate.act} (pacote: ${TIPI_LAST_UPDATE.act})`);
+  problems.push(...diff('linhas da TIPI', new Set(TIPI_TABLE.split('\n')), new Set(renderTipiTable(parsed.entries).split('\n'))));
+  return result(problems);
+}
+
+// ---------- ICMS interno de PE: Lei 15.730/2016 ----------
+
+export function peIcmsInterno(lei: string): CheckResult {
+  const text = flat(htmlToText(lei));
+  const problems = missing(text, [
+    ['art. 15, VII: 20,5% nas demais hipóteses', '20,5% (vinte vírgula cinco por cento), nas demais hipóteses não relacionadas nos incisos III a VI e IX ou no art. 18-A'],
+    ['art. 15, VII, a: 18% até 2023', 'até 31 de dezembro de 2023, 18% (dezoito por cento)'],
+    ['art. 15, III: 25% nos produtos do Anexo 2', '25% (vinte e cinco por cento)'],
+    ['art. 18-A, I, a: 29%, 27% ou 22,5% (FECEP)', '29% (vinte e nove por cento), 27% (vinte e sete por cento) ou 22,5% (vinte e dois vírgula cinco por cento), conforme a hipótese'],
+  ]);
+  // Anexos 1, 1-A, 1-B e 2 x NCM de autopeças e pneus: o que cruza precisa já ter sido avaliado.
+  // O sumário também cita o Anexo 1: o início certo é o cabeçalho da tabela ("... FECEP (inciso I do art. 18-A)").
+  const start = text.search(/PRODUTO RELACIONADO NA LEI Nº 12\.523\/2003 \S FECEP \(inciso/);
+  const end = start < 0 ? -1 : text.indexOf('ANEXO 3', start);
+  if (start < 0 || end < 0) {
+    problems.push('não achei os Anexos 1 a 2 da Lei 15.730');
+    return result(problems);
+  }
+  const codes = new Set([...text.slice(start, end).matchAll(/\b\d{4}(?:\.\d{1,2}){0,3}\b/g)].map((m) => m[0].replace(/\D/g, '')).filter((x) => !/^(19|20)\d\d$/.test(x)));
+  const mine = new Set([...ST_AUTOPECAS_ANEXO_II.flatMap((i) => i.ncm), ...PE_ST_PNEUS.flatMap((i) => i.ncm)].map((n) => n.replace(/\D/g, '')));
+  const overlaps = new Set<string>();
+  for (const m of mine) for (const a of codes) if (m.startsWith(a) || a.startsWith(m)) overlaps.add(a.length >= m.length ? a : m);
+  const fresh = [...overlaps].filter((o) => !(o in PE_ICMS_ANNEX_OVERLAPS_REVIEWED));
+  if (fresh.length) problems.push(`NCM de autopeça ou pneu em anexo de alíquota majorada/FECEP da Lei 15.730, ainda não avaliado: ${fresh.join(', ')}`);
+  for (const o of Object.keys(PE_ICMS_ANNEX_OVERLAPS_REVIEWED)) if (!overlaps.has(o)) problems.push(`o NCM ${o} saiu dos anexos da Lei 15.730 (PE_ICMS_ANNEX_OVERLAPS_REVIEWED ainda o lista)`);
+  return result(problems);
+}
+
+// ---------- ISS: LC 116 (lista, limites e local de incidência) ----------
+
+export function issLc116(lc116Html: string): CheckResult {
+  let parsed: ReturnType<typeof parseLc116Items>;
+  try {
+    parsed = parseLc116Items(lc116Html);
+  } catch (e) {
+    return result([`não consegui ler a lista da LC 116: ${(e as Error).message}`]);
+  }
+  const key = (i: { code: string; group: string; description: string; revoked: boolean }) => JSON.stringify([i.code, i.group, i.description, i.revoked]);
+  const problems = diff('subitens da lista de serviços', new Set(LC116_ITEMS.map(key)), new Set(parsed.items.map(key)));
+  problems.push(...diff('itens da lista de serviços', new Set(Object.entries(LC116_GROUPS).map(([k, v]) => `${k}=${v}`)), new Set(Object.entries(parsed.groups).map(([k, v]) => `${k}=${v}`))));
+  // Limites (arts. 8º e 8º-A) e incisos do art. 3º: frases-chave do texto vigente.
+  const text = flat(htmlToText(lc116Html));
+  problems.push(
+    ...missing(text, [
+      ['art. 8º, II: máximo de 5%', 'demais serviços, 5% (cinco por cento)'],
+      ['art. 8º-A: mínimo de 2%', 'A alíquota mínima do Imposto sobre Serviços de Qualquer Natureza é de 2% (dois por cento)'],
+      ['art. 8º-A, § 1º: exceção 7.02, 7.05 e 16.01', 'exceto para os serviços a que se referem os subitens 7.02, 7.05 e 16.01 da lista anexa'],
+      ['art. 3º, II: 3.05', 'no caso dos serviços descritos no subitem 3.05 da lista anexa'],
+      ['art. 3º, III: 7.02, 7.19 e 14.14', 'subitens 7.02, 7.19 e 14.14 da lista anexa'],
+      ['art. 3º, IV: 7.04', 'no caso dos serviços descritos no subitem 7.04 da lista anexa'],
+      ['art. 3º, V: 7.05', 'no caso dos serviços descritos no subitem 7.05 da lista anexa'],
+      ['art. 3º, VI: 7.09', 'no caso dos serviços descritos no subitem 7.09 da lista anexa'],
+      ['art. 3º, VII: 7.10', 'no caso dos serviços descritos no subitem 7.10 da lista anexa'],
+      ['art. 3º, VIII: 7.11', 'no caso dos serviços descritos no subitem 7.11 da lista anexa'],
+      ['art. 3º, IX: 7.12', 'no caso dos serviços descritos no subitem 7.12 da lista anexa'],
+      ['art. 3º, XII: 7.16', 'no caso dos serviços descritos no subitem 7.16 da lista anexa'],
+      ['art. 3º, XIII: 7.17', 'no caso dos serviços descritos no subitem 7.17 da lista anexa'],
+      ['art. 3º, XIV: 7.18', 'no caso dos serviços descritos no subitem 7.18 da lista anexa'],
+      ['art. 3º, XV: 11.01', 'no caso dos serviços descritos no subitem 11.01 da lista anexa'],
+      ['art. 3º, XVI: 11.02', 'no caso dos serviços descritos no subitem 11.02 da lista anexa'],
+      ['art. 3º, XVII: 11.04', 'no caso dos serviços descritos no subitem 11.04 da lista anexa'],
+      ['art. 3º, XVIII: item 12 menos 12.13', 'subitens do item 12, exceto o 12.13, da lista anexa'],
+      ['art. 3º, XIX: item 16', 'no caso dos serviços descritos pelo item 16 da lista anexa'],
+      ['art. 3º, XX: 17.05', 'no caso dos serviços descritos pelo subitem 17.05 da lista anexa'],
+      ['art. 3º, XXI: 17.10', 'no caso dos serviços descritos pelo subitem 17.10 da lista anexa'],
+      ['art. 3º, XXII: item 20', 'no caso dos serviços descritos pelo item 20 da lista anexa'],
+      ['art. 3º, XXIII: 4.22, 4.23 e 5.09', 'do domicílio do tomador dos serviços dos subitens 4.22, 4.23 e 5.09'],
+      ['art. 3º, XXIV: 15.01', 'demais descritos no subitem 15.01'],
+      ['art. 3º, XXV: 15.09', 'do domicílio do tomador do serviço do subitem 15.09'],
+    ]),
+  );
+  if (ISS_PLACE_RULES.length !== 22) problems.push(`ISS_PLACE_RULES tem ${ISS_PLACE_RULES.length} regras; a conferência de frases cobre 22 (incisos II a IX, XII a XXV)`);
+  return result(problems.map((m) => m.slice(0, 600)));
+}
+
+// ---------- IBS/CBS: reduções dos Anexos I a XV da LC 214 ----------
+
+export function reducoes(lc214Html: string): CheckResult {
+  let theirs: ReturnType<typeof parseReductions>;
+  try {
+    theirs = parseReductions(lc214Html);
+  } catch (e) {
+    return result([`não consegui ler os anexos de redução: ${(e as Error).message}`]);
+  }
+  const key = (it: (typeof theirs)[number]) => JSON.stringify([it.annex, it.reductionPct, it.item, it.group, it.description, it.ncm, it.nbs]);
+  return result(diff('itens dos Anexos I a XV', new Set(IBS_CBS_REDUCTIONS.map(key)), new Set(theirs.map(key))).map((m) => m.slice(0, 600)));
+}
+
+// ---------- Imposto Seletivo: Anexo XVII da LC 214 ----------
+
+export function seletivo(lc214Html: string): CheckResult {
+  const text = flat(htmlToText(lc214Html));
+  const start = text.lastIndexOf('ANEXO XVII BENS E SERVIÇOS SUJEITOS AO IMPOSTO SELETIVO');
+  if (start < 0) return result(['não achei o Anexo XVII da LC 214']);
+  const annex = text.slice(start, text.indexOf('ANEXO XVIII', start));
+  return result(
+    missing(annex, [
+      ['veículos: 87.03', '87.03;'],
+      ['veículos: 8704.21 exceto caminhões', '8704.21 (exceto os caminhões)'],
+      ['veículos: 8704.31 exceto caminhões', '8704.31 (exceto os caminhões)'],
+      ['veículos: 8704.41.00 exceto caminhões', '8704.41.00 (exceto os caminhões)'],
+      ['veículos: 8704.51.00 exceto caminhões', '8704.51.00 (exceto os caminhões)'],
+      ['veículos: 8704.60.00 exceto caminhões', '8704.60.00 (exceto os caminhões)'],
+      ['veículos: 8704.90.00 exceto caminhões', '8704.90.00 (exceto os caminhões)'],
+      ['aeronaves: 8802 exceto 8802.60.00', '8802, exceto o código 8802.60.00'],
+      ['embarcações: 8903', 'posição 8903'],
+      ['fumígenos: 2401; 2402; 2403; 2404', '2401; 2402; 2403; 2404'],
+      ['bebidas alcoólicas: 2203; 2204; 2205; 2206; 2208', '2203; 2204; 2205; 2206; 2208'],
+      ['bebidas açucaradas: 2202.10.00', '2202.10.00'],
+      ['bens minerais: 2601; 2709.00.10; 2711.11.00; 2711.21.00', '2601; 2709.00.10; 2711.11.00; 2711.21.00'],
+    ]),
+  );
 }
 
 // ---------- Monofásico: Lei 10.485 ----------
@@ -262,7 +428,7 @@ export const peStAutopecas = (docs: Record<string, string>): CheckResult => {
 export const federal = (docs: Record<string, string>): CheckResult => {
   const problems: string[] = [];
   const need = (key: string, list: Phrase[]) => problems.push(...missing(flat(htmlToText(docs[key] ?? '')), list));
-  need('l9249', [['IRPJ: base de 8% (art. 15)', 'percentual de 8% (oito por cento) sobre a receita bruta'], ['IRPJ: alíquota de 15% (art. 3º)', 'A alíquota do imposto de renda das pessoas jurídicas é de quinze por cento'], ['CSLL: base de 12% (art. 20)', 'corresponderá a 12% (doze por cento) sobre a receita bruta'], ['adicional: R$ 20.000 por mês', 'multiplicação de R$ 20.000,00 (vinte mil reais) pelo número de meses']]);
+  need('l9249', [['IRPJ: revenda de combustível a 1,6% (art. 15, § 1º, I)', 'um inteiro e seis décimos por cento, para a atividade de revenda'], ['IRPJ: transporte a 16% (art. 15, § 1º, II)', 'II - dezesseis por cento'], ['IRPJ: serviços a 32% (art. 15, § 1º, III)', 'III - trinta e dois por cento, para as atividades de'], ['CSLL: serviços a 32% (art. 20, I)', '32% (trinta e dois por cento) para a receita bruta decorrente das atividades previstas no inciso III'], ['CSLL e IRPJ de ESC a 38,4%', '38,4% (trinta e oito inteiros e quatro décimos por cento)'], ['IRPJ: base de 8% (art. 15)', 'percentual de 8% (oito por cento) sobre a receita bruta'], ['IRPJ: alíquota de 15% (art. 3º)', 'A alíquota do imposto de renda das pessoas jurídicas é de quinze por cento'], ['CSLL: base de 12% (art. 20)', 'corresponderá a 12% (doze por cento) sobre a receita bruta'], ['adicional: R$ 20.000 por mês', 'multiplicação de R$ 20.000,00 (vinte mil reais) pelo número de meses']]);
   need('l7689', [['CSLL 9% (art. 3º, II)', '9% (nove por cento), no caso das demais pessoas jurídicas']]);
   need('l9718', [['Cofins 3% (art. 8º)', 'Fica elevada para três por cento a alíquota da COFINS']]);
   need('l9715', [['PIS 0,65% sobre o faturamento (art. 8º, I)', 'zero vírgula sessenta e cinco por cento sobre o faturamento']]);
@@ -303,6 +469,8 @@ export function reform(lc214Html: string, today: string): CheckResult {
     ['art. 348, III, c: Simples fora em 2026', 'não serão aplicadas em relação às operações dos contribuintes optantes pelo Simples Nacional'],
     ['art. 501: ICMS -10% em 2029', 'I - 10% (dez por cento), em 2029'],
     ['art. 501: ICMS -40% em 2032', 'IV - 40% (quarenta por cento), em 2032'],
+    ['LC 116, art. 8º-B: ISS reduzido em 2029-2032 sobre as alíquotas de 31/12/2028', 'as alíquotas do imposto serão reduzidas nas seguintes proporções das alíquotas previstas nas legislações dos Municípios ou do Distrito Federal, vigentes em 31 de dezembro de 2028'],
+    ['art. 543, IV: LC 116 revogada em 2033', 'IV - a Lei Complementar nº 116, de 31 de julho de 2003'],
     ['art. 349: prazo do Senado', 'o Senado Federal fixará as alíquotas de referência e o redutor até o dia 31 de outubro do ano anterior'],
     ['art. 519: Anexos I a V do Simples', 'Anexos I a V da Lei Complementar nº 123, de 14 de dezembro de 2006, passam a vigorar com a redação dos Anexos XVIII a XXII'],
   ]);
@@ -354,6 +522,12 @@ export function cnaeLc116(docs: Record<string, string>): CheckResult {
 export const CHECKS: Check[] = [
   { id: 'simples-anexo-i', table: 'simples-comercio', sources: [{ key: 'lc123', url: `${PLANALTO}/lcp/lcp123.htm` }], run: (d) => simplesLegacy(d.lc123!) },
   { id: 'simples-anexo-xviii', table: 'simples-comercio', sources: [{ key: 'lc214', url: `${PLANALTO}/lcp/lcp214.htm` }], run: (d) => simplesReform(d.lc214!) },
+  { id: 'simples-anexos-ii-a-v', table: 'simples-anexos', sources: [{ key: 'lc123', url: `${PLANALTO}/lcp/lcp123.htm` }, { key: 'lc214', url: `${PLANALTO}/lcp/lcp214.htm` }], run: (d) => simplesAnexos(d.lc123!, d.lc214!) },
+  { id: 'tipi', table: 'tipi', sources: [{ key: 'tipi', url: 'https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/legislacao/documentos-e-arquivos/tipi.xlsx' }], run: (d) => tipi(d.tipi!) },
+  { id: 'pe-icms-interno', table: 'pe-icms-interno', sources: [{ key: 'l15730', url: 'https://www.sefaz.pe.gov.br/Legislacao/Tributaria/Documents/legislacao/Leis_Tributarias/2016/Lei15730_2016.htm' }], run: (d) => peIcmsInterno(d.l15730!) },
+  { id: 'iss-lc116', table: 'iss-lc116', sources: [{ key: 'lc116', url: `${PLANALTO}/lcp/lcp116.htm` }], run: (d) => issLc116(d.lc116!) },
+  { id: 'ibs-cbs-reducoes', table: 'ibs-cbs-reducoes', sources: [{ key: 'lc214', url: `${PLANALTO}/lcp/lcp214.htm` }], run: (d) => reducoes(d.lc214!) },
+  { id: 'imposto-seletivo', table: 'imposto-seletivo', sources: [{ key: 'lc214', url: `${PLANALTO}/lcp/lcp214.htm` }], run: (d) => seletivo(d.lc214!) },
   { id: 'monofasico', table: 'monofasico-autopecas', sources: [{ key: 'lei', url: `${PLANALTO}/2002/l10485compilado.htm` }], run: (d) => monofasico(d.lei!) },
   { id: 'st-anexo-ii', table: 'st-autopecas-anexo-ii', sources: [{ key: 'cv142', url: `${CONFAZ}/convenios/2018/CV142_18`, insecure: true }], run: (d) => stAnexoII(d.cv142!) },
   { id: 'st-protocolo', table: 'st-autopecas-protocolo', sources: [{ key: 'pt41', url: `${CONFAZ}/protocolos/2008/pt041_08`, insecure: true }], run: (d) => protocolo(d.pt41!) },

@@ -15,6 +15,8 @@ export interface TransitionPeriod {
   cbsReferenceMinusPp: string | null;
   /** Redução do ICMS em % da alíquota vigente em 2028 (100 = extinto). */
   icmsReductionPct: string;
+  /** Redução do ISS em % da alíquota municipal vigente em 31/12/2028 (LC 116, art. 8º-B, incluído pela LC 214; 100 = extinto, art. 543, IV). */
+  issReductionPct: string;
   /** PIS/Cofins existem (e, com eles, o monofásico da Lei 10.485). */
   pisCofinsInForce: boolean;
   /** Optantes do Simples são cobrados de IBS/CBS neste período? Em 2026 a lei os exclui. */
@@ -26,18 +28,18 @@ const REF = null;
 const FUTURE = { ibsStatePct: REF, ibsMunicipalPct: REF, cbsPct: REF, cbsReferenceMinusPp: REF, pisCofinsInForce: false, simplesOptantesCharged: true };
 
 export const IBS_CBS_TRANSITION: TransitionPeriod[] = [
-  { from: '2026-01-01', to: '2026-12-31', ibsStatePct: '0.10', ibsMunicipalPct: '0.00', cbsPct: '0.90', cbsReferenceMinusPp: REF, icmsReductionPct: '0', pisCofinsInForce: true, simplesOptantesCharged: false, articles: 'LC 214/2025 arts. 343, 346 e 348 (III, c)' },
-  { from: '2027-01-01', to: '2028-12-31', ibsStatePct: '0.05', ibsMunicipalPct: '0.05', cbsPct: REF, cbsReferenceMinusPp: '0.1', icmsReductionPct: '0', pisCofinsInForce: false, simplesOptantesCharged: true, articles: 'LC 214/2025 arts. 344 e 347; art. 542 (extingue PIS/Cofins)' },
-  { from: '2029-01-01', to: '2029-12-31', ...FUTURE, icmsReductionPct: '10', articles: 'LC 214/2025 arts. 361 e 501 (LC 87/1996, art. 31-A)' },
-  { from: '2030-01-01', to: '2030-12-31', ...FUTURE, icmsReductionPct: '20', articles: 'LC 214/2025 arts. 362 e 501' },
-  { from: '2031-01-01', to: '2031-12-31', ...FUTURE, icmsReductionPct: '30', articles: 'LC 214/2025 arts. 363 e 501' },
-  { from: '2032-01-01', to: '2032-12-31', ...FUTURE, icmsReductionPct: '40', articles: 'LC 214/2025 arts. 364 e 501' },
-  { from: '2033-01-01', to: '9999-12-31', ...FUTURE, icmsReductionPct: '100', articles: 'LC 214/2025 art. 365; revogação da LC 87/1996 a partir de 01/01/2033' },
+  { from: '2026-01-01', to: '2026-12-31', ibsStatePct: '0.10', ibsMunicipalPct: '0.00', cbsPct: '0.90', cbsReferenceMinusPp: REF, icmsReductionPct: '0', issReductionPct: '0', pisCofinsInForce: true, simplesOptantesCharged: false, articles: 'LC 214/2025 arts. 343, 346 e 348 (III, c)' },
+  { from: '2027-01-01', to: '2028-12-31', ibsStatePct: '0.05', ibsMunicipalPct: '0.05', cbsPct: REF, cbsReferenceMinusPp: '0.1', icmsReductionPct: '0', issReductionPct: '0', pisCofinsInForce: false, simplesOptantesCharged: true, articles: 'LC 214/2025 arts. 344 e 347; art. 542 (extingue PIS/Cofins)' },
+  { from: '2029-01-01', to: '2029-12-31', ...FUTURE, icmsReductionPct: '10', issReductionPct: '10', articles: 'LC 214/2025 arts. 361 e 501 (LC 87/1996, art. 31-A)' },
+  { from: '2030-01-01', to: '2030-12-31', ...FUTURE, icmsReductionPct: '20', issReductionPct: '20', articles: 'LC 214/2025 arts. 362 e 501' },
+  { from: '2031-01-01', to: '2031-12-31', ...FUTURE, icmsReductionPct: '30', issReductionPct: '30', articles: 'LC 214/2025 arts. 363 e 501' },
+  { from: '2032-01-01', to: '2032-12-31', ...FUTURE, icmsReductionPct: '40', issReductionPct: '40', articles: 'LC 214/2025 arts. 364 e 501' },
+  { from: '2033-01-01', to: '9999-12-31', ...FUTURE, icmsReductionPct: '100', issReductionPct: '100', articles: 'LC 214/2025 art. 365; revogação da LC 87/1996 a partir de 01/01/2033' },
 ];
 
 export const IBS_CBS_TRANSITION_META: TableMeta = {
   id: 'ibs-cbs-transition',
-  version: '2026-10-13.1',
+  version: '2026-10-22.1',
   effectiveFrom: '2026-01-01',
   effectiveTo: null,
   sources: [

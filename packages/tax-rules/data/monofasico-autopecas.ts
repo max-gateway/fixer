@@ -69,7 +69,7 @@ export const MONOFASICO_AUTOPECAS: MonofasicoEntry[] = [
 
 export const MONOFASICO_AUTOPECAS_META: TableMeta = {
   id: 'monofasico-autopecas',
-  version: '2026-10-13.1',
+  version: '2026-10-22.2',
   effectiveFrom: '2002-11-01',
   effectiveTo: '2026-12-31',
   sources: [
@@ -78,6 +78,7 @@ export const MONOFASICO_AUTOPECAS_META: TableMeta = {
   ],
   validatedBy: null,
   caveats: [
+    'LC 224/2025, art. 4º: a redução de 90% de isenções e alíquotas zero alcança só o que consta do demonstrativo de gastos tributários da LOA 2026 (IN RFB 2.305/2025, art. 2º). Conferido em 2026-10-22: a planilha do DGT da PLOA 2026 (RFB) não tem linha da Lei 10.485 nem de tributação monofásica, e a IN não a cita; logo o 0% do revendedor (art. 3º, § 2º; art. 5º, parágrafo único) segue valendo. Não foi lido o anexo do DGT da LOA final (janeiro de 2026): se houver diferença, o contador avisa.',
     'Lista do texto da lei. O art. 3º, §1º autoriza o Poder Executivo a alterar a relação por decreto: alterações por decreto posteriores ao texto compilado NÃO foram incluídas. Conferir na TIPI vigente.',
     'Entradas EX_TARIFARIO e DESTINO não se decidem só pelo NCM: exigem confirmação da pessoa.',
     'A lei não se aplica a produtos usados (art. 6º).',

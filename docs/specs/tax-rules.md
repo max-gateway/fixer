@@ -20,7 +20,7 @@ O [pricing.md](pricing.md) §12/§14 proibia o sistema de trazer alíquota próp
 
 ## 2. O que está implementado (2026-10-13)
 
-Dez tabelas em `packages/tax-rules`, todas de texto oficial (Planalto, Confaz, Câmara), com `sources`, `retrievedAt`, vigência, `caveats` e `validatedBy: null`. `TAX_RULES_PACKAGE_VERSION` junta as versões e vai no snapshot de cada preço.
+19 tabelas em `packages/tax-rules`, todas de texto oficial (Planalto, Confaz, Câmara, Receita Federal, SEFAZ-PE), com `sources`, `retrievedAt`, vigência, `caveats` e `validatedBy: null`. `TAX_RULES_PACKAGE_VERSION` junta as versões e vai no snapshot de cada preço.
 
 | Tabela | Fonte | Vigência | API |
 |---|---|---|---|
@@ -37,6 +37,11 @@ Dez tabelas em `packages/tax-rules`, todas de texto oficial (Planalto, Confaz, C
 | `pe-st-autopecas` | RICMS-PE, Anexo 37, arts. 99 a 101 (Dec. 57.000/2024); Prot. ICMS 97/2010 e 129/2010 | 2024-08-01 em diante | `peStAutopecasOrigin(uf, data)`, `mvaAdjusted(original, inter, intra)` |
 | `pe-st-pneus` | Tabela SEFAZ-PE de MVA de pneus, câmaras e protetores (desde 01/01/2024); RICMS-PE, Anexo 37, arts. 49 a 54; Conv. 142/2018, Anexo XVI | 2024-01-01 em diante | `pePneuItem(ncm, cest)` + `mvaAdjusted` |
 | `pe-antecipacao-simples` | Informativo SEFAZ-PE "Antecipação: aquisições em outra UF" (01/10/2026), RICMS-PE arts. 338 a 340, 363-A, 393-A | 2023-12-01 a 2032-12-31 (percentuais publicados até 2028) | `peAntecipacaoSimples({ rbt12, regular, inter, data })` |
+| `simples-anexos` | LC 123/2006, Anexos II a V (LC 155/2016); LC 214/2025, Anexos XIX a XXII (LC 227/2026): 28 períodos | 2018 em diante | `simplesNacional(anexo, rbt12, data)`, `simplesFatorR`, `simplesDas` |
+| `tipi` | Decreto 11.158/2022, planilha atualizada pela Receita Federal (11.108 linhas, até o ADE RFB 1/2026) | 2026-01-30 em diante | `ipiRate(ncm, data, ex?)` |
+| `ibs-cbs-reducoes` | LC 214/2025, Anexos I a XV (469 itens, 60% e zero; o XIV foi revogado) | 2027 em diante | `reducedRateCandidates({ ncm, nbs })` (candidatos, nunca decisão) |
+| `imposto-seletivo` | LC 214/2025, Anexo XVII | 2027 em diante | `impostoSeletivo(ncm, data)` (incidência; alíquota `ALIQUOTA_NAO_FIXADA`) |
+| `iss-lc116` | LC 116/2003: lista de serviços (205 subitens), arts. 3º, 8º e 8º-A | até 2032-12-31 | `lc116Item`, `issPlace`, `issRateCheck` |
 
 Achados que mudam o produto:
 
@@ -65,6 +70,28 @@ Primeiro pacote estadual, porque os clientes estão em PE (estratégia de conte�
 
 `npm run verify:sources -- pe-st-autopecas` confere o decreto (SEFAZ-PE) e os dois protocolos (Confaz). O informativo de antecipação é PDF e ainda não tem verificação automática.
 
+### 2.3 Cobertura dos tributos (2026-10-22)
+
+`TAX_COVERAGE` / `taxCoverage(tributo)` (`src/coverage.ts`) é o mapa que o código consulta; o teste confere que toda tabela citada existe e que toda tabela sustenta algum tributo. Resumo:
+
+| Tributo | Estado | O que responde | O que falta |
+|---|---|---|---|
+| Simples Nacional | completo | Anexos I a V, 2018 a 2033+, Fator R, teto do ISS, 6ª faixa, sublimite, reduções | atividades mistas, MEI, proporcionalização (de quem chama); monofásico em 2027+ sem regra legal |
+| IRPJ/CSLL Presumido | completo | presunção por atividade (8/1,6/16/32/38,4%), LC 224 | adicional do IRPJ (depende do lucro) |
+| IPI | completo | alíquota por NCM e ex-tarifário | incidência na operação, suspensão/isenção, cEnq |
+| PIS/Cofins | parcial | cumulativo e não cumulativo, monofásico de autopeças | regimes especiais, CST SPED, **LC 224 art. 4º** (ver abaixo) |
+| ICMS próprio | parcial | interestadual (27 UFs), modal de PE | interna, base, benefícios de 26 UFs |
+| ICMS-ST / antecipação | parcial | autopeças e pneus em PE; Simples em PE | outros segmentos e UFs |
+| ISS | parcial | lista, limites 2%–5%, local de incidência, redução 2029–2032 | alíquota de cada município; retenção |
+| CBS/IBS | parcial | calendário, reduções por NCM/NBS (candidatos), Simples | alíquotas de referência (Senado), regimes específicos, cClassTrib, créditos |
+| Imposto Seletivo | parcial | incidência por NCM | alíquotas (lei ordinária) |
+| FCP, DIFAL | nenhum | | leis estaduais sem fonte nacional |
+| Retenções na fonte, importação | nenhum | | IRRF/CSRF/INSS/ISS retido; II, PIS/Cofins-Importação, ICMS importação |
+
+Como foi feito: tudo que vem de texto oficial estruturado é **gerado** por um parser (`npm run gen:simples-anexos`, `gen:tipi`, `gen:reducoes`, `gen:lc116`) e **conferido** pelo mesmo parser em `verify:sources` (17 verificações, todas contra o Planalto, a Receita, o Confaz, a Câmara e a SEFAZ-PE no dia 2026-10-22). Se a lei ou a planilha mudar, a verificação falha e diz a linha.
+
+**Risco aberto que o pacote não resolve:** a LC 224/2025, art. 4º, § 4º, I, manda que isenção e alíquota zero de PIS/Cofins, IPI, IRPJ/CSLL etc. listadas no demonstrativo de gastos tributários da LOA 2026 passem a pagar 10% da alíquota-padrão. A lista é um anexo da LOA, que o pacote não lê. Se a alíquota zero do revendedor de autopeça monofásica estiver nela, o "PIS/Cofins 0%" de 2026 do `saleTax` está errado. Está nos `caveats` do `federal-lucro` e do `monofasico-autopecas`; **precisa de parecer do contador** antes de confiar no zero.
+
 ## 3. Pronto para a nova tributação
 
 | Período | Regra | Efeito no Fixer |
@@ -86,7 +113,7 @@ Primeiro pacote estadual, porque os clientes estão em PE (estratégia de conte�
 7. **Aceite por tabela e versão:** ver §6.
 8. **Tela** `/configuracoes/precificacao`, seção 4: cada tabela com versão, vigência, fontes oficiais com link e o que não cobre (`GET /pricing/tax-tables`).
 
-9. **Verificação contra o texto oficial** (`npm run verify:sources` em `packages/tax-rules`): baixa as fontes (Planalto, Confaz, Câmara), extrai os dados de novo e compara com as tabelas. Cobre as 10 tabelas em 11 verificações: Anexo I e XVIII do Simples (faixas, deduções e repartições), Anexos I e II da Lei 10.485, os 131 itens do Anexo II do Convênio 142, as UFs e CEST do Protocolo 41/2008 (acusa alteração nova do protocolo), CFOP (acusa nova versão no menu do Confaz), CST, CSOSN e CRT, as frases-chave das resoluções do Senado e das leis federais, os artigos da LC 214 e o cruzamento dos anexos de redução com os NCM de autopeças. Avisa quando passa o prazo do Senado (31/10) sem a alíquota de referência preenchida. Saída 0 = tudo bate, 1 = alguma tabela diverge da lei, 2 = não deu para baixar. `-- <id ou tabela>` roda só uma; `--json` para máquina.
+9. **Verificação contra o texto oficial** (`npm run verify:sources` em `packages/tax-rules`): baixa as fontes (Planalto, Confaz, Câmara), extrai os dados de novo e compara com as tabelas. Hoje são 17 verificações (as 10 tabelas originais e as 6 de 2026-10-22: Anexos II a V, TIPI, reduções de IBS/CBS, Imposto Seletivo, ISS e a transição do ISS), além de: Anexo I e XVIII do Simples (faixas, deduções e repartições), Anexos I e II da Lei 10.485, os 131 itens do Anexo II do Convênio 142, as UFs e CEST do Protocolo 41/2008 (acusa alteração nova do protocolo), CFOP (acusa nova versão no menu do Confaz), CST, CSOSN e CRT, as frases-chave das resoluções do Senado e das leis federais, os artigos da LC 214 e o cruzamento dos anexos de redução com os NCM de autopeças. Avisa quando passa o prazo do Senado (31/10) sem a alíquota de referência preenchida. Saída 0 = tudo bate, 1 = alguma tabela diverge da lei, 2 = não deu para baixar. `-- <id ou tabela>` roda só uma; `--json` para máquina.
 
 10. **Agendamento (máquina de desenvolvimento):** `scripts/register-weekly.ps1` registra no Agendador de Tarefas do Windows a tarefa "Fixer - verificar tabelas tributarias" (segunda 9h; se o computador estava desligado, roda ao ligar; só com rede). `scripts/verify-weekly.ps1` grava o relatório em `%LOCALAPPDATA%\fixer\tax-rules-verify\` (`ultimo.txt` e os 20 mais recentes) e mostra uma notificação do Windows quando alguma tabela diverge, não dá para baixar ou há aviso. Remover: `register-weekly.ps1 -Remove`. Em CI ou no servidor, o mesmo `npm run verify:sources` serve (saída 1 = lei mudou).
 
@@ -104,6 +131,7 @@ Primeiro pacote estadual, porque os clientes estão em PE (estratégia de conte�
 - **Alíquotas de referência de CBS e IBS**, até o Senado fixar; **cClassTrib** da NF-e (tabela da Nota Técnica); regimes específicos e Imposto Seletivo.
 - **Alterações por decreto** na lista monofásica (Lei 10.485, art. 3º, § 1º): conferir na TIPI.
 - **Optante do Simples recolhendo IBS/CBS por fora do DAS**; **proporcionalização da RBT12**; adicional do IRPJ.
+- **O que continua sem fonte nacional única** (2026-10-22): ICMS interno, FCP, DIFAL, ST e antecipação das outras 26 UFs; alíquota de ISS de cada município; retenções na fonte; importação. Cada um precisa de curadoria por UF/município ou de fornecedor (tax-engine.md §12); até lá o pacote responde "não coberto", nunca um número.
 
 ## 6. Validação pelo contador (por tabela)
 

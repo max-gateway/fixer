@@ -213,10 +213,12 @@ describe('transição IBS/CBS', () => {
   });
 
   it('legacyTaxes: o que sobra do regime antigo', () => {
-    expect(legacyTaxes('2026-10-13')).toEqual({ pisCofins: true, icmsRemainingPct: '100' });
-    expect(legacyTaxes('2027-03-01')).toEqual({ pisCofins: false, icmsRemainingPct: '100' });
-    expect(legacyTaxes('2031-03-01')).toEqual({ pisCofins: false, icmsRemainingPct: '70' });
-    expect(legacyTaxes('2033-01-01')).toEqual({ pisCofins: false, icmsRemainingPct: '0' });
+    expect(legacyTaxes('2026-10-13')).toEqual({ pisCofins: true, icmsRemainingPct: '100', issRemainingPct: '100' });
+    expect(legacyTaxes('2027-03-01')).toEqual({ pisCofins: false, icmsRemainingPct: '100', issRemainingPct: '100' });
+    expect(legacyTaxes('2031-03-01')).toEqual({ pisCofins: false, icmsRemainingPct: '70', issRemainingPct: '70' }); // ISS: LC 116, art. 8º-B (-30% em 2031)
+    expect(legacyTaxes('2029-01-01')?.issRemainingPct).toBe('90');
+    expect(legacyTaxes('2032-12-31')?.issRemainingPct).toBe('60');
+    expect(legacyTaxes('2033-01-01')).toEqual({ pisCofins: false, icmsRemainingPct: '0', issRemainingPct: '0' }); // LC 116 revogada (LC 214, art. 543, IV)
   });
 
   it('o ICMS que resta na transição bate com o que o Anexo XVIII do Simples destina ao ICMS (30,6/34 = 90% em 2029)', () => {
@@ -471,7 +473,7 @@ describe('metadados', () => {
   it('toda tabela cita fonte oficial, não foi validada por humano e lista o que não cobre', () => {
     for (const t of TABLES) {
       expect(t.sources.length).toBeGreaterThan(0);
-      for (const s of t.sources) expect(s.url).toMatch(/^https:\/\/(www\.planalto\.gov\.br|www\.confaz\.fazenda\.gov\.br|www2\.camara\.leg\.br|www\.sefaz\.pe\.gov\.br|servicodados\.ibge\.gov\.br)\//);
+      for (const s of t.sources) expect(s.url).toMatch(/^https:\/\/(www\.planalto\.gov\.br|www\.confaz\.fazenda\.gov\.br|www2\.camara\.leg\.br|www\.sefaz\.pe\.gov\.br|www\.gov\.br\/receitafederal|www\.legisweb\.com\.br|recifeemdia\.recife\.pe\.gov\.br|servicodados\.ibge\.gov\.br)\//);
       expect(t.validatedBy).toBeNull();
       expect(t.caveats.length).toBeGreaterThan(0);
     }

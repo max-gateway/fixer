@@ -15,6 +15,10 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "verify:sources": "npm run build && node scripts/verify-sources.mjs"
+    "verify:sources": "npm run build && node scripts/verify-sources.mjs",
+    "gen:simples-anexos": "npm run build && node scripts/gen-simples-anexos.mjs",
+    "gen:tipi": "npm run build && node scripts/gen-tipi.mjs",
+    "gen:reducoes": "npm run build && node scripts/gen-reducoes.mjs",
+    "gen:lc116": "npm run build && node scripts/gen-lc116.mjs"
   }
 }

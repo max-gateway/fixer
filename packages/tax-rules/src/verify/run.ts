@@ -26,7 +26,8 @@ function downloadOnce(url: string, insecure = false, redirects = 5): Promise<str
       }
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
-      res.on('end', () => resolve(decodeBody(Buffer.concat(chunks))));
+      // Planilhas (.xlsx) são binárias: seguem como texto latin1, que preserva os bytes, e o conferidor reconstrói o Buffer.
+      res.on('end', () => resolve(/\.xlsx(\?|$)/i.test(url) ? Buffer.concat(chunks).toString('latin1') : decodeBody(Buffer.concat(chunks))));
     });
     req.on('timeout', () => req.destroy(new Error(`tempo esgotado em ${url}`)));
     req.on('error', reject);
