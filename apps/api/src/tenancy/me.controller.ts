@@ -1,10 +1,8 @@
-import { Controller, Get, Headers, Inject, Optional, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Headers, UnauthorizedException } from '@nestjs/common';
 import { Public } from '../auth/auth.decorators.js';
-import { AuthConfig } from '../auth/auth.config.js';
 import { AuthService } from '../auth/auth.service.js';
 import { SystemPrismaService } from '../prisma/system-prisma.service.js';
 import { MembershipService } from './membership.service.js';
-import { orgsFromClaim } from './resolve-org.js';
 
 /**
  * Rotas do próprio usuário que NÃO dependem de uma organização escolhida. Ficam fora do `TenantMiddleware` (quem participa de
@@ -15,14 +13,14 @@ import { orgsFromClaim } from './resolve-org.js';
 export class MeController {
   constructor(
     private readonly auth: AuthService,
-    private readonly config: AuthConfig,
     private readonly system: SystemPrismaService,
-    @Optional() @Inject(MembershipService) private readonly membership: MembershipService | null = null,
+    private readonly membership: MembershipService,
   ) {}
 
   /**
-   * As organizações do token (e só elas) com o nome de cada uma, para o seletor de oficina da web. Usa o cliente de sistema
-   * porque nenhuma organização está no contexto; a autorização é o próprio claim do token, já validado.
+   * As organizações do usuário (e só elas) com o nome de cada uma, para o seletor de oficina da web. Usa o cliente de sistema
+   * porque nenhuma organização está no contexto. A autoridade é a participação registrada pelo control plane: o claim `organization`
+   * do token é só uma pista (o Keycloak 26.0 o omite ao acaso) e nunca concede nem lista nada.
    */
   @Get('organizations')
   async organizations(@Headers('authorization') authorization?: string) {
@@ -30,9 +28,7 @@ export class MeController {
     if (scheme?.toLowerCase() !== 'bearer' || !token) throw new UnauthorizedException('Token ausente');
     const payload = await this.auth.verify(token);
 
-    // Claim (atalho) + participação conhecida pelo Fixer (autoridade): o claim do Keycloak 26.0 some ao acaso para quem está em várias organizações.
-    let ids = [...new Set([...orgsFromClaim(payload[this.config.orgsClaim]), ...((await this.membership?.orgsFor(payload.sub)) ?? [])])];
-    if (ids.length === 0 && this.config.defaultOrgId) ids = [this.config.defaultOrgId.toLowerCase()]; // instalação legada
+    const ids = [...new Set(await this.membership.orgsFor(payload.sub))];
     const profiles = ids.length ? await this.system.orgProfile.findMany({ where: { orgId: { in: ids } }, select: { orgId: true, slug: true, name: true } }) : [];
     const byId = new Map(profiles.map((p) => [p.orgId, p]));
     return {

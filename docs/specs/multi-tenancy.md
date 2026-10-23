@@ -53,9 +53,12 @@ Em produção os papéis são criados com senhas próprias (secret manager). Mig
 ## 3. Como a organização chega ao banco
 
 1. **`TenantContext`** (AsyncLocalStorage): a organização da operação em andamento.
-2. **Requisição autenticada** — `TenantMiddleware`: valida o JWT, lê o claim `organization` (configurável em `AUTH_ORGS_CLAIM`) e define a organização.
-   Quem participa de uma só organização não precisa informar nada; quem participa de várias envia `X-Org-Id`. **O cabeçalho só escolhe entre as
-   organizações do próprio token; nunca concede acesso** (organização fora do token = 403).
+2. **Requisição autenticada** — `TenantMiddleware`: `AuthService.verify` valida o JWT pelo `@max-gateway/auth` (assinatura, emissor, **audiência da API**
+   `AUTH_AUDIENCE`, vida ≤ 15 min, `iat`) e `resolvePrincipal` define a organização a partir da **participação registrada** (`OrgMembership`, alimentada pelos
+   eventos do control plane; `FixerTenantDirectory`), nunca do claim `organization`, que é só uma pista. Quem participa de uma só organização não precisa
+   informar nada; quem participa de várias envia `X-Org-Id` (sem ele: 400). **O cabeçalho só escolhe entre as organizações da própria pessoa; nunca concede
+   acesso** (organização que não é dela = 404, idêntico ao inexistente). Token sem organização = 403. O papel da plataforma de cada pessoa
+   (`viewer`/`stockist`/`price_manager`) é derivado das permissões de negócio dela (`catalog-platform/platform-roles.ts`).
 3. **Portal público** — `PortalTenantMiddleware`: a organização é a dona do `portalToken` da URL (o token é a credencial do cliente final). Token desconhecido = 404.
 4. **`PrismaService`** (RLS): cada operação, transação interativa ou SQL cru roda com `set_config('app.org_id', <org>, true)`, que vale só até o fim da
    transação, então a conexão volta ao pool limpa. Tabela de oficina sem organização no contexto **lança `TenantContextMissing`** (falha alto, nunca "lista vazia").
@@ -78,8 +81,9 @@ Pegadinhas conhecidas: as promessas do Prisma são **preguiçosas** (executam no
 
 A migração `20261012100000_multi_tenant` roda no lugar: todas as linhas existentes recebem a organização "legada"
 (`00000000-0000-0000-0000-000000000001`, ou o UUID passado em `PGOPTIONS="-c fixer.legacy_org_id=<uuid>"`), o contador da OS continua de onde parou e a RLS é ligada.
-Para a instância continuar funcionando sem mudar o Keycloak: `DEFAULT_ORG_ID=<mesmo uuid>` (token sem claim de organizações usa esta) e `DATABASE_URL`
-com o papel `fixer_rls`.
+> **Atualização (parts-search-integration.md, I10):** `DEFAULT_ORG_ID` e `AUTH_ORGS_CLAIM` foram removidos. A API exige a participação registrada
+> (`OrgMembership`) e `AUTH_AUDIENCE` no token. Uma instância existente precisa do realm com Organizations, do audience mapper e da participação
+> da pessoa registrada na organização "legada"; `DATABASE_URL` continua com o papel `fixer_rls`.
 
 ### Identidade: um realm, uma Organization do Keycloak por oficina
 

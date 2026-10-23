@@ -106,6 +106,12 @@ keycloak:
   authServerUrl: ""
   clientId: "fixer-api"
   webClientId: "fixer-web"
+  # Audiência exigida no token (padrão: o clientId da API).
+  audience: ""
+
+catalogPlatform:
+  # Catálogos globais da plataforma (parts-search) que a oficina lê, separados por vírgula.
+  catalogs: "rocket-autopecas"
 
 autoscaling:
   enabled: false

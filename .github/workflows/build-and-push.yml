@@ -15,6 +15,7 @@ env:
 permissions:
   id-token: write # for OIDC auth to AWS, no long-lived keys stored in GitHub
   contents: read
+  packages: read # @max-gateway/* vem do GitHub Packages
 
 jobs:
   build-and-push:
@@ -57,6 +58,9 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
+          # Token de leitura do GitHub Packages como secret do BuildKit: nunca vira ARG nem fica numa camada da imagem.
+          secrets: |
+            npm_token=${{ secrets.GITHUB_TOKEN }}
           tags: |
             ${{ steps.ecr-login.outputs.registry }}/${{ matrix.repository }}:${{ steps.tag.outputs.tag }}
             ${{ steps.ecr-login.outputs.registry }}/${{ matrix.repository }}:latest

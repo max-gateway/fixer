@@ -1,5 +1,6 @@
+import { verifyToken } from '@max-gateway/auth';
 import { Inject, Injectable, Optional, UnauthorizedException } from '@nestjs/common';
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import { createRemoteJWKSet, type JWTPayload } from 'jose';
 import { PlanLimits } from '../control-plane/plan-limits.service.js';
 import { ProvisioningService } from '../control-plane/provisioning.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -10,6 +11,8 @@ import type { AuthUser } from './auth.decorators.js';
 @Injectable()
 export class AuthService {
   private readonly jwks;
+  /** Relógio da validação do token; só os vetores de conformidade o trocam (data fixa). */
+  private readonly now = (): Date => new Date();
 
   constructor(
     private readonly config: AuthConfig,
@@ -23,11 +26,13 @@ export class AuthService {
     this.jwks = createRemoteJWKSet(config.jwksUrl);
   }
 
-  /** Só valida assinatura, emissor e validade. Não toca no banco (usado antes de saber a organização). */
+  /**
+   * Valida assinatura, emissor, audiência desta API e validade (vida ≤ 15 min, `iat` obrigatório), pelo `@max-gateway/auth`.
+   * Não toca no banco (usado antes de saber a organização). A recusa não diz o motivo.
+   */
   async verify(token: string): Promise<JWTPayload> {
     try {
-      const { payload } = await jwtVerify(token, this.jwks, { issuer: this.config.issuer });
-      return payload;
+      return await verifyToken(token, this.jwks, { issuer: this.config.issuer, audience: this.config.audience }, this.now);
     } catch {
       throw new UnauthorizedException('Token inválido');
     }

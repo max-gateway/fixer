@@ -5,7 +5,6 @@ import { isUuid, ORG_COOKIE, orgIdsFromToken, pickActiveOrg, type ActiveOrg } fr
 
 export type OrgSummary = { id: string; name: string | null; slug: string | null };
 
-const claim = () => process.env.AUTH_ORGS_CLAIM || 'organization';
 const apiUrl = () => process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 const TTL_MS = 30_000;
@@ -39,7 +38,8 @@ export const listOrganizations = cache(async (): Promise<OrgSummary[]> => {
   } catch {
     // API indisponível: o seletor ainda funciona com o que o token traz
   }
-  return orgIdsFromToken(token, claim()).map((id) => ({ id, name: null, slug: null }));
+  // Só para o seletor: o claim é uma pista e nunca concede nada. A API confere a participação a cada chamada (404 se não for da pessoa).
+  return orgIdsFromToken(token).map((id) => ({ id, name: null, slug: null }));
 });
 
 /** Oficinas do usuário e qual está ativa (o cookie só vale se a oficina ainda for dele: um id adulterado não passa). */

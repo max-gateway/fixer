@@ -13,4 +13,8 @@ data:
   KEYCLOAK_REALM: {{ .Values.keycloak.realm | quote }}
   KEYCLOAK_AUTH_SERVER_URL: {{ .Values.keycloak.authServerUrl | quote }}
   KEYCLOAK_CLIENT_ID: {{ .Values.keycloak.clientId | quote }}
+  # Audiência (aud) que a API exige no token; o client web precisa de um audience mapper para ela.
+  AUTH_AUDIENCE: {{ .Values.keycloak.audience | default .Values.keycloak.clientId | quote }}
+  # Catálogos globais da plataforma (parts-search) que a oficina lê, separados por vírgula.
+  PARTS_SEARCH_CATALOGS: {{ .Values.catalogPlatform.catalogs | quote }}
   KEYCLOAK_WEB_CLIENT_ID: {{ .Values.keycloak.webClientId | quote }}
