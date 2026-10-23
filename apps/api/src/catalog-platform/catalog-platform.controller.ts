@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { parse } from '../common/parse.js';
 import { CatalogPlatformService, type CallerContext } from './catalog-platform.service.js';
 
-interface PlatformRequest {
+export interface PlatformRequest {
   headers: Record<string, string | string[] | undefined>;
   /** Contexto resolvido pelo `TenantMiddleware` (`@max-gateway/auth`). */
   principal?: { tenantId?: string; storeId?: string; catalogs?: string[] };
@@ -31,7 +31,7 @@ export function callerFrom(req: PlatformRequest): CallerContext {
 }
 
 /** Catálogo da chamada: o pedido explícito precisa ser um dos que a pessoa lê (senão 404, idêntico a inexistente); sem pedido, o primeiro. */
-function pickCatalog(req: PlatformRequest, wanted: string | undefined): string {
+export function pickCatalog(req: PlatformRequest, wanted: string | undefined): string {
   const catalogs = req.principal?.catalogs ?? [];
   if (catalogs.length === 0) throw new ForbiddenException('Sua oficina não tem catálogo de peças configurado');
   if (wanted === undefined) return catalogs[0]!;

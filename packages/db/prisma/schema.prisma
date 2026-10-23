@@ -231,6 +231,11 @@ model Part {
 
   ean String? // GTIN; o matcher da importação de NF-e casa o item da nota por aqui
 
+  // Vínculo com o catálogo global da plataforma (parts-search). NULL = peça que o catálogo ainda não tem. Os três campos andam juntos (CHECK no banco).
+  catalogSku        String?
+  catalogLinkedAt   DateTime?
+  catalogLinkSource CatalogLinkSource?
+
   // Precificação (docs/specs/pricing.md §4.2). `costPrice` é o último custo; `avgCost` é o médio ponderado (só relatório).
   avgCost     Decimal?
   pricingMode PricingMode @default(AUTO) // MANUAL: nenhuma nota sugere nem altera o preço
@@ -249,8 +254,15 @@ model Part {
   priceHistory     PartPriceHistory[]
 
   @@unique([orgId, sku])
+  @@unique([orgId, catalogSku])
   @@index([ean])
   @@index([orgId])
+}
+
+enum CatalogLinkSource {
+  EAN // casado pelo GTIN contra o catálogo
+  MANUAL // escolhido pela pessoa
+  CREATED_FROM_CATALOG // a peça nasceu de uma peça do catálogo
 }
 
 model Service {

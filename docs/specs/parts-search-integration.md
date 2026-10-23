@@ -155,6 +155,17 @@ model Part {
 - **Peça nova da oficina:** o fluxo de "criar peça" busca no catálogo primeiro; só sem acerto cria peça local (`catalogSku = NULL`), até a proposta de inserção existir (P5).
 - **Seeds e fixtures** de dev e teste passam a usar o catálogo local da plataforma.
 
+### 9.1 Estado da fase M (2026-10-23) e o que mudou em relação ao texto acima
+
+Implementado (`feat/catalog-link`): migração `20261023100000_part_catalog_link` (`catalogSku`, `catalogLinkedAt`, `catalogLinkSource`, único por oficina, CHECK que mantém os três juntos),
+`PartCatalogLinkService` e as rotas `POST /parts/from-catalog`, `PUT|DELETE /parts/:id/catalog-link`, `POST /parts/catalog-links/by-barcode` (simula; grava só com `apply: true`) e
+`GET /invoices/:id/catalog-suggestions`. Nova permissão `catalog.link`.
+
+Decisões que **refinam** este texto:
+- **`Part.name`, `sku` e `ean` ficam** nesta fase, como identificação local e *último nome conhecido*. Remover `name` quebraria o objetivo 5 (a plataforma fora do ar nunca pode impedir abrir ou faturar uma OS): criar a linha da OS precisa do nome sem depender da rede. Eles só saem quando as telas hidratarem o nome do catálogo em lote (P-1) e houver um *último nome conhecido* explícito para o caso de queda.
+- **Casamento da NF-e: só em fluxo de usuário.** `matchInvoice` roda dentro da transação do lote da SEFAZ, num job sem usuário, e a plataforma só é chamada com o token da pessoa (§6: não há identidade de serviço por organização ainda). Por isso o catálogo entra como **sugestão** (`catalog-suggestions`), e o casamento automático do lote continua só local. Passa a automático quando existir a identidade de serviço (fase W).
+- **Erro de unicidade:** com o cliente de tenant, o `P2002` do Prisma chega com `meta.target` nulo (provado em `part-catalog-link.integration.spec.ts`). O serviço descobre a causa (peça do catálogo já no estoque × SKU repetido) olhando o banco, e nunca depende do formato do erro.
+
 ## 10. Escrita: ofertas (bloqueada por §6)
 
 - **Fonte de verdade:** o Fixer. `sellPrice` e `stockQty` (soma do `StockMovement`) são publicados à plataforma; **custo, margem e fornecedor nunca saem** (a plataforma os rejeita).

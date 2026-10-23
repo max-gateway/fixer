@@ -10,7 +10,7 @@ export interface PermissionDef {
   risk?: 'high';
 }
 
-export type PermissionGroup = 'fiscal' | 'invoices' | 'pricing' | 'payables' | 'learning' | 'access';
+export type PermissionGroup = 'fiscal' | 'invoices' | 'pricing' | 'payables' | 'learning' | 'access' | 'catalog';
 
 /** Ordem e nome dos grupos na tela. */
 export const PERMISSION_GROUPS: readonly { key: PermissionGroup; label: string; description: string }[] = [
@@ -20,6 +20,7 @@ export const PERMISSION_GROUPS: readonly { key: PermissionGroup; label: string; 
   { key: 'pricing', label: 'Precificação', description: 'Preço de venda, regras e perfil tributário' },
   { key: 'payables', label: 'Contas a pagar', description: 'Parcelas, lançamentos e pagamentos' },
   { key: 'learning', label: 'Aprendizado', description: 'Tempos de serviço aprendidos com as OS' },
+  { key: 'catalog', label: 'Catálogo de peças', description: 'Vínculo das peças da oficina com o catálogo da plataforma' },
 ];
 
 export const PERMISSIONS: readonly PermissionDef[] = [
@@ -35,6 +36,7 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   { key: 'payables.manage', label: 'Lançar, editar e cancelar contas a pagar', group: 'payables' },
   { key: 'payables.pay', label: 'Registrar pagamento de contas a pagar', group: 'payables', risk: 'high' },
   { key: 'learning.manage', label: 'Gerenciar o aprendizado de tempos', group: 'learning' },
+  { key: 'catalog.link', label: 'Vincular e desvincular peças do catálogo da plataforma', group: 'catalog' },
 ];
 
 export const ADMIN_ROLE = 'Admin';
