@@ -142,11 +142,11 @@ Se, depois do job, o regime continua `null` e a empresa não é do Simples, a te
 | Município ou CNAE mudou na consulta | Passos 2 e 3 |
 | Certificado renovado (mesmo CNPJ) | Nada novo; continua o calendário |
 
-O agendamento usa o mesmo worker da sincronização fiscal (`sync.runner`), com lease por tenant. A atualização segue R1 e R3. Quando um valor muda, a tela de configuração e o aviso da nota mostram o que mudou ("RBT12 atualizada com o PGDAS-D de 09/2026: R$ X → R$ Y").
+**Implementado** (`fiscal-autofill.scheduler.ts`) só para a RBT12: a partir do dia 21, cada empresa do Simples que autorizou a leitura é atualizada sozinha, como quem deu o consentimento (a auditoria exige um usuário). Uma tentativa a cada 3 dias até a Receita entregar (cada tentativa é paga), registrada em `FiscalAuditLog` (`autofill.refresh.ok` / `.try`); `FISCAL_AUTOFILL_REFRESH=false` desliga. Regime e ISS seguem o calendário abaixo, ainda manual. O desenho original usava o worker da sincronização fiscal (`sync.runner`), com lease por tenant. A atualização segue R1 e R3. Quando um valor muda, a tela de configuração e o aviso da nota mostram o que mudou ("RBT12 atualizada com o PGDAS-D de 09/2026: R$ X → R$ Y").
 
 ## 7. Consentimento
 
-Consultar a Receita (Integra Contador) com o certificado é diferente de baixar notas (DF-e). O envio do certificado **não** autoriza isso sozinho. A tela de certificado ganha uma opção separada, desligada até a pessoa marcar:
+Consultar a Receita (Integra Contador) com o certificado é diferente de baixar notas (DF-e). O envio do certificado **não** autoriza isso sozinho. A tela de envio do certificado ganha uma opção separada (caixa de seleção no próprio formulário, **desmarcada** até a pessoa marcar). Marcada, o envio já dispara a busca: autoriza, salva o certificado e roda o preenchimento, de modo que a RBT12 oficial e os fatos da declaração chegam no mesmo gesto:
 
 > **Buscar os dados de imposto na Receita Federal.** O Fixer usa o certificado para ler o regime tributário, as declarações do Simples (PGDAS-D) e os pagamentos de tributos federais. Só leitura: nada é declarado nem pago. Você pode desligar quando quiser.
 

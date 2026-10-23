@@ -58,6 +58,22 @@ export class PlanLimits {
     }
   }
 
+  /** Vale antes de dar acesso a mais alguém (convite, reativação): conta os usuários ativos, sem exceção para quem já existe. */
+  async assertActiveUserSlot(): Promise<void> {
+    const max = await this.limit(ENTITLEMENT.users);
+    if (max === null) return;
+    const used = await this.prisma.user.count({ where: { active: true } });
+    if (used >= max) {
+      throw paymentRequired('plan_limit_reached', `Limite de ${max} usuário(s) do plano atingido`, { limit: ENTITLEMENT.users, max, used });
+    }
+  }
+
+  /** Para a tela de acessos: quantos usuários ativos cabem no plano (`max: null` = sem limite). */
+  async userSeats(): Promise<{ max: number | null; used: number }> {
+    const [max, used] = await Promise.all([this.limit(ENTITLEMENT.users), this.prisma.user.count({ where: { active: true } })]);
+    return { max, used };
+  }
+
   async assertOrderSlot(now: Date = new Date()): Promise<void> {
     const max = await this.limit(ENTITLEMENT.ordersPerMonth);
     if (max === null) return;

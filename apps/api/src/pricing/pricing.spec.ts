@@ -261,6 +261,15 @@ describe('imposto sobre a venda pela RBT12 (Anexo I, packages/tax-rules)', () =>
     expect(calc({ rbt12: 5_000_000 })).toMatchObject({ pct: null, unavailable: 'RBT12_FORA_DO_SIMPLES' });
   });
 
+  it('RBT12 acima do sublimite de R$ 3,6 milhões: ICMS sai do DAS, indisponível até o contador informar a alíquota', () => {
+    expect(calc({ rbt12: 3_600_000.01 })).toMatchObject({ pct: null, unavailable: 'SUBLIMITE_ESTADUAL' });
+    expect(calc({ rbt12: 4_800_000 })).toMatchObject({ pct: null, unavailable: 'SUBLIMITE_ESTADUAL' });
+    // No próprio limite o ICMS ainda está dentro do DAS.
+    expect(calc({ rbt12: 3_600_000 })).toMatchObject({ unavailable: null });
+    // A alíquota efetiva do contador vale mais que a tabela e dispensa o bloqueio.
+    expect(calc({ rbt12: 4_000_000, simplesEffectiveRatePct: 12 })).toMatchObject({ unavailable: null });
+  });
+
   it('sem RBT12 e sem alíquota: SEM_ALIQUOTA', () => {
     expect(calc({ rbt12: null })).toMatchObject({ pct: null, unavailable: 'SEM_ALIQUOTA' });
   });
@@ -309,6 +318,25 @@ describe('imposto sobre a venda no Lucro Presumido (packages/tax-rules)', () => 
 
   it('RBT12 acima de R$ 5 milhões aplica a majoração da presunção (LC 224/2025)', () => {
     expect(calc({ rbt12: 6_000_000 }).pct?.toFixed(4)).toBe('24.1580');
+  });
+
+  describe('majoração pela receita do trimestre (IN RFB 2.305/2025, art. 15)', () => {
+    const q = (quarterRevenue: number | null, p: Partial<TaxProfileInput> = {}) =>
+      saleTax({ regime: 'PRESUMIDO', profile: { ...base, ...p }, flags: flags(), override: null, asOf: '2026-10-13', tablesReviewed: true, quarterRevenue });
+
+    it('trimestre abaixo de R$ 1,25 milhão: sem acréscimo, mesmo com RBT12 enorme', () => {
+      expect(q(900_000, { rbt12: 6_000_000 }).pct?.toFixed(4)).toBe('23.9300');
+    });
+
+    it('trimestre já acima de R$ 1,25 milhão: a venda nova é excedente e leva o acréscimo', () => {
+      expect(q(1_250_000).pct?.toFixed(4)).toBe('24.1580');
+      expect(q(3_000_000).pct?.toFixed(4)).toBe('24.1580');
+    });
+
+    it('sem a receita do trimestre, vale o teto antigo pela RBT12', () => {
+      expect(q(null, { rbt12: 6_000_000 }).pct?.toFixed(4)).toBe('24.1580');
+      expect(q(null, { rbt12: 2_000_000 }).pct?.toFixed(4)).toBe('23.9300');
+    });
   });
 
   it('2027: PIS e Cofins acabam e CBS/IBS ainda não têm alíquota de referência', () => {

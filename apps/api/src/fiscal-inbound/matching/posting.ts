@@ -3,6 +3,9 @@ import { ConflictException, UnprocessableEntityException } from '@nestjs/common'
 import type { PricingCostProfile } from '../../pricing/cost-profile.js';
 import { buildPricingPlan, type PricingPlan, type PricingRow } from '../../pricing/pricing-plan.js';
 import { nextAvgCost } from '../../stock/avg-cost.js';
+import type { Regime } from '../../pricing/sale-tax.js';
+import { taxReadiness } from '../../pricing/tax-readiness.js';
+import { loadTaxTrust } from '../../pricing/tax-trust.js';
 import { loadInvoiceLedger } from '../tax/invoice-ledger.js';
 import { buildEntrySnapshot, ENTRY_SNAPSHOT_SCHEMA_VERSION, type SnapshotInput } from './entry-snapshot.js';
 
@@ -195,7 +198,16 @@ async function loadFiscalContext(tx: Tx): Promise<SnapshotInput['fiscal']> {
     tx.tenantTaxProfile.findFirst(),
     tx.taxTableReview.findMany({ select: { tableId: true, version: true, reviewedBy: true, reviewedAt: true } }),
   ]);
-  return { taxRegime: settings?.taxRegime ?? null, ufCode: settings?.ufCode ?? null, profile, tableReviews };
+  const regime = (settings?.taxRegime as Regime | null | undefined) ?? null;
+  const trust = await loadTaxTrust(tx, regime, profile);
+  const used = taxReadiness({ regime, profile, profileTrust: trust.profile, tables: trust.tables }).requiredTables;
+  return {
+    taxRegime: settings?.taxRegime ?? null,
+    ufCode: settings?.ufCode ?? null,
+    profile,
+    tableReviews,
+    trust: { profile: trust.profile.basis, tables: used.map((tableId) => ({ tableId, basis: trust.tables.get(tableId)?.basis ?? null, checkedAt: trust.tables.get(tableId)?.checkedAt ?? null })) },
+  };
 }
 
 /** Lançamento automático (`autoExport`): só quando a nota chegou a READY e o autor configurado existe. Nunca mexe em preço. */

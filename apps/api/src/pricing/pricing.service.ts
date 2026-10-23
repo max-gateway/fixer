@@ -7,12 +7,14 @@ import { markManual, sameValue, type AutofillField } from '../fiscal-autofill/pr
 import { PrismaService } from '../prisma/prisma.service.js';
 import { TenantContext } from '../tenancy/tenant-context.js';
 import { buildPricingPlan, toDto } from './pricing-plan.js';
-import { TABLES } from '@fixer/tax-rules';
+import { sourceCheck, TABLES } from '@fixer/tax-rules';
 import { TAX_RULES_VERSION } from '../fiscal-inbound/tax/rules.js';
 import { hashContext } from '../fiscal-inbound/matching/entry-snapshot.js';
 import { PricingError, suggestPrice } from './pricing.js';
 import type { Regime } from './sale-tax.js';
+import { buildTaxOverview } from './tax-overview.js';
 import { taxReadiness } from './tax-readiness.js';
+import { loadTaxTrust, tableTrust } from './tax-trust.js';
 
 const pct = (max: number) => z.number({ invalid_type_error: 'Informe um número' }).min(0, 'Não pode ser negativo').max(max, `No máximo ${max}`);
 
@@ -154,10 +156,12 @@ export class PricingService {
   /** As tabelas de regra tributária em uso: versão, vigência, fontes oficiais e o que cada uma não cobre. */
   async taxTables() {
     const reviews = await this.prisma.taxTableReview.findMany();
+    const trust = tableTrust(reviews);
     return {
       rulesVersion: TAX_RULES_VERSION,
       tables: TABLES.map((t) => {
         const r = reviews.find((x) => x.tableId === t.id);
+        const check = sourceCheck(t);
         return {
           id: t.id,
           version: t.version,
@@ -167,6 +171,9 @@ export class PricingService {
           caveats: t.caveats,
           /** Aceite do contador desta organização; `current` é falso quando foi dado a outra versão da tabela. */
           review: r ? { reviewedBy: r.reviewedBy, reviewedAt: r.reviewedAt.toISOString(), version: r.version, current: r.version === t.version } : null,
+          /** Conferência automática da versão em uso com o texto oficial (`verify:sources`); vale como validação. */
+          sourceCheck: check ? { checkedAt: check.checkedAt, checks: check.checks } : null,
+          basis: trust.get(t.id)?.basis ?? null,
         };
       }),
     };
@@ -188,9 +195,30 @@ export class PricingService {
   // ---- perfil tributário ----
 
   async getTaxProfile() {
-    const [p, settings, reviews] = await Promise.all([this.prisma.tenantTaxProfile.findFirst(), this.prisma.tenantFiscalSettings.findFirst({ select: { taxRegime: true } }), this.prisma.taxTableReview.findMany()]);
-    const tableReviews = new Map(reviews.map((r) => [r.tableId, TABLES.some((t) => t.id === r.tableId && t.version === r.version)]));
-    return { profile: p && this.profileView(p), readiness: taxReadiness({ regime: (settings?.taxRegime as Regime | null | undefined) ?? null, profile: p, tableReviews }) };
+    const [p, settings] = await Promise.all([this.prisma.tenantTaxProfile.findFirst(), this.prisma.tenantFiscalSettings.findFirst({ select: { taxRegime: true } })]);
+    const regime = (settings?.taxRegime as Regime | null | undefined) ?? null;
+    const trust = await loadTaxTrust(this.prisma, regime, p);
+    return {
+      profile: p && { ...this.profileView(p), trust: trust.profile.basis, origin: trust.origin },
+      readiness: taxReadiness({ regime, profile: p, profileTrust: trust.profile, tables: trust.tables, origin: trust.origin }),
+    };
+  }
+
+  /** O que o motor tributário calcula hoje para esta oficina (tela Tributário): faixa, alíquota, repartição, limites e fidelidade. */
+  async taxOverview() {
+    const [p, settings, rbtProv] = await Promise.all([
+      this.prisma.tenantTaxProfile.findFirst({ select: { rbt12: true } }),
+      this.prisma.tenantFiscalSettings.findFirst({ select: { taxRegime: true, municipalityIbge: true, lc116Item: true, issRate: true } }),
+      this.prisma.fiscalFieldProvenance.findFirst({ where: { field: 'rbt12' }, select: { evidence: true } }),
+    ]);
+    const evidence = rbtProv?.evidence as { conferencia?: unknown } | null | undefined;
+    return buildTaxOverview({
+      regime: (settings?.taxRegime as Regime | null | undefined) ?? null,
+      rbt12: p?.rbt12 == null ? null : new Prisma.Decimal(p.rbt12).toFixed(2),
+      asOf: new Date().toISOString().slice(0, 10),
+      conferencia: evidence?.conferencia ?? null,
+      iss: { ibge: settings?.municipalityIbge ?? null, item: settings?.lc116Item ?? null, saved: settings?.issRate == null ? null : new Prisma.Decimal(settings.issRate).toString() },
+    });
   }
 
   async saveTaxProfile(input: z.input<typeof TaxProfileSchema>, userId: string | null = null) {
@@ -341,7 +369,18 @@ export class PricingService {
     return { partId, pricingMode: mode };
   }
 
+  /**
+   * Confirma o enquadramento da peça. Só a resposta completa (ST e monofásico) vale como confirmação; "não sei" nas duas
+   * desfaz a confirmação e o cálculo volta a ler o XML. Meia resposta é recusada: confirmaria o que ninguém respondeu.
+   */
   async setTaxFlags(partId: string, input: z.infer<typeof TaxFlagsSchema>) {
+    const unknownSt = input.icmsStStatus === 'UNKNOWN';
+    const unknownMono = input.pisCofinsMonofasico === null;
+    if (unknownSt && unknownMono) {
+      await this.updatePart(partId, { icmsStStatus: 'UNKNOWN', pisCofinsMonofasico: null, taxFlagsSource: null });
+      return { partId, ...input, taxFlagsSource: null };
+    }
+    if (unknownSt || unknownMono) throw new BadRequestException('Responda se a peça tem ST e se é monofásica, ou marque "não sei" nas duas para desfazer a confirmação');
     await this.updatePart(partId, { icmsStStatus: input.icmsStStatus, pisCofinsMonofasico: input.pisCofinsMonofasico, taxFlagsSource: 'MANUAL' });
     return { partId, ...input, taxFlagsSource: 'MANUAL' as const };
   }

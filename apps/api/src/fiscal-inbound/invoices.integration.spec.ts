@@ -33,6 +33,7 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
     await db.pricingRule.deleteMany();
     await db.tenantTaxProfile.deleteMany();
     await db.taxTableReview.deleteMany();
+    await db.fiscalFieldProvenance.deleteMany();
     await db.supplierItemMap.deleteMany({ where: { supplierCnpj: SUPPLIER } });
     await db.stockEntrySnapshot.deleteMany({ where: { createdById: USER } });
     await db.stockMovement.deleteMany({ where: { createdById: USER } });
@@ -65,7 +66,7 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
     await cleanup();
     keys.clear();
     await db.user.create({ data: { id: USER, keycloakId: USER, name: 'Teste', email: 'itest-invoices@x.test' } });
-    await db.tenantFiscalSettings.upsert({ where: { orgId: TEST_ORG }, create: { orgId: TEST_ORG, cnpj: TENANT, ufCode: 35 }, update: { cnpj: TENANT, ufCode: 35 } });
+    await db.tenantFiscalSettings.upsert({ where: { orgId: TEST_ORG }, create: { orgId: TEST_ORG, cnpj: TENANT, ufCode: 35 }, update: { cnpj: TENANT, ufCode: 35, taxRegime: null } });
     await db.fiscalCredential.create({
       data: {
         orgId: TEST_ORG,
@@ -677,34 +678,69 @@ describe.skipIf(!URL)('InvoicesService (Postgres, integração)', () => {
       expect((await pricing.getTaxProfile()).profile).toMatchObject({ reviewedBy: null, reviewedAt: null });
     });
 
-    it('o imposto só fica CONFIRMADO com o perfil E a tabela validados; mudou a versão da tabela, o aceite cai', async () => {
+    it('tabela conferida com a lei vale como validada; o aceite do contador vem antes e cai com a versão', async () => {
       const { p, inv } = await setup();
       await pricing.setTaxFlags(p.id, { icmsStStatus: 'NOT_ST', pisCofinsMonofasico: false });
-      await pricing.reviewTaxProfile({ reviewedBy: 'Contador Teste' });
-      expect((await row(inv.id)).saleTax.confidence).toBe('ESTIMADO'); // perfil validado, tabela do Simples ainda não
-      await pricing.reviewTaxTable('simples-comercio', { reviewedBy: 'Contador Teste' });
-      expect((await row(inv.id)).saleTax.confidence).toBe('CONFIRMADO');
-      const listed = await pricing.taxTables();
-      expect(listed.tables.find((t) => t.id === 'simples-comercio')?.review).toMatchObject({ reviewedBy: 'Contador Teste', current: true });
-      expect(listed.tables.find((t) => t.id === 'federal-lucro')?.review).toBeNull();
-      // simula tabela nova: o aceite foi dado para outra versão
-      await db.taxTableReview.updateMany({ data: { version: 'versao-antiga' } });
-      expect((await pricing.taxTables()).tables.find((t) => t.id === 'simples-comercio')?.review).toMatchObject({ current: false });
+      // Alíquota e repartição digitadas: só o contador garante o perfil.
       expect((await row(inv.id)).saleTax.confidence).toBe('ESTIMADO');
+      await pricing.reviewTaxProfile({ reviewedBy: 'Contador Teste' });
+      // A tabela do Simples está conferida com o texto da lei (verify:sources) na versão em uso.
+      expect((await row(inv.id)).saleTax.confidence).toBe('CONFIRMADO');
+      let listed = await pricing.taxTables();
+      expect(listed.tables.find((t) => t.id === 'simples-comercio')).toMatchObject({ review: null, basis: 'FONTE_OFICIAL', sourceCheck: { checkedAt: expect.any(String) } });
+      await pricing.reviewTaxTable('simples-comercio', { reviewedBy: 'Contador Teste' });
+      listed = await pricing.taxTables();
+      expect(listed.tables.find((t) => t.id === 'simples-comercio')).toMatchObject({ review: { reviewedBy: 'Contador Teste', current: true }, basis: 'CONTADOR' });
+      // simula tabela nova: o aceite foi dado para outra versão; a conferência com a fonte continua garantindo
+      await db.taxTableReview.updateMany({ data: { version: 'versao-antiga' } });
+      expect((await pricing.taxTables()).tables.find((t) => t.id === 'simples-comercio')).toMatchObject({ review: { current: false }, basis: 'FONTE_OFICIAL' });
+      expect((await row(inv.id)).saleTax.confidence).toBe('CONFIRMADO');
       // validar de novo reaproveita a linha em vez de duplicar
       await pricing.reviewTaxTable('simples-comercio', { reviewedBy: 'Outra Contadora' });
       expect(await db.taxTableReview.count()).toBe(1);
-      expect((await row(inv.id)).saleTax.confidence).toBe('CONFIRMADO');
     });
 
-    it('peça monofásica também exige a tabela de monofásico validada', async () => {
-      const { p, inv } = await setup();
+    it('RBT12 do PGDAS-D dispensa o contador; estimada pelas OS, não', async () => {
+      const { p, inv } = await setup({ withProfile: false });
       await pricing.setTaxFlags(p.id, { icmsStStatus: 'NOT_ST', pisCofinsMonofasico: true });
-      await pricing.reviewTaxProfile({ reviewedBy: 'Contador Teste' });
-      await pricing.reviewTaxTable('simples-comercio', { reviewedBy: 'Contador Teste' });
+      await pricing.saveTaxProfile({ rbt12: 300000, simplesEffectiveRatePct: null, icmsSharePct: null, pisSharePct: null, cofinsSharePct: null, requireTaxConfirmation: false });
+      await db.tenantFiscalSettings.update({ where: { orgId: TEST_ORG }, data: { taxRegime: 'SIMPLES' } });
+      await db.fiscalFieldProvenance.upsert({
+        where: { orgId_field: { orgId: TEST_ORG, field: 'rbt12' } },
+        create: { orgId: TEST_ORG, field: 'rbt12', source: 'FIXER_ESTIMATE', confidence: 'ESTIMADO' },
+        update: { source: 'FIXER_ESTIMATE', confidence: 'ESTIMADO' },
+      });
       expect((await row(inv.id)).saleTax.confidence).toBe('ESTIMADO');
-      await pricing.reviewTaxTable('monofasico-autopecas', { reviewedBy: 'Contador Teste' });
+      let r = await pricing.getTaxProfile();
+      expect(r.readiness.steps.find((s) => s.id === 'perfil')).toMatchObject({ done: false, needsAccountant: true });
+
+      await db.fiscalFieldProvenance.update({ where: { orgId_field: { orgId: TEST_ORG, field: 'rbt12' } }, data: { source: 'INTEGRA_PGDASD', confidence: 'OFICIAL', reference: 'PGDAS-D 09/2026' } });
+      // Peça monofásica: vale também a tabela de monofásico, conferida com a lei.
       expect((await row(inv.id)).saleTax.confidence).toBe('CONFIRMADO');
+      r = await pricing.getTaxProfile();
+      expect(r.profile).toMatchObject({ trust: 'FONTE_OFICIAL', origin: { source: 'INTEGRA_PGDASD' } });
+      expect(r.readiness).toMatchObject({ ready: true });
+    });
+
+    it('enquadramento: a linha mostra o que está salvo; "não sei" não confirma e meia resposta é recusada', async () => {
+      const { p, inv } = await setup();
+      await pricing.reviewTaxProfile({ reviewedBy: 'Contador Teste' });
+      expect((await row(inv.id)).taxFlags).toMatchObject({ confirmed: false, icmsStStatus: 'UNKNOWN', pisCofinsMonofasico: null, xml: { st: true, monofasico: false } });
+
+      await pricing.setTaxFlags(p.id, { icmsStStatus: 'ST_CHARGED', pisCofinsMonofasico: false });
+      let r = await row(inv.id);
+      expect(r.taxFlags).toMatchObject({ confirmed: true, icmsStStatus: 'ST_CHARGED', pisCofinsMonofasico: false });
+      expect(r.saleTax.confidence).toBe('CONFIRMADO');
+
+      await expect(pricing.setTaxFlags(p.id, { icmsStStatus: 'UNKNOWN', pisCofinsMonofasico: false })).rejects.toMatchObject({ status: 400 });
+      await pricing.setTaxFlags(p.id, { icmsStStatus: 'UNKNOWN', pisCofinsMonofasico: null });
+      r = await row(inv.id);
+      expect(r.taxFlags.confirmed).toBe(false);
+      expect(r.saleTax.confidence).toBe('ESTIMADO');
+
+      // Registro antigo com "não sei" gravado como MANUAL não vale como confirmação.
+      await db.part.update({ where: { id: p.id }, data: { icmsStStatus: 'UNKNOWN', pisCofinsMonofasico: false, taxFlagsSource: 'MANUAL' } });
+      expect((await row(inv.id)).saleTax.confidence).toBe('ESTIMADO');
     });
 
     it('tabela de regra desconhecida é recusada', async () => {

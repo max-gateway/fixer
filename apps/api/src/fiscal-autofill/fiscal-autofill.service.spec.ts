@@ -11,8 +11,10 @@ const actor = { id: 'u1', ip: '127.0.0.1' };
 type Row = Record<string, unknown>;
 
 /** Prisma em memória com o que o serviço usa (singleton por tenant, como no banco). */
-function fakeDb(init: { settings?: Row | null; provenance?: Row[]; profile?: Row | null } = {}) {
+function fakeDb(init: { settings?: Row | null; provenance?: Row[]; profile?: Row | null; credential?: Row | null; orders?: Row[] } = {}) {
   const state = {
+    credential: init.credential === undefined ? null : init.credential,
+    orders: init.orders ?? [],
     settings: init.settings === undefined ? null : init.settings,
     provenance: new Map((init.provenance ?? []).map((p) => [p.field as string, { orgId: TEST_ORG, ...p }])),
     profile: init.profile === undefined ? null : init.profile,
@@ -43,6 +45,14 @@ function fakeDb(init: { settings?: Row | null; provenance?: Row[]; profile?: Row
       }),
       create: vi.fn(async ({ data }: { data: Row }) => (state.profile = { ...data })),
     },
+    fiscalCredential: {
+      findFirst: vi.fn(async () => (state.credential ? { orgId: TEST_ORG, ...state.credential } : null)),
+      update: vi.fn(async ({ data }: { data: Row }) => (state.credential = { ...state.credential, ...data })),
+    },
+    serviceOrder: {
+      findFirst: vi.fn(async () => [...state.orders].sort((a, b) => (a.closedAt as Date).getTime() - (b.closedAt as Date).getTime())[0] ?? null),
+      findMany: vi.fn(async ({ where }: { where: { closedAt: { gte: Date; lt: Date } } }) => state.orders.filter((o) => (o.closedAt as Date) >= where.closedAt.gte && (o.closedAt as Date) < where.closedAt.lt)),
+    },
     fiscalAuditLog: { create: vi.fn(async ({ data }: { data: Row }) => state.audit.push(data)) },
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(db)),
   };
@@ -60,7 +70,12 @@ const lookupResult = (over: { simples?: boolean | null; cnae?: string | null; uf
   fiscal: { municipalityIbge: over.ibge === undefined ? '2611606' : over.ibge, simples: over.simples === undefined ? true : over.simples, secondaryCnaes: over.secondary ?? [] },
 });
 
-function make(init: Parameters<typeof fakeDb>[0] = {}, lookup: unknown = lookupResult()) {
+interface Extra {
+  nfse?: { enabled: boolean; aliquota: ReturnType<typeof vi.fn> };
+  integra?: { enabled: boolean; rbt12: ReturnType<typeof vi.fn>; regime: ReturnType<typeof vi.fn> };
+}
+
+function make(init: Parameters<typeof fakeDb>[0] = {}, lookup: unknown = lookupResult(), extra: Extra = {}) {
   const { db, state } = fakeDb(init);
   const cnpjLookup = { lookup: vi.fn(async () => (lookup instanceof Error ? Promise.reject(lookup) : lookup)) };
   // O CredentialService real grava cnpj/razão social/UF; aqui o fake faz o mesmo no estado.
@@ -69,8 +84,9 @@ function make(init: Parameters<typeof fakeDb>[0] = {}, lookup: unknown = lookupR
       state.settings = { orgId: TEST_ORG, cnae: null, lc116Item: null, municipalityIbge: null, taxRegime: null, issRate: null, municipalServiceCode: null, ufCode: null, ...state.settings, ...input };
       return input;
     }),
+    openMaterial: vi.fn(async () => ({ environment: 'PRODUCTION', keyPem: 'k', certPem: 'c', chainPem: [] })),
   };
-  const service = new FiscalAutofillService(db as never, cnpjLookup as never, credentials as never);
+  const service = new FiscalAutofillService(db as never, cnpjLookup as never, credentials as never, extra.nfse as never, extra.integra as never);
   return { service, state, db, cnpjLookup, credentials };
 }
 
@@ -87,7 +103,7 @@ describe('FiscalAutofillService.run', () => {
     expect(field(r, 'lc116Item')).toMatchObject({ outcome: 'PREENCHIDO', source: 'TAX_RULES_DEFAULT', confidence: 'INFERIDO' });
     expect(state.provenance.get('taxRegime')).toMatchObject({ source: 'CNPJ_LOOKUP', confidence: 'OFICIAL' });
     expect(state.provenance.get('simplesOptant')).toMatchObject({ evidence: { optant: true } });
-    expect(r.steps.map((s) => `${s.step}:${s.status}`)).toEqual(['CNPJ_LOOKUP:OK', 'SERVICO:OK', 'ICMS_VENDA:PULADO']);
+    expect(r.steps.map((s) => `${s.step}:${s.status}`)).toEqual(['CNPJ_LOOKUP:OK', 'SERVICO:OK', 'ISS:PULADO', 'REGIME:PULADO', 'RBT12:SEM_DADO', 'ICMS_VENDA:PULADO']);
     expect(state.audit[0]).toMatchObject({ action: 'autofill.run', userId: 'u1' });
   });
 
@@ -165,7 +181,7 @@ describe('FiscalAutofillService.run', () => {
     const { service, state, credentials } = make({}, new HttpException('Serviço de consulta de CNPJ indisponível.', 502));
     const r = await service.run({ cnpj: CNPJ }, actor);
     expect(credentials.updateSettings).toHaveBeenCalledWith({ cnpj: CNPJ }, actor);
-    expect(r.steps.map((s) => s.status)).toEqual(['FALHOU', 'PULADO', 'PULADO']);
+    expect(r.steps.map((s) => s.status)).toEqual(['FALHOU', 'PULADO', 'PULADO', 'PULADO', 'PULADO', 'PULADO']);
     expect(state.settings!.taxRegime).toBeNull();
     expect(r.needsRegime).toBe(true);
   });
@@ -193,6 +209,127 @@ describe('FiscalAutofillService.run', () => {
   it('sem CNPJ salvo nem informado: erro claro', async () => {
     await expect(make().service.run({}, actor)).rejects.toThrow(/certificado ou cadastre o CNPJ/);
     await expect(make().service.run({ cnpj: '123' }, actor)).rejects.toThrow(/CNPJ inválido/);
+  });
+});
+
+describe('FiscalAutofillService.run: prefeitura e Receita', () => {
+  describe('ISS pela NFS-e Nacional', () => {
+    const nfse = (result: unknown) => ({ enabled: true, aliquota: vi.fn(async () => result) });
+
+    it('preenche a alíquota vigente da prefeitura, oficial, com o código nacional do serviço', async () => {
+      const n = nfse({ current: { pct: 5, from: '2024-01-01', to: null }, message: null });
+      const { service, state } = make({}, lookupResult(), { nfse: n });
+      const r = await service.run({ cnpj: CNPJ }, actor);
+      expect(n.aliquota).toHaveBeenCalledWith(expect.anything(), '2611606', '140101', expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+      expect(state.settings!.issRate).toBe('5');
+      expect(state.provenance.get('issRate')).toMatchObject({ source: 'NFSE_PARAMETROS', confidence: 'OFICIAL', reference: 'serviço 14.01.01, vigente desde 01/01/2024' });
+      expect(r.steps.find((s) => s.step === 'ISS')?.status).toBe('OK');
+    });
+
+    it('alíquota fora de 2% a 5% não é gravada', async () => {
+      const { service, state } = make({}, lookupResult(), { nfse: nfse({ current: { pct: 50, from: '2024-01-01', to: null }, message: null }) });
+      const r = await service.run({ cnpj: CNPJ }, actor);
+      expect(state.settings!.issRate).toBeNull();
+      expect(r.steps.find((s) => s.step === 'ISS')).toMatchObject({ status: 'SEM_DADO', detail: expect.stringMatching(/fora da faixa/) });
+    });
+
+    it('valor digitado não é trocado: vira conflito', async () => {
+      const settings = { orgId: TEST_ORG, cnpj: CNPJ, ufCode: 26, taxRegime: 'SIMPLES', municipalityIbge: '2611606', cnae: '4520001', lc116Item: '14.01', issRate: '3' };
+      const { service, state } = make({ settings, provenance: [{ field: 'issRate', source: 'MANUAL' }] }, lookupResult(), { nfse: nfse({ current: { pct: 5, from: '2024-01-01', to: null }, message: null }) });
+      const r = await service.run({}, actor);
+      expect(state.settings!.issRate).toBe('3');
+      expect(field(r, 'issRate')).toMatchObject({ outcome: 'CONFLITO', value: '5', previous: '3' });
+    });
+
+    it('prefeitura fora do ar não derruba o resto', async () => {
+      const n = { enabled: true, aliquota: vi.fn(async () => Promise.reject(new Error('timeout'))) };
+      const { service, state } = make({}, lookupResult(), { nfse: n });
+      const r = await service.run({ cnpj: CNPJ }, actor);
+      expect(r.steps.find((s) => s.step === 'ISS')?.status).toBe('FALHOU');
+      expect(state.settings!.taxRegime).toBe('SIMPLES');
+    });
+  });
+
+  describe('RBT12', () => {
+    const monthsAgo = (n: number) => {
+      const d = new Date();
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - n, 15, 15));
+    };
+    const order = (n: number, parts: number, labor: number) => ({ closedAt: monthsAgo(n), partLines: [{ quantity: 1, unitPrice: parts }], serviceLines: [{ price: labor, hoursActual: null }] });
+    const yearOfOrders = Array.from({ length: 13 }, (_, i) => order(i + 1, 1000, 500));
+
+    it('sem a Receita: estima pelas OS dos 12 meses fechados, estimada, e derruba o aceite antigo', async () => {
+      const { service, state } = make({ profile: { rbt12: null, reviewedBy: 'C', reviewedAt: new Date() }, orders: yearOfOrders });
+      const r = await service.run({ cnpj: CNPJ }, actor);
+      expect(state.profile).toMatchObject({ rbt12: '18000', reviewedBy: null, reviewedAt: null });
+      expect(state.provenance.get('rbt12')).toMatchObject({ source: 'FIXER_ESTIMATE', confidence: 'ESTIMADO', reference: expect.stringMatching(/^OS de \d{2}\/\d{4} a \d{2}\/\d{4}$/) });
+      expect(r.steps.find((s) => s.step === 'RBT12')?.status).toBe('OK');
+    });
+
+    it('menos de 12 meses de histórico: sem valor, com o motivo', async () => {
+      const { service, state } = make({ orders: [order(3, 1000, 0)] });
+      const r = await service.run({ cnpj: CNPJ }, actor);
+      expect(state.profile).toBeNull();
+      expect(r.steps.find((s) => s.step === 'RBT12')).toMatchObject({ status: 'SEM_DADO', detail: expect.stringMatching(/12 meses/) });
+    });
+
+    it('estimativa nunca troca valor digitado', async () => {
+      const { service, state } = make({ profile: { rbt12: '500000' }, provenance: [{ field: 'rbt12', source: 'MANUAL' }], orders: yearOfOrders });
+      await service.run({ cnpj: CNPJ }, actor);
+      expect(state.profile).toMatchObject({ rbt12: '500000' });
+    });
+
+    it('com consentimento e Integra Contador: RBT12 oficial do PGDAS-D por cima da estimativa', async () => {
+      const fatos = { periodoDeclaracao: '202609', receitaComStPct: '53.68', receitaMonofasicaPct: '53.68', sublimite: '3600000.00' };
+      const integra = { enabled: true, rbt12: vi.fn(async () => ({ status: 'OK', data: { pa: '202610', rbt12: '250000.00', rbt12Real: '230000.00', proporcional: true, mesesAtividade: 11, numeroDeclaracao: '123', fatos } })), regime: vi.fn() };
+      const { service, state } = make({ credential: { taxDataConsent: true }, profile: { rbt12: '18000' }, provenance: [{ field: 'rbt12', source: 'FIXER_ESTIMATE', confidence: 'ESTIMADO' }], orders: yearOfOrders }, lookupResult(), { integra });
+      await service.run({ cnpj: CNPJ }, actor);
+      expect(state.profile).toMatchObject({ rbt12: '250000.00' });
+      expect(state.provenance.get('rbt12')).toMatchObject({ source: 'INTEGRA_PGDASD', confidence: 'OFICIAL', reference: 'PGDAS-D 09/2026, declaração 123', evidence: { rbt12Real: '230000.00', proporcional: true, mesesAtividade: 11, fatos } });
+    });
+
+    it('Integra Contador sem consentimento: não consulta a Receita', async () => {
+      const integra = { enabled: true, rbt12: vi.fn(), regime: vi.fn() };
+      const { service } = make({ credential: { taxDataConsent: false }, orders: yearOfOrders }, lookupResult(), { integra });
+      await service.run({ cnpj: CNPJ }, actor);
+      expect(integra.rbt12).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('regime pelos DARF', () => {
+    it('não optante com consentimento: regime inferido dos pagamentos', async () => {
+      const integra = { enabled: true, rbt12: vi.fn(), regime: vi.fn(async () => ({ status: 'OK', data: { regimeInferido: 'PRESUMIDO', motivo: 'DARF 2089 e 8109 em 2026' } })) };
+      const { service, state } = make({ credential: { taxDataConsent: true } }, lookupResult({ simples: false }), { integra });
+      const r = await service.run({ cnpj: CNPJ }, actor);
+      expect(state.settings!.taxRegime).toBe('PRESUMIDO');
+      expect(state.provenance.get('taxRegime')).toMatchObject({ source: 'INTEGRA_PAGAMENTOS', confidence: 'INFERIDO' });
+      expect(r.needsRegime).toBe(false);
+      // O ICMS padrão do Presumido entra no mesmo run.
+      expect(field(r, 'icmsSalePct')).toMatchObject({ outcome: 'PREENCHIDO' });
+    });
+
+    it('sem consentimento: aguarda a autorização e a tela pergunta', async () => {
+      const integra = { enabled: true, rbt12: vi.fn(), regime: vi.fn() };
+      const { service } = make({ credential: { taxDataConsent: false } }, lookupResult({ simples: false }), { integra });
+      const r = await service.run({ cnpj: CNPJ }, actor);
+      expect(r.steps.find((s) => s.step === 'REGIME')?.status).toBe('AGUARDANDO_CONSENTIMENTO');
+      expect(r.needsRegime).toBe(true);
+    });
+  });
+});
+
+describe('FiscalAutofillService.setConsent', () => {
+  it('liga com autor e data, e registra na auditoria', async () => {
+    const { service, state } = make({ credential: { taxDataConsent: false } });
+    const r = await service.setConsent(true, actor);
+    expect(state.credential).toMatchObject({ taxDataConsent: true, taxDataConsentById: 'u1' });
+    expect(r.taxDataConsent).toMatchObject({ enabled: true });
+    expect(state.audit[0]).toMatchObject({ action: 'autofill.consent.on' });
+  });
+
+  it('sem certificado não há o que autorizar', async () => {
+    const { service } = make();
+    await expect(service.setConsent(true, actor)).rejects.toBeInstanceOf(HttpException);
   });
 });
 

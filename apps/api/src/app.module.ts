@@ -1,9 +1,11 @@
 import { type MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
+import { AccessModule } from './access/access.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
+import { FiscalAutofillModule } from './fiscal-autofill/fiscal-autofill.module.js';
 import { FiscalSettingsModule } from './fiscal-settings/fiscal-settings.module.js';
 import { PayablesModule } from './payables/payables.module.js';
 import { PricingModule } from './pricing/pricing.module.js';
@@ -27,7 +29,7 @@ import { VehicleVariantsModule } from './vehicle-variants/vehicle-variants.modul
 import { WhatsappLinkModule } from './whatsapp-link/whatsapp-link.module.js';
 
 @Module({
-  imports: [PrismaModule, TenancyModule, OutboxModule, AuthModule, ControlPlaneModule, PlateEventsModule, PlateLookupModule, CnpjLookupModule, CustomersModule, DashboardModule, CatalogModule, ServiceOrdersModule, VehicleVariantsModule, LearningModule, FiscalSettingsModule, PortalModule, PlateReadingsModule, WhatsappLinkModule, FiscalInboundModule, PayablesModule, PricingModule, CostsModule],
+  imports: [PrismaModule, TenancyModule, OutboxModule, AuthModule, ControlPlaneModule, PlateEventsModule, PlateLookupModule, CnpjLookupModule, CustomersModule, DashboardModule, CatalogModule, ServiceOrdersModule, VehicleVariantsModule, LearningModule, FiscalSettingsModule, PortalModule, PlateReadingsModule, WhatsappLinkModule, FiscalInboundModule, PayablesModule, PricingModule, CostsModule, AccessModule, FiscalAutofillModule],
   controllers: [AppController],
   providers: [AppService],
 })

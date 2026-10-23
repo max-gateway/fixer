@@ -26,6 +26,7 @@ model User {
   name       String
   email      String
   active     Boolean  @default(true)
+  lastSeenAt DateTime? // última requisição autenticada; null = convidado que ainda não entrou
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -88,6 +89,23 @@ model UserRole {
 
   @@id([userId, roleId])
   @@index([orgId])
+}
+
+// Trilha de auditoria do controle de acesso (Configurações → Acessos). Imutável: sem FK para User, o registro
+// sobrevive à pessoa e guarda o nome da época.
+model AccessAuditLog {
+  id          String   @id @default(cuid())
+  orgId       String   @default(dbgenerated("app_org()")) @db.Uuid
+  at          DateTime @default(now())
+  actorId     String? // User.id de quem fez (null = sistema)
+  actorName   String?
+  action      String // ex.: "member.invited", "member.roles_changed", "role.updated"
+  targetType  String // "member" | "role"
+  targetId    String
+  targetLabel String?
+  detail      Json?
+
+  @@index([orgId, at])
 }
 
 // ============================================================
@@ -836,6 +854,11 @@ model FiscalCredential {
   autoExport     Boolean @default(false) // dá entrada sem confirmação quando 100% resolvido
   autoExportById String? // autor dos movimentos automáticos (StockMovement.createdById é obrigatório)
   autoExportBy   User?   @relation("FiscalAutoExportBy", fields: [autoExportById], references: [id], onDelete: Restrict)
+
+  // Consulta à Receita (Integra Contador) com o certificado: RBT12 e regime (docs/specs/fiscal-autofill.md §7).
+  taxDataConsent     Boolean   @default(false)
+  taxDataConsentAt   DateTime?
+  taxDataConsentById String?
 
   uploadedById String
   uploadedBy   User     @relation("FiscalUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)

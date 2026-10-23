@@ -83,6 +83,8 @@ export interface SnapshotInput {
       reviewedAt: Date | null;
     } | null;
     tableReviews: { tableId: string; version: string; reviewedBy: string; reviewedAt: Date }[];
+    /** Quem garantia o imposto no lançamento: contador ou fonte oficial (perfil e tabelas usadas; tax-rules.md §6). */
+    trust?: { profile: string | null; tables: { tableId: string; basis: string | null; checkedAt: string | null }[] };
   };
   postedAt: Date;
   postedById: string;
@@ -214,6 +216,7 @@ export function buildEntrySnapshot(i: SnapshotInput): EntrySnapshot {
       tableReviews: [...i.fiscal.tableReviews]
         .sort((a, b) => a.tableId.localeCompare(b.tableId))
         .map((r) => ({ tableId: r.tableId, version: r.version, reviewedBy: r.reviewedBy, reviewedAt: iso(r.reviewedAt) })),
+      ...(i.fiscal.trust ? { trust: { profile: i.fiscal.trust.profile, tables: [...i.fiscal.trust.tables].sort((a, b) => a.tableId.localeCompare(b.tableId)) } } : {}),
     },
     engines: {
       taxRulesVersion: i.plan?.rulesVersion ?? i.ledger.rulesVersion,

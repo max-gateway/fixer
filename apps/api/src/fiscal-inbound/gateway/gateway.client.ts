@@ -106,6 +106,14 @@ export class GatewayClient {
     return this.call<{ items: { accessKey: string; registeredAt: string | null }[] }>('GET', `/v1/companies/${cnpj}/manifestations?status=REGISTERED`);
   }
 
+  /**
+   * Pede ao gateway que assine, com o e-CNPJ guardado dele, o termo de autorização do Integra Contador para o contratante.
+   * Só o XML assinado sai; a chave privada nunca.
+   */
+  signIntegraTerm(cnpj: string, contratante: { cnpj: string; nome: string }, actor?: string) {
+    return this.call<{ xml: string; vigencia: string }>('POST', `/v1/companies/${cnpj}/signatures/integra-contador-term`, { contratanteCnpj: contratante.cnpj, contratanteNome: contratante.nome }, actor);
+  }
+
   private async call<T>(method: string, path: string, body?: unknown, actor?: string): Promise<T> {
     let res: Response;
     try {

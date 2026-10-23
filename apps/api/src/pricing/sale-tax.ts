@@ -49,6 +49,8 @@ export type SaleTaxUnavailable =
   | 'REPARTICAO_FALTANDO'
   /** RBT12 acima do teto do Simples (R$ 4,8 milhões): o Anexo I não se aplica. */
   | 'RBT12_FORA_DO_SIMPLES'
+  /** RBT12 acima do sublimite (R$ 3,6 milhões): ICMS e ISS saem do DAS e são pagos à parte, então a alíquota do Anexo I não vale. */
+  | 'SUBLIMITE_ESTADUAL'
   /** A regra monofásica da Lei 10.485 deixa de valer em 2027-01-01; sem a tabela da reforma não há cálculo. */
   | 'REGRA_FORA_DE_VIGENCIA'
   /** PIS e Cofins acabaram em 2027 e as alíquotas de referência de CBS e IBS ainda não foram fixadas pelo Senado. */
@@ -84,6 +86,12 @@ export interface SaleTaxInput {
   asOf?: string;
   /** O contador validou, na versão em uso, todas as `requiredTables` deste caso. Sem isso o imposto fica "estimado". */
   tablesReviewed?: boolean;
+  /**
+   * Lucro Presumido: receita já fechada no trimestre-calendário em curso (OS concluídas no Fixer). A presunção sobe 10% só sobre o
+   * que passa de R$ 1,25 milhão no trimestre (IN RFB 2.305/2025, art. 15), então o preço de uma venda nova usa o acréscimo se o
+   * trimestre já passou do limite. Sem o dado (null/undefined), vale o teto antigo: acréscimo se a RBT12 passa de R$ 5 milhões.
+   */
+  quarterRevenue?: Value;
 }
 
 export function saleTax(input: SaleTaxInput): SaleTax {
@@ -97,7 +105,7 @@ export function saleTax(input: SaleTaxInput): SaleTax {
   const asOf = input.asOf ?? new Date().toISOString().slice(0, 10);
   // Lucro Real: IRPJ e CSLL incidem sobre o lucro e PIS/Cofins admitem crédito sobre a compra; não há percentual da venda.
   if (regime === 'REAL') return none('REGIME_NAO_SUPORTADO');
-  if (regime === 'PRESUMIDO') return presumidoTax(input.profile, input.flags, asOf, none, input.tablesReviewed === true);
+  if (regime === 'PRESUMIDO') return presumidoTax(input.profile, input.flags, asOf, none, input.tablesReviewed === true, input.quarterRevenue);
   const p = input.profile;
   if (input.flags.monofasico && !inForce(MONOFASICO_AUTOPECAS_META, asOf)) return none('REGRA_FORA_DE_VIGENCIA');
 
@@ -107,6 +115,10 @@ export function saleTax(input: SaleTaxInput): SaleTax {
   const manualRate = !isMissing(p?.simplesEffectiveRatePct);
   const bracket = rbt === null ? null : simplesBracketFor(rbt, asOf);
   if (rbt !== null && !bracket && !manualRate && simplesPeriodFor(asOf)) return none('RBT12_FORA_DO_SIMPLES');
+  // Acima do sublimite (LC 123, art. 19, I e art. 13-A) o ICMS e o ISS são recolhidos fora do DAS, pelas regras gerais: a
+  // alíquota do Anexo I incluiria um ICMS que a empresa não paga ali, e o ICMS real ficaria fora do preço. Alguns estados adotam
+  // sublimite menor que R$ 3,6 milhões; o teto geral é o único que o Fixer conhece sem configuração por UF.
+  if (rbt !== null && bracket && rbt > SUBLIMITE_CENTS && !manualRate && simplesPeriodFor(asOf)) return none('SUBLIMITE_ESTADUAL');
   const table = rbt === null || !bracket ? null : simplesRate(D(p!.rbt12).toFixed(2), asOf);
   const effectiveRaw = manualRate ? p!.simplesEffectiveRatePct : table?.effectivePct;
   if (!p || isMissing(effectiveRaw)) return none('SEM_ALIQUOTA');
@@ -149,14 +161,23 @@ export function saleTax(input: SaleTaxInput): SaleTax {
   return { pct, components, confidence: input.flags.confirmed && p.reviewed && input.tablesReviewed === true ? 'CONFIRMADO' : 'ESTIMADO', unavailable: null };
 }
 
+/** Limite trimestral da majoração do Presumido, em reais (IN RFB 2.305/2025, art. 15, § 2º). */
+const QUARTER_LIMIT = 1_250_000;
+
+/** R$ 3.600.000,00 em centavos. */
+const SUBLIMITE_CENTS = 360_000_000n;
+
 const isMissing = (v: Value) => v === null || v === undefined;
 
 /**
  * Lucro Presumido, comércio: IRPJ e CSLL pela base presumida, PIS e Cofins cumulativos (zero se monofásico) e o ICMS da
  * venda (zero se já recolhido por ST). O adicional do IRPJ depende do lucro do período e não entra no preço.
  */
-function presumidoTax(profile: TaxProfileInput | null, flags: SaleTaxFlags, asOf: string, none: (u: SaleTaxUnavailable) => SaleTax, tablesReviewed: boolean): SaleTax {
-  const pc = presumidoCommerce(asOf, !isMissing(profile?.rbt12) && D(profile!.rbt12).gt(5_000_000));
+function presumidoTax(profile: TaxProfileInput | null, flags: SaleTaxFlags, asOf: string, none: (u: SaleTaxUnavailable) => SaleTax, tablesReviewed: boolean, quarterRevenue?: Value): SaleTax {
+  // Venda nova = receita marginal: com o trimestre já acima de R$ 1,25 milhão ela é toda excedente; abaixo, não (só a venda que cruza o
+  // limite erra, e por pouco). Sem a receita do trimestre, cai no teto antigo pela RBT12.
+  const surcharge = !isMissing(quarterRevenue) ? D(quarterRevenue).gte(QUARTER_LIMIT) : !isMissing(profile?.rbt12) && D(profile!.rbt12).gt(5_000_000);
+  const pc = presumidoCommerce(asOf, surcharge);
   // 2027 em diante: PIS/Cofins somem e CBS/IBS dependem das alíquotas de referência, que o Senado ainda não fixou.
   if (pc.pisCofinsExtinct) return none('REFORMA_SEM_ALIQUOTA');
   if (!flags.icmsStDone && isMissing(profile?.icmsSalePct)) return none('SEM_ALIQUOTA');

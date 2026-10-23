@@ -4,9 +4,10 @@ import type { InvoiceLedger } from '../fiscal-inbound/tax/cost-ledger.js';
 import { TAX_RULES_VERSION } from '../fiscal-inbound/tax/rules.js';
 import { blockingFlags, evaluatePrice, marginFromPrice, markupFromPrice, PricingError, suggestPrice, type PriceFlag, type PriceParams } from './pricing.js';
 import { requiredTables, saleTax, type SaleTax, type SaleTaxFlags } from './sale-tax.js';
-import { TABLES } from '@fixer/tax-rules';
-import { taxNotes, type TaxNote } from './tax-notes.js';
+import { quarterRevenue, quarterStart } from './quarter-revenue.js';
+import { resolveEnquadramento, taxNotes, type TaxNote } from './tax-notes.js';
 import { taxReadiness, type TaxReadiness } from './tax-readiness.js';
+import { loadTaxTrust, trustedTables } from './tax-trust.js';
 import { resolveRule, type ResolvedRule } from './rule-resolver.js';
 import { NO_COST_PROFILE, type PricingCostProfile } from './cost-profile.js';
 
@@ -58,6 +59,17 @@ export interface PricingRow {
    * sem perfil, o `overheadPct` da regra. O preço sai de (custo + extra) ÷ (1 − (margem + imposto + variável + estrutura)).
    */
   overhead: { source: 'PROFILE' | 'RULE'; variablePct: D; fixedPct: D; extraUnitCost: D };
+  /** Enquadramento da peça: o confirmado por alguém (quando há) e o que o XML desta nota indica. */
+  taxFlags: {
+    confirmed: boolean;
+    /** A nota e as tabelas concordam: o enquadramento vale como confirmado sem clique (a confirmação manual, se houver, vale mais). */
+    auto: boolean;
+    /** Quando `auto`: o PIS/COFINS monofásico que a lei determina para o NCM de quem revende. */
+    autoMonofasico: boolean | null;
+    icmsStStatus: 'UNKNOWN' | 'NOT_ST' | 'ST_CHARGED' | 'ST_PAID_BEFORE';
+    pisCofinsMonofasico: boolean | null;
+    xml: { st: boolean; monofasico: boolean };
+  };
 }
 
 export interface PricingPlan {
@@ -82,7 +94,7 @@ export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: Inv
   const profileFixed = fromProfile ? D(costProfile.fixedPct) : D(0);
   const extraUnit = fromProfile ? D(costProfile.extraUnitCost) : D(0);
   const ledger = ledgerIn ?? (await loadInvoiceLedger(tx, invoiceId));
-  const [invoice, items, rules, profile, tableReviews] = await Promise.all([
+  const [invoice, items, rules, profile] = await Promise.all([
     tx.purchaseInvoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { issuerCnpj: true } }),
     tx.purchaseInvoiceItem.findMany({
       where: { invoiceId, partId: { not: null }, resolution: { not: 'IGNORED' } },
@@ -91,11 +103,22 @@ export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: Inv
     }),
     tx.pricingRule.findMany(),
     tx.tenantTaxProfile.findFirst(),
-    tx.taxTableReview.findMany(),
   ]);
-  // Tabela validada = o aceite é da versão em uso; mudou a versão, o aceite cai.
-  const reviewMap = new Map(tableReviews.map((r) => [r.tableId, TABLES.some((t) => t.id === r.tableId && t.version === r.version)]));
-  const reviewedTables = new Set([...reviewMap].filter(([, current]) => current).map(([id]) => id));
+  // Garantia do imposto: aceite do contador na versão em uso ou conferência com a fonte oficial (tax-rules.md §6).
+  const trust = await loadTaxTrust(tx, ledger.regime, profile);
+  const reviewedTables = trustedTables(trust.tables);
+
+  // Lucro Presumido: a receita do trimestre decide se a venda nova já cai na presunção majorada (LC 224/2025).
+  let quarterRev: D | null = null;
+  if (ledger.regime === 'PRESUMIDO') {
+    const now = new Date();
+    const orders = await tx.serviceOrder.findMany({
+      where: { status: { in: ['COMPLETED', 'DELIVERED'] }, closedAt: { gte: quarterStart(now), lte: now } },
+      select: { closedAt: true, partLines: { select: { quantity: true, unitPrice: true } }, serviceLines: { select: { price: true, hoursActual: true } } },
+    });
+    // `closedAt` existe em toda OS do filtro; o cast só estreita o tipo.
+    quarterRev = quarterRevenue(now, orders as Parameters<typeof quarterRevenue>[1]);
+  }
 
   const defaultRule = rules.find((r) => r.scope === 'DEFAULT') ?? null;
   const requireTaxConfirmation = profile?.requireTaxConfirmation ?? false;
@@ -115,19 +138,26 @@ export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: Inv
     const locked = part.pricingMode === 'MANUAL';
 
     // Enquadramento: o que a pessoa confirmou na peça vale mais que a leitura do XML.
-    const manual = part.taxFlagsSource === 'MANUAL';
+    // Só vale como confirmação a resposta completa: "não sei" em qualquer das duas perguntas volta para a leitura do XML.
+    const manual = part.taxFlagsSource === 'MANUAL' && part.icmsStStatus !== 'UNKNOWN' && part.pisCofinsMonofasico !== null;
     const stFromXml = D(item.tax?.icmsSt).plus(D(item.tax?.fcpSt)).gt(0) || D(item.tax?.stRet).gt(0) || (item.tax?.icmsKind === 'CST' && item.tax.icmsCode === '60') || (item.tax?.icmsKind === 'CSOSN' && item.tax.icmsCode === '500');
+    // Sem clique: a lei (Lei 10.485, Anexo II do Convênio 142) e a nota decidem sozinhas o que dá para decidir. O monofásico vem do
+    // NCM de quem revende, não do que o fornecedor destacou; o que conflita fica para a pessoa (tax-notes.ts, resolveEnquadramento).
+    const xmlMonofasico = MONOFASICO_PIS_CST.has(item.tax?.pisCst ?? '');
+    const enq = resolveEnquadramento({ ncm: item.ncm, xmlMonofasico, xmlSt: stFromXml, asOf: today, hasXmlTax: !!item.tax?.pisCst && !!item.tax?.icmsCode });
+    const auto = !manual && !part.fiscalVerified && enq.auto;
     const flags: SaleTaxFlags = {
       icmsStDone: manual ? part.icmsStStatus === 'ST_CHARGED' || part.icmsStStatus === 'ST_PAID_BEFORE' : stFromXml,
-      monofasico: manual ? part.pisCofinsMonofasico === true : MONOFASICO_PIS_CST.has(item.tax?.pisCst ?? ''),
-      confirmed: manual || part.fiscalVerified,
+      monofasico: manual ? part.pisCofinsMonofasico === true : auto ? enq.monofasico === true : xmlMonofasico,
+      confirmed: manual || part.fiscalVerified || auto,
     };
     const tax = saleTax({
       regime: ledger.regime,
-      profile: profile && { ...profile, reviewed: profile.reviewedAt !== null },
+      profile: profile && { ...profile, reviewed: trust.profile.basis !== null },
       tablesReviewed: requiredTables(ledger.regime, flags).every((id) => reviewedTables.has(id)),
       flags,
       override: rule?.taxPctOverride ?? null,
+      quarterRevenue: quarterRev,
     });
 
     const rowFlags: PriceFlag[] = [];
@@ -193,7 +223,7 @@ export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: Inv
       ruleScope: resolved?.scope ?? null,
       rule,
       tax,
-      taxNotes: taxNotes({ ncm: item.ncm, xmlMonofasico: MONOFASICO_PIS_CST.has(item.tax?.pisCst ?? ''), xmlSt: stFromXml, asOf: today }),
+      taxNotes: auto && enq.lawOverridesNote ? lawNotes(taxNotes({ ncm: item.ncm, xmlMonofasico, xmlSt: stFromXml, asOf: today })) : taxNotes({ ncm: item.ncm, xmlMonofasico, xmlSt: stFromXml, asOf: today }),
       suggested,
       draft,
       proposed,
@@ -205,10 +235,18 @@ export async function buildPricingPlan(tx: Tx, invoiceId: string, ledgerIn?: Inv
       error,
       locked,
       overhead: { source: fromProfile ? 'PROFILE' : 'RULE', variablePct: variable, fixedPct: profileFixed, extraUnitCost: extraUnit },
+      taxFlags: {
+        confirmed: manual,
+        auto,
+        autoMonofasico: auto ? enq.monofasico : null,
+        icmsStStatus: manual ? part.icmsStStatus : 'UNKNOWN',
+        pisCofinsMonofasico: manual ? part.pisCofinsMonofasico : null,
+        xml: { st: stFromXml, monofasico: xmlMonofasico },
+      },
     });
   }
 
-  return { rows, rulesVersion: TAX_RULES_VERSION, regime: ledger.regime, hasRule: defaultRule !== null || rules.length > 0, rule: defaultRule, requireTaxConfirmation, readiness: taxReadiness({ regime: ledger.regime, profile, tableReviews: reviewMap }), ledger, costProfile };
+  return { rows, rulesVersion: TAX_RULES_VERSION, regime: ledger.regime, hasRule: defaultRule !== null || rules.length > 0, rule: defaultRule, requireTaxConfirmation, readiness: taxReadiness({ regime: ledger.regime, profile, profileTrust: trust.profile, tables: trust.tables, origin: trust.origin }), ledger, costProfile };
 }
 
 const s = (d: D | null) => (d ? d.toString() : null);
@@ -271,6 +309,12 @@ export function toDto(plan: PricingPlan) {
       locked: r.locked,
       overhead: { source: r.overhead.source, variablePct: r.overhead.variablePct.toString(), fixedPct: r.overhead.fixedPct.toString(), extraUnitCost: r.overhead.extraUnitCost.toString() },
       taxNotes: r.taxNotes,
+      taxFlags: r.taxFlags,
     })),
   };
+}
+
+/** O aviso "monofásico na lista sem indicação na nota" deixa de ser pendência: a lei decidiu (a explicação vai no enquadramento da peça). */
+function lawNotes(notes: TaxNote[]): TaxNote[] {
+  return notes.filter((n) => n.code !== 'MONOFASICO_NA_LISTA_SEM_XML');
 }

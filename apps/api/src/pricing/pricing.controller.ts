@@ -52,6 +52,12 @@ export class PricingController {
     return this.pricing.getTaxProfile();
   }
 
+  @Get('pricing/tax-overview')
+  @RequirePermission('pricing.read')
+  taxOverview() {
+    return this.pricing.taxOverview();
+  }
+
   @Get('pricing/tax-tables')
   @RequirePermission('pricing.read')
   taxTables() {

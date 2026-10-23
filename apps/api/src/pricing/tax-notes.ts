@@ -36,3 +36,41 @@ export function taxNotes(input: { ncm: string | null; xmlMonofasico: boolean; xm
   }
   return notes;
 }
+
+export interface Enquadramento {
+  /** Decidido pela lei e pela nota sem ninguém clicar. */
+  auto: boolean;
+  /** PIS/COFINS monofásico para quem revende. Só tem valor quando `auto`. */
+  monofasico: boolean | null;
+  /** A nota do fornecedor trouxe PIS/COFINS normal num NCM que a lei zera para o revendedor: a lei prevalece sobre a nota. */
+  lawOverridesNote: boolean;
+}
+
+const NO: Enquadramento = { auto: false, monofasico: null, lawOverridesNote: false };
+
+/**
+ * Enquadramento da peça que dá para decidir lendo a lei, sem pergunta à pessoa.
+ *
+ * PIS/COFINS: o revendedor atacadista ou varejista tem as contribuições reduzidas a 0% na venda dos produtos dos Anexos I e II
+ * da Lei 10.485 (art. 3º, § 2º) e dos pneus e câmaras de ar (art. 5º, parágrafo único). Isso depende do NCM de quem vende, não
+ * do que o fornecedor destacou na nota dele: NCM da lista → monofásico, mesmo que a nota traga PIS/COFINS normal. NCM fora da
+ * lista com nota monofásica é conflito (NCM errado no XML?) e fica para a pessoa, assim como NCM que só vale em certos casos
+ * (ex-tarifário, destino) ou fora da vigência. A lista acaba em 2027-01-01.
+ *
+ * ICMS: ST na nota com NCM do Anexo II (ou sem ST e fora do Anexo II) concorda; qualquer divergência é da pessoa.
+ *
+ * Exige os dados fiscais do item no XML e NCM de 8 dígitos. O benefício não consta do demonstrativo de gastos tributários de 2026
+ * (que dispara a redução da LC 224/2025, art. 4º), mas o anexo da LOA final não foi lido: ver os caveats de monofasico-autopecas.
+ */
+export function resolveEnquadramento(input: { ncm: string | null; xmlMonofasico: boolean; xmlSt: boolean; asOf: string; hasXmlTax: boolean }): Enquadramento {
+  if (!input.hasXmlTax) return NO;
+  if ((input.ncm ?? '').replace(/D/g, '').length !== 8) return NO;
+
+  const mono = monofasicoAutopeca(input.ncm, input.asOf).status;
+  const stInAnnex = stAutopecaItems(input.ncm).length > 0;
+  if (input.xmlSt !== stInAnnex) return NO;
+
+  if (mono === 'SIM') return { auto: true, monofasico: true, lawOverridesNote: !input.xmlMonofasico };
+  if (mono === 'NAO' && !input.xmlMonofasico) return { auto: true, monofasico: false, lawOverridesNote: false };
+  return NO;
+}

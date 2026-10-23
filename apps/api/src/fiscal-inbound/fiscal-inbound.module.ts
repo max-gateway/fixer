@@ -39,6 +39,6 @@ import { InvoiceTaxBackfill } from './tax/backfill.service.js';
     SyncScheduler,
     InvoiceTaxBackfill,
   ],
-  exports: [CredentialService, ManifestService, InvoicesService],
+  exports: [CredentialService, ManifestService, InvoicesService, GatewayClient],
 })
 export class FiscalInboundModule {}
