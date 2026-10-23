@@ -1,6 +1,6 @@
 -- Dá a um usuário do ambiente de DEV o papel "Admin" com todas as permissões que as rotas já exigem
 -- (@RequirePermission). As rotas protegidas falham fechado: sem isto, respondem 403 para todo mundo,
--- porque ainda não existe tela nem seed de provisionamento para papéis e permissões.
+-- enquanto ninguém tiver o papel Admin. Depois do primeiro Admin, use a tela Configurações → Acessos.
 --
 -- Multi-tenant: o usuário e o papel pertencem a UMA organização (:'org'). Rode com um papel que ignora RLS (o dono do banco
 -- em dev), ou o INSERT é barrado pela política da tabela. Idempotente. O usuário precisa já ter feito login uma vez
@@ -19,7 +19,9 @@ INSERT INTO "Permission" ("id", "key", "label") VALUES
   ('perm-fiscal-verify',     'fiscal.verify',     'Confirmar dados fiscais (contador)'),
   ('perm-invoices-read',     'invoices.read',     'Ver notas de compra'),
   ('perm-invoices-reconcile','invoices.reconcile','Conciliar e lançar notas de compra'),
-  ('perm-learning-manage',   'learning.manage',   'Gerenciar o aprendizado de tempos')
+  ('perm-learning-manage',   'learning.manage',   'Gerenciar o aprendizado de tempos'),
+  ('perm-access-read',       'access.read',       'Ver pessoas, papéis e o histórico de acessos'),
+  ('perm-access-manage',     'access.manage',     'Convidar pessoas, editar papéis e permissões')
 ON CONFLICT ("key") DO NOTHING;
 
 -- Dali em diante tudo é da organização informada.

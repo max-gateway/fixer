@@ -62,8 +62,8 @@ export class AuthService {
     await this.limits?.assertUserSlot(keycloakId);
     const user = await this.prisma.user.upsert({
       where: { orgId_keycloakId: { orgId, keycloakId } },
-      create: { keycloakId, email, name },
-      update: { email, name },
+      create: { keycloakId, email, name, lastSeenAt: new Date() },
+      update: { email, name, lastSeenAt: new Date() },
     });
     if (!user.active) throw new UnauthorizedException('Usuário desativado');
     await this.provisioning?.ensureOwnerAdmin({ id: user.id, email: user.email });

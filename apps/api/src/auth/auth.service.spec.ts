@@ -24,8 +24,8 @@ describe('AuthService.syncUser', () => {
     const user = await sync({ sub: 'kc-1', email: 'ana@x.com', name: 'Ana' });
     expect(upsert).toHaveBeenCalledWith({
       where: { orgId_keycloakId: { orgId: TEST_ORG, keycloakId: 'kc-1' } },
-      create: { keycloakId: 'kc-1', email: 'ana@x.com', name: 'Ana' },
-      update: { email: 'ana@x.com', name: 'Ana' },
+      create: { keycloakId: 'kc-1', email: 'ana@x.com', name: 'Ana', lastSeenAt: expect.any(Date) },
+      update: { email: 'ana@x.com', name: 'Ana', lastSeenAt: expect.any(Date) },
     });
     expect(user).toMatchObject({ id: 'u1', keycloakId: 'kc-1' });
   });

@@ -8,8 +8,8 @@ tenant:
 
 branding:
   logoUrl: ""
-  primaryColor: "#C2410C"
-  secondaryColor: "#1C2430"
+  primaryColor: "#1F6BFF"
+  secondaryColor: "#080D17"
 
 image:
   repository: ""      # e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com/fixer

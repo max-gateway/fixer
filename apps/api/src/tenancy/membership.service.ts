@@ -42,7 +42,13 @@ export class MembershipService {
     this.cache.delete(m.keycloakId); // a próxima requisição enxerga a organização nova na hora
   }
 
-  /** Remove a participação na organização do contexto (futuro: evento de remoção de membro). */
+  /** Garante a participação sem mexer no papel já gravado (convite feito pela tela de acessos). */
+  async ensure(m: { keycloakId: string; email: string }): Promise<void> {
+    await this.prisma.orgMembership.createMany({ data: [{ keycloakId: m.keycloakId, email: m.email.toLowerCase() }], skipDuplicates: true });
+    this.cache.delete(m.keycloakId);
+  }
+
+  /** Remove a participação na organização do contexto (pessoa removida pela tela de acessos). */
   async remove(keycloakId: string): Promise<void> {
     await this.prisma.orgMembership.deleteMany({ where: { keycloakId } });
     this.cache.delete(keycloakId);

@@ -46,6 +46,29 @@ export class TenantDirectory {
     return rows.map((r) => r.orgId);
   }
 
+  /**
+   * Organizações que autorizaram a leitura dos dados de imposto na Receita, com o regime e as tentativas de atualização
+   * recentes (auditoria `autofill.refresh.*`). Quem decide se está na hora é o agendador (função pura, testada sem banco).
+   */
+  async taxRefreshCandidates(since: Date): Promise<{ orgId: string; actorId: string; regime: string | null; attempts: { action: string; at: Date }[] }[]> {
+    const creds = await this.system.fiscalCredential.findMany({
+      where: { taxDataConsent: true, taxDataConsentById: { not: null } },
+      select: { orgId: true, taxDataConsentById: true },
+    });
+    if (creds.length === 0) return [];
+    const orgIds = creds.map((c) => c.orgId);
+    const [settings, audits] = await Promise.all([
+      this.system.tenantFiscalSettings.findMany({ where: { orgId: { in: orgIds } }, select: { orgId: true, taxRegime: true } }),
+      this.system.fiscalAuditLog.findMany({ where: { orgId: { in: orgIds }, action: { startsWith: 'autofill.refresh.' }, at: { gte: since } }, select: { orgId: true, action: true, at: true } }),
+    ]);
+    return creds.map((c) => ({
+      orgId: c.orgId,
+      actorId: c.taxDataConsentById!,
+      regime: settings.find((x) => x.orgId === c.orgId)?.taxRegime ?? null,
+      attempts: audits.filter((a) => a.orgId === c.orgId).map((a) => ({ action: a.action, at: a.at })),
+    }));
+  }
+
   /** Organizações com notas aguardando a Ciência da Operação. */
   async orgsWithPendingManifest(now: Date = new Date()): Promise<string[]> {
     const rows = await this.system.purchaseInvoice.findMany({
