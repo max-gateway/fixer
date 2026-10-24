@@ -1,0 +1,129 @@
+'use client';
+
+import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useState } from 'react';
+import { getJson } from '@/lib/client-api';
+import { isSearchable, normalizeResult, searchUrl, type PartDetail, type PartHit, type SearchResult, type SearchState, type Suggestion } from '@/lib/part-search';
+
+/** Peça da oficina como `GET /parts` a devolve (decimais chegam como texto). */
+export type LocalPart = { id: string; sku: string; name: string; costPrice: string; sellPrice: string; stockQty: string; catalogSku: string | null };
+
+export type PartHistory = {
+  part: LocalPart & { avgCost: string | null };
+  totals: { purchases: number; boughtQty: string | number; sales: number; soldQty: string | number };
+  purchases: {
+    id: string;
+    createdAt: string;
+    quantity: string;
+    unitCost: string | null;
+    note: string | null;
+    purchaseInvoiceItem: { invoice: { id: string; number: number | null; issuerName: string; issuedAt: string | null } } | null;
+  }[];
+  sales: {
+    id: string;
+    createdAt: string;
+    quantity: string;
+    unitPrice: string;
+    unitCost: string | null;
+    serviceOrder: { id: string; number: number; status: string; customer: { name: string }; vehicle: { plate: string; brand: string; model: string } };
+  }[];
+  prices: { id: string; createdAt: string; costBefore: string | null; costAfter: string; sellBefore: string | null; sellAfter: string; marginAfter: string | null; source: 'INVOICE' | 'MANUAL' | 'AUTO' | 'REVERSAL' }[];
+};
+
+const SEARCH_ERROR = 'Não foi possível buscar no catálogo.';
+
+/** Resultado da busca. Enquanto a próxima página chega, a anterior continua na tela, então filtrar e paginar não pisca. */
+export function usePartSearch(state: SearchState) {
+  const url = searchUrl(state);
+  return useQuery({
+    queryKey: ['part-search', url],
+    enabled: isSearchable(state),
+    retry: false,
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+    queryFn: async (): Promise<SearchResult> => normalizeResult(await getJson<SearchResult>(url, SEARCH_ERROR)),
+  });
+}
+
+export function useSuggestions(text: string, enabled: boolean) {
+  const q = text.trim();
+  return useQuery({
+    queryKey: ['part-suggest', q],
+    enabled: enabled && q.length >= 2,
+    retry: false,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+    queryFn: () => getJson<{ data: Suggestion[] }>(`/api/catalog/parts/autocomplete?q=${encodeURIComponent(q)}&limit=8`, SEARCH_ERROR),
+  });
+}
+
+export function usePartDetail(sku: string | undefined) {
+  return useQuery({
+    queryKey: ['part-detail', sku],
+    enabled: Boolean(sku),
+    retry: false,
+    staleTime: 5 * 60_000,
+    queryFn: () => getJson<PartDetail>(`/api/catalog/parts/${encodeURIComponent(sku!)}`, 'Não foi possível abrir a ficha da peça.'),
+  });
+}
+
+/** A peça da oficina vinculada a esta peça do catálogo (se houver). */
+export function useLocalPart(catalogSku: string | undefined) {
+  return useQuery({
+    queryKey: ['local-part', catalogSku],
+    enabled: Boolean(catalogSku),
+    retry: false,
+    queryFn: async () => (await getJson<LocalPart[]>(`/api/parts?catalogSku=${encodeURIComponent(catalogSku!)}`, 'Não foi possível consultar o estoque da oficina.'))[0] ?? null,
+  });
+}
+
+export function usePartHistory(partId: string | undefined) {
+  return useQuery({
+    queryKey: ['part-history', partId],
+    enabled: Boolean(partId),
+    retry: false,
+    queryFn: () => getJson<PartHistory>(`/api/parts/${partId}/history`, 'Não foi possível carregar o histórico.'),
+  });
+}
+
+/** Ficha de várias peças (comparador), compartilhando o cache com a gaveta. */
+export function usePartDetails(skus: string[]) {
+  return useQueries({
+    queries: skus.map((sku) => ({
+      queryKey: ['part-detail', sku],
+      retry: false,
+      staleTime: 5 * 60_000,
+      queryFn: () => getJson<PartDetail>(`/api/catalog/parts/${encodeURIComponent(sku)}`, 'Não foi possível abrir a ficha da peça.'),
+    })),
+  });
+}
+
+/** Estado persistido no navegador. Lê depois de montar (sem divergir do HTML do servidor) e nunca quebra se o armazenamento estiver bloqueado. */
+export function useStored<T>(key: string, initial: T): [T, (next: T | ((prev: T) => T)) => void] {
+  const [value, setValue] = useState<T>(initial);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (raw !== null) setValue(JSON.parse(raw) as T);
+    } catch {
+      /* armazenamento indisponível: segue com o padrão */
+    }
+  }, [key]);
+  const set = useCallback(
+    (next: T | ((prev: T) => T)) => {
+      setValue((prev) => {
+        const v = typeof next === 'function' ? (next as (p: T) => T)(prev) : next;
+        try {
+          window.localStorage.setItem(key, JSON.stringify(v));
+        } catch {
+          /* idem */
+        }
+        return v;
+      });
+    },
+    [key],
+  );
+  return [value, set];
+}
+
+export type { PartHit };

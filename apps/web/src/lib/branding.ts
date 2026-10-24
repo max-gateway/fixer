@@ -4,6 +4,10 @@ export type Branding = {
   tenantSlug: string;
   displayName: string;
   logoUrl: string | null;
+  /** Marca só com o símbolo (menu recolhido, favicon). */
+  iconUrl: string | null;
+  /** O logo já traz o nome escrito: dispensa o texto ao lado. */
+  logoHasName: boolean;
   primaryColor: string;
   secondaryColor: string;
 };
@@ -51,11 +55,19 @@ function legibleOnWhite(hex: string, min = 4.5): string {
 const color = (value: string | undefined, fallback: string) =>
   legibleOnWhite(value && HEX.test(value) ? value : fallback);
 
+// Logo do próprio Fixer (public/): vale só quando o tenant não definiu nome nem logo próprios.
+const FIXER_LOGO = '/logo.png';
+const FIXER_ICON = '/icon.png';
+
 export function getBranding(): Branding {
+  const custom = process.env.BRAND_LOGO_URL || null;
+  const isFixer = !process.env.TENANT_DISPLAY_NAME;
   return {
     tenantSlug: process.env.TENANT_SLUG ?? 'dev',
     displayName: process.env.TENANT_DISPLAY_NAME || 'Fixer',
-    logoUrl: process.env.BRAND_LOGO_URL || null,
+    logoUrl: custom ?? (isFixer ? FIXER_LOGO : null),
+    iconUrl: custom ? null : isFixer ? FIXER_ICON : null,
+    logoHasName: !custom && isFixer,
     primaryColor: color(process.env.BRAND_PRIMARY_COLOR, DEFAULT_PRIMARY),
     secondaryColor: color(process.env.BRAND_SECONDARY_COLOR, DEFAULT_SECONDARY),
   };

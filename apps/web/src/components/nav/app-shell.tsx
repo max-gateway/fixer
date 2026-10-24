@@ -25,7 +25,7 @@ const W_OPEN = '17rem';
 const W_RAIL = '4.75rem';
 
 type Props = {
-  brand: { name: string; logoUrl?: string | null };
+  brand: { name: string; logoUrl?: string | null; iconUrl?: string | null; logoHasName?: boolean };
   user: NavUser | null;
   /** Oficina em uso (multi-tenant). `canSwitch`: o usuário participa de mais de uma. */
   org?: { name: string; canSwitch: boolean } | null;

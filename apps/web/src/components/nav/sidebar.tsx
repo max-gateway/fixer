@@ -14,7 +14,7 @@ const GROUPS_KEY = 'fixer:nav-groups';
 const newOrder = NAV_ACTIONS[0]!;
 
 export type SidebarProps = {
-  brand: { name: string; logoUrl?: string | null };
+  brand: { name: string; logoUrl?: string | null; iconUrl?: string | null; logoHasName?: boolean };
   org?: { name: string; canSwitch: boolean } | null;
   /** Modo trilho: só ícones, com dica ao lado. Na gaveta do celular é sempre false. */
   collapsed: boolean;
@@ -74,14 +74,17 @@ export function SidebarContent({ brand, org, collapsed, id, mod, onToggle, onOpe
           aria-label={`${brand.name}: ir para o painel`}
           className="flex min-w-0 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-white/60"
         >
-          {brand.logoUrl ? (
+          {brand.logoUrl && brand.logoHasName ? (
+            // Logo com o nome escrito: no trilho recolhido vira só o símbolo.
+            <img src={collapsed && brand.iconUrl ? brand.iconUrl : brand.logoUrl} alt="" className={collapsed ? 'size-9 shrink-0' : 'h-9 w-auto shrink-0'} />
+          ) : brand.logoUrl ? (
             <img src={brand.logoUrl} alt="" className="h-8 w-auto shrink-0" />
           ) : (
             <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand text-sm font-bold shadow-[0_6px_16px_-6px_var(--brand-primary)]">
               {brand.name.slice(0, 1).toUpperCase()}
             </span>
           )}
-          {!collapsed && <span className="truncate text-lg font-semibold tracking-tight">{brand.name}</span>}
+          {!collapsed && !brand.logoHasName && <span className="truncate text-lg font-semibold tracking-tight">{brand.name}</span>}
         </Link>
       </div>
 

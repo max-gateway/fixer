@@ -7,7 +7,8 @@ import './globals.css';
 export const dynamic = 'force-dynamic';
 
 export function generateMetadata(): Metadata {
-  return { title: getBranding().displayName };
+  const b = getBranding();
+  return { title: b.displayName, icons: b.iconUrl ? { icon: b.iconUrl } : undefined };
 }
 
 export default async function RootLayout({ children }: { children: ReactNode }) {

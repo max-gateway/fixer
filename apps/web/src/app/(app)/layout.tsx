@@ -50,7 +50,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           Pular para o conteúdo
         </a>
         <AppShell
-          brand={{ name: b.displayName, logoUrl: b.logoUrl }}
+          brand={{ name: b.displayName, logoUrl: b.logoUrl, iconUrl: b.iconUrl, logoHasName: b.logoHasName }}
           user={user}
           org={org}
           signOutAction={signOutAction}

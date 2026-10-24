@@ -22,8 +22,8 @@ export default async function LoginPage({
     <main className="bg-brand-glow grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
       <section className="relative hidden overflow-hidden border-r border-white/[0.06] bg-brand-secondary p-12 text-white lg:flex lg:flex-col lg:justify-between">
         <div className="flex items-center gap-3">
-          {b.logoUrl && <img src={b.logoUrl} alt="" className="h-10 w-auto" />}
-          <span className="text-xl font-bold">{b.displayName}</span>
+          {b.logoUrl && <img src={b.logoUrl} alt={b.logoHasName ? b.displayName : ''} className={b.logoHasName ? 'h-16 w-auto' : 'h-10 w-auto'} />}
+          {!b.logoHasName && <span className="text-xl font-bold">{b.displayName}</span>}
         </div>
         <div className="max-w-md">
           <h2 className="text-4xl font-bold leading-tight">A oficina em ordem, do orçamento à entrega.</h2>
@@ -38,8 +38,8 @@ export default async function LoginPage({
       <section className="flex items-center justify-center px-6 py-12">
         <div className="w-full max-w-sm">
           <div className="mb-10 flex items-center gap-3 lg:hidden">
-            {b.logoUrl && <img src={b.logoUrl} alt="" className="h-9 w-auto" />}
-            <span className="text-xl font-bold text-slate-900">{b.displayName}</span>
+            {b.logoUrl && <img src={b.logoUrl} alt={b.logoHasName ? b.displayName : ''} className={b.logoHasName ? 'h-14 w-auto rounded-lg bg-brand-secondary px-3' : 'h-9 w-auto'} />}
+            {!b.logoHasName && <span className="text-xl font-bold text-slate-900">{b.displayName}</span>}
           </div>
 
           <h1 className="text-3xl font-bold text-slate-900">Entrar</h1>
