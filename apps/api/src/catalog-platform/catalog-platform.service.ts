@@ -18,6 +18,7 @@ export interface CallerContext {
 }
 
 export type SearchQuery = NonNullable<paths['/v1/catalogs/{catalog}/search']['get']['parameters']['query']>;
+export type VehiclePartsQuery = NonNullable<paths['/v1/catalogs/{catalog}/parts']['get']['parameters']['query']>;
 export type AutocompleteQuery = NonNullable<paths['/v1/catalogs/{catalog}/autocomplete']['get']['parameters']['query']>;
 
 /**
@@ -45,6 +46,21 @@ export class CatalogPlatformService {
 
   autocomplete(caller: CallerContext, catalog: string, query: AutocompleteQuery) {
     return this.call(caller, async (client) => unwrap(await client.GET('/v1/catalogs/{catalog}/autocomplete', { params: { path: { catalog }, query } })));
+  }
+
+  /** Peças de um veículo (ou família make/model) e universais, em ordem estável. */
+  vehicleParts(caller: CallerContext, catalog: string, query: VehiclePartsQuery) {
+    return this.call(caller, async (client) => unwrap(await client.GET('/v1/catalogs/{catalog}/parts', { params: { path: { catalog }, query } })));
+  }
+
+  /** Cadastro completo da peça (aplicações, cross-references, atributos, códigos OEM). */
+  part(caller: CallerContext, catalog: string, sku: string) {
+    return this.call(caller, async (client) => unwrap(await client.GET('/v1/catalogs/{catalog}/parts/{sku}', { params: { path: { catalog, sku } } })));
+  }
+
+  /** A peça serve neste veículo? */
+  fits(caller: CallerContext, catalog: string, sku: string, vehicleId: string) {
+    return this.call(caller, async (client) => unwrap(await client.GET('/v1/catalogs/{catalog}/parts/{sku}/fits/{vehicleId}', { params: { path: { catalog, sku, vehicleId } } })));
   }
 
   /** Resumo de até 100 peças por sku; o que não existe no catálogo volta em `missing`. */

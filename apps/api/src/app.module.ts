@@ -38,6 +38,6 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // Rotas autenticadas: a organização vem do token. Portal público: vem do dono do token da URL.
     consumer.apply(PortalTenantMiddleware).forRoutes(PortalController);
-    consumer.apply(TenantMiddleware).exclude('portal/(.*)', 'me/(.*)').forRoutes('*');
+    consumer.apply(TenantMiddleware).exclude('portal/{*path}', 'me/{*path}').forRoutes('*');
   }
 }

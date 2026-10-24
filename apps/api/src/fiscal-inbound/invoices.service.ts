@@ -49,7 +49,8 @@ export const ItemActionSchema = z.discriminatedUnion('action', [
 export const CreatePartSchema = z.object({
   sku: z.string().trim().min(1).max(60).optional(),
   name: z.string().trim().min(1).max(200).optional(),
-  sellPrice: z.number({ required_error: 'Informe o preço de venda', invalid_type_error: 'Preço inválido' }).nonnegative('Preço não pode ser negativo'),
+  /** Opcional: o preço de venda sai da precificação da nota; a peça nasce com 0 (sem preço) até lá. */
+  sellPrice: z.number({ invalid_type_error: 'Preço inválido' }).nonnegative('Preço não pode ser negativo').default(0),
   unitFactor: z.number().positive().max(1_000_000).default(1),
   saveMapping: z.boolean().default(true),
   /** Peça do catálogo global que a nova peça da oficina passa a representar (a API a resolve antes; nome e GTIN nunca vêm do corpo). */

@@ -21,6 +21,6 @@ import { TenantDirectory } from './tenant-directory.service.js';
     TenantMiddleware,
     PortalTenantMiddleware,
   ],
-  exports: [TenantDirectory, MembershipService],
+  exports: [TenantDirectory, MembershipService, FixerTenantDirectory, ROLE_SCOPES],
 })
 export class TenancyModule {}

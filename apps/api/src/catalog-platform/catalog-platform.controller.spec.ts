@@ -35,7 +35,7 @@ describe('callerFrom (quem está chamando a plataforma)', () => {
 });
 
 describe('CatalogPlatformController', () => {
-  const service = { search: vi.fn(), autocomplete: vi.fn(), lookupParts: vi.fn(), lookupBarcodes: vi.fn() };
+  const service = { search: vi.fn(), autocomplete: vi.fn(), vehicleParts: vi.fn(), part: vi.fn(), fits: vi.fn(), lookupParts: vi.fn(), lookupBarcodes: vi.fn() };
   const controller = new CatalogPlatformController(service as never);
   const CALLER = { token: 'user-jwt', orgId: ORG };
 
@@ -104,6 +104,38 @@ describe('CatalogPlatformController', () => {
     it('400 sem q ou com limit acima de 50', async () => {
       await expect(controller.autocomplete({}, request())).rejects.toBeInstanceOf(BadRequestException);
       await expect(controller.autocomplete({ q: 'a', limit: '51' }, request())).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('GET /catalog/vehicle-parts', () => {
+    it('repassa veículo (ou família make/model) e paginação', async () => {
+      await controller.vehicleParts({ make: ' Fiat ', model: 'Strada', page: '2', limit: '10' }, request());
+      expect(service.vehicleParts).toHaveBeenCalledWith(CALLER, 'rocket-autopecas', { make: 'Fiat', model: 'Strada', page: 2, limit: 10 });
+    });
+
+    it('400 sem veículo nenhum e com parâmetro desconhecido', async () => {
+      await expect(controller.vehicleParts({}, request())).rejects.toBeInstanceOf(BadRequestException);
+      await expect(controller.vehicleParts({ make: 'Fiat', storeId: 'x' }, request())).rejects.toBeInstanceOf(BadRequestException);
+      expect(service.vehicleParts).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /catalog/parts/:sku', () => {
+    it('lê o cadastro da peça no catálogo da pessoa', async () => {
+      await controller.part('sku-1', {}, request());
+      expect(service.part).toHaveBeenCalledWith(CALLER, 'rocket-autopecas', 'sku-1');
+    });
+
+    it('catálogo alheio é 404 e sku grande demais é 400', async () => {
+      await expect(controller.part('sku-1', { catalog: 'alheio' }, request())).rejects.toBeInstanceOf(NotFoundException);
+      await expect(controller.part('x'.repeat(65), {}, request())).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('GET /catalog/parts/:sku/fits/:vehicleId', () => {
+    it('pergunta se a peça serve no veículo', async () => {
+      await controller.fits('sku-1', 'veh-1', {}, request());
+      expect(service.fits).toHaveBeenCalledWith(CALLER, 'rocket-autopecas', 'sku-1', 'veh-1');
     });
   });
 
