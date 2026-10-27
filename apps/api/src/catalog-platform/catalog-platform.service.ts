@@ -1,21 +1,18 @@
 import { createCatalogClient, unwrap, type paths } from '@max-gateway/catalog-client';
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Optional, UnprocessableEntityException } from '@nestjs/common';
 import { countsAsPlatformFailure, retryDecision, toHttpException } from './platform-error.js';
 import { PartsSearchConfig, type PartsSearchSettings } from './parts-search.config.js';
 import { Bulkhead } from './resilience/bulkhead.js';
 import { BreakerRegistry } from './resilience/circuit-breaker.js';
 import { withRetry } from './resilience/retry.js';
 
-/**
- * A loja da oficina na plataforma: o Fixer não tem lojas e registra uma por organização com o PRÓPRIO id da organização (`FixerTenantDirectory.storesOf`),
- * em minúsculas. As rotas fiscais levam a loja no caminho (`/v1/stores/{storeId}/...`).
- */
-export const storeOf = (caller: Pick<CallerContext, 'orgId' | 'storeId'>): string => (caller.storeId ?? caller.orgId).toLowerCase();
-
 /** Token de injeção do `fetch` (só os testes o trocam). */
 export const PARTS_SEARCH_FETCH = Symbol('PARTS_SEARCH_FETCH');
 
-/** Quem está chamando: a pessoa (token propagado, nunca reemitido), a organização e a loja dela e o traceparent da requisição de origem. */
+/** Quanto tempo a loja descoberta de uma organização vale em memória. Loja nova ou encerrada chega em até isso. */
+const STORE_TTL_MS = 5 * 60_000;
+
+/** Quem está chamando: a pessoa (token propagado, nunca reemitido), a organização, a loja se já escolhida e o traceparent da requisição de origem. */
 export interface CallerContext {
   token: string;
   orgId: string;
@@ -38,6 +35,7 @@ export type AutocompleteQuery = NonNullable<paths['/v1/catalogs/{catalog}/autoco
 export class CatalogPlatformService {
   private readonly breakers: BreakerRegistry;
   private readonly bulkhead: Bulkhead;
+  private readonly stores = new Map<string, { at: number; storeId: string }>();
 
   constructor(
     @Inject(PartsSearchConfig) private readonly settings: PartsSearchSettings,
@@ -85,8 +83,10 @@ export class CatalogPlatformService {
    * do motor tributário. Peça sem classificação volta `INCOMPLETO`; peça que o catálogo não tem volta em `unknown`.
    */
   fiscalResolve(caller: CallerContext, skus: string[]) {
-    const storeId = storeOf(caller);
-    return this.call(caller, async (client) => unwrap(await client.POST('/v1/stores/{storeId}/fiscal:resolve', { params: { path: { storeId } }, body: { skus } })));
+    return this.call(caller, async (client) => {
+      const storeId = await this.storeFor(caller, client);
+      return unwrap(await client.POST('/v1/stores/{storeId}/fiscal:resolve', { params: { path: { storeId } }, body: { skus } }));
+    });
   }
 
   /**
@@ -94,10 +94,27 @@ export class CatalogPlatformService {
    * classificação em vigor: só alimenta o consenso do catálogo. A chave de acesso e o CNPJ do emitente vão em claro por TLS e a plataforma só guarda hash.
    */
   fiscalObservations(caller: CallerContext, items: FiscalObservationItem[], idempotencyKey: string) {
-    const storeId = storeOf(caller);
-    return this.call(caller, async (client) =>
-      unwrap(await client.POST('/v1/stores/{storeId}/fiscal-observations', { params: { path: { storeId }, header: { 'Idempotency-Key': idempotencyKey } }, body: { items } })),
-    );
+    return this.call(caller, async (client) => {
+      const storeId = await this.storeFor(caller, client);
+      return unwrap(await client.POST('/v1/stores/{storeId}/fiscal-observations', { params: { path: { storeId }, header: { 'Idempotency-Key': idempotencyKey } }, body: { items } }));
+    });
+  }
+
+  /**
+   * A loja da oficina NA PLATAFORMA. O Fixer não tem lojas e não as supõe: a plataforma é a fonte (`GET /v1/stores`, as lojas ativas da organização do token), e
+   * as rotas fiscais levam a loja no caminho. Uma só loja vale sozinha; nenhuma ou várias são erro explícito (escolher entre várias é decisão de produto, não palpite).
+   * Cache por organização; a falha de descoberta nunca é guardada.
+   */
+  private async storeFor(caller: CallerContext, client: ReturnType<typeof createCatalogClient>): Promise<string> {
+    if (caller.storeId) return caller.storeId;
+    const key = caller.orgId.toLowerCase();
+    const hit = this.stores.get(key);
+    if (hit && Date.now() - hit.at < STORE_TTL_MS) return hit.storeId;
+    const { data } = unwrap(await client.GET('/v1/stores'));
+    if (data.length === 0) throw new UnprocessableEntityException('Sua oficina ainda não tem loja registrada no catálogo de peças. Avise o suporte.');
+    if (data.length > 1) throw new ConflictException('Sua oficina tem mais de uma loja no catálogo de peças e o Fixer ainda não sabe qual usar. Avise o suporte.');
+    this.stores.set(key, { at: Date.now(), storeId: data[0]!.storeId });
+    return data[0]!.storeId;
   }
 
   private async call<T>(caller: CallerContext, op: (client: ReturnType<typeof createCatalogClient>) => Promise<T>): Promise<T> {
