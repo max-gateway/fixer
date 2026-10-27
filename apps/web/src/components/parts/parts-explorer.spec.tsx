@@ -70,8 +70,10 @@ const detail = (over: Partial<PartDetail> = {}): PartDetail => ({
 });
 
 /** Roteia as chamadas da API do Fixer pela URL, como o servidor faria. */
-function route(handlers: { search?: (url: string) => unknown; detail?: unknown; local?: unknown; history?: unknown }) {
+function route(handlers: { search?: (url: string) => unknown; detail?: unknown; local?: unknown; history?: unknown; stock?: unknown[]; workshop?: unknown }) {
   api.getJson.mockImplementation(async (url: string) => {
+    if (url.includes('/catalog/workshop/stock')) return { items: handlers.stock ?? [] };
+    if (url.includes('/catalog/workshop/parts')) return handlers.workshop ?? result([]);
     if (url.includes('/catalog/parts/search') || url.includes('/catalog/vehicle-parts')) return handlers.search?.(url) ?? result([]);
     if (url.includes('/catalog/parts/autocomplete')) return { data: [] };
     if (url.match(/\/catalog\/parts\/[^/?]+$/)) return handlers.detail ?? detail();
@@ -210,5 +212,29 @@ describe('PartsExplorer', () => {
     const { user } = setup();
     await user.keyboard('/');
     expect(document.activeElement).toBe(screen.getByRole('combobox', { name: /buscar peças/i }));
+  });
+
+  it('mostra o saldo e o preço da oficina na linha e oferece cadastro para a peça que não está lá', async () => {
+    route({
+      search: () => result([hit(), hit({ sku: 'cat-2', name: 'Bieleta Traseira', partNumber: 'BT-9' })]),
+      stock: [{ catalogSku: 'cat-1', partId: 'p1', sku: 'BE-123', stockQty: 4, sellPrice: 89.9 }],
+    });
+    setup({ q: 'bieleta' });
+    expect(await screen.findByText('4 em estoque')).toBeTruthy();
+    expect(screen.getByText(/89,90/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /cadastrar bieleta traseira na oficina/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /cadastrar bieleta estabilizadora/i })).toBeNull();
+  });
+
+  it('"Minha oficina" lista as peças cadastradas sem texto e liga "Só com saldo"', async () => {
+    const workshop = result([hit({ workshop: { catalogSku: 'cat-1', partId: 'p1', sku: 'BE-123', stockQty: 0, sellPrice: 50 } })]);
+    route({ workshop });
+    const { user } = setup();
+    await user.click(screen.getByRole('button', { name: 'Minha oficina' }));
+    expect(await screen.findByText('Sem saldo')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /só com saldo/i }));
+    await waitFor(() => expect(api.getJson.mock.calls.some(([u]) => String(u).includes('/catalog/workshop/parts') && String(u).includes('inStock=true'))).toBe(true));
+    expect(screen.getByRole('button', { name: /com saldo.*remover filtro/i })).toBeTruthy();
+    expect(api.getJson.mock.calls.some(([u]) => String(u).includes('/catalog/workshop/stock'))).toBe(false);
   });
 });

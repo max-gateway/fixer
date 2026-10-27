@@ -3,14 +3,22 @@
 export type Brand = { key: string; name: string };
 export type Category = { id: string; name: string };
 
+/** Posição física na loja (`Location` do contrato da plataforma). Todos os campos são opcionais, mas pelo menos um vem preenchido. */
+export type Location = { depot?: string; path?: string; floor?: string; room?: string; row?: string; shelf?: string; level?: string; box?: string };
+
+/** Oferta DA LOJA na plataforma. O Fixer não publica ofertas: quase sempre ausente; o estoque da oficina vem de `workshop`. */
 export type Offer = {
   storeId: string;
   /** Nulo = oferta sem preço (ainda não vendável). */
   priceCents: number | null;
   currency: 'BRL';
   quantityAvailable: number;
-  location: { depot?: string; aisle?: string; shelf?: string; bin?: string; note?: string } | null;
+  locations: Location[];
+  version: number;
 };
+
+/** A peça da oficina que representa uma peça do catálogo: saldo e preço de venda (sem custo). */
+export type WorkshopStock = { catalogSku: string; partId: string; sku: string; stockQty: number; sellPrice: number };
 
 /** Uma peça na lista de resultados. */
 export type PartHit = {
@@ -27,6 +35,8 @@ export type PartHit = {
   isUniversalFit: boolean;
   relevanceScore: number;
   offer?: Offer;
+  /** Só no modo "Minha oficina", que já parte do estoque; na busca do catálogo vem de `useWorkshopStock`. */
+  workshop?: WorkshopStock;
 };
 
 export type Facets = {
@@ -95,6 +105,10 @@ export type SearchState = {
   vehicle?: VehicleFilter;
   /** Peça aberta na gaveta. */
   sku?: string;
+  /** "Minha oficina": só as peças do catálogo que a oficina já cadastrou. */
+  mine?: boolean;
+  /** Só com saldo. Vale no modo "Minha oficina". */
+  inStock?: boolean;
 };
 
 export const PAGE_SIZE = 24;
@@ -117,8 +131,8 @@ export function queryKind(raw: string): QueryKind {
 export const KIND_LABEL: Record<Exclude<QueryKind, 'empty'>, string> = { gtin: 'Código de barras', code: 'Código da peça', text: 'Texto' };
 
 /** Há algo para buscar? Texto ou veículo (a lista por veículo não precisa de texto). */
-export function isSearchable(s: Pick<SearchState, 'q' | 'vehicle'>): boolean {
-  return s.q.trim().length >= 2 || Boolean(s.vehicle);
+export function isSearchable(s: Pick<SearchState, 'q' | 'vehicle' | 'mine'>): boolean {
+  return Boolean(s.mine) || s.q.trim().length >= 2 || Boolean(s.vehicle);
 }
 
 export function parseState(params: URLSearchParams): SearchState {
@@ -136,6 +150,8 @@ export function parseState(params: URLSearchParams): SearchState {
     categories: params.getAll('cat'),
     ...(vehicle ? { vehicle } : {}),
     ...(params.get('sku') ? { sku: params.get('sku')! } : {}),
+    ...(params.get('m') === '1' ? { mine: true } : {}),
+    ...(params.get('m') === '1' && params.get('est') === '1' ? { inStock: true } : {}),
   };
 }
 
@@ -151,6 +167,8 @@ export function toPageParams(s: SearchState): URLSearchParams {
   if (s.vehicle?.model) p.set('vmod', s.vehicle.model);
   if (s.vehicle) p.set('vl', s.vehicle.label);
   if (s.sku) p.set('sku', s.sku);
+  if (s.mine) p.set('m', '1');
+  if (s.mine && s.inStock) p.set('est', '1');
   return p;
 }
 
@@ -160,6 +178,11 @@ export function searchUrl(s: SearchState, limit = PAGE_SIZE): string {
   p.set('page', String(s.page));
   p.set('limit', String(limit));
   const text = s.q.trim();
+  if (s.mine) {
+    if (text) p.set('q', text);
+    if (s.inStock) p.set('inStock', 'true');
+    return `/api/catalog/workshop/parts?${p}`;
+  }
   if (!text && s.vehicle) {
     if (s.vehicle.id) p.set('vehicleId', s.vehicle.id);
     else {
@@ -189,12 +212,13 @@ export function normalizeResult(raw: Partial<SearchResult> & { data: PartHit[] }
 }
 
 /** Filtros ativos como chips removíveis, com o nome legível (não a chave). */
-export type ActiveFilter = { kind: 'brand' | 'category' | 'vehicle'; value: string; label: string };
+export type ActiveFilter = { kind: 'brand' | 'category' | 'vehicle' | 'stock'; value: string; label: string };
 
 export function activeFilters(s: SearchState, facets?: Facets): ActiveFilter[] {
   const brandName = (k: string) => facets?.brands.find((b) => b.key === k)?.name ?? k;
   const catName = (id: string) => facets?.categories.find((c) => c.id === id)?.name ?? id;
   return [
+    ...(s.mine && s.inStock ? [{ kind: 'stock' as const, value: 'inStock', label: 'Com saldo' }] : []),
     ...(s.vehicle ? [{ kind: 'vehicle' as const, value: s.vehicle.id ?? s.vehicle.label, label: s.vehicle.label }] : []),
     ...s.brands.map((v) => ({ kind: 'brand' as const, value: v, label: brandName(v) })),
     ...s.categories.map((v) => ({ kind: 'category' as const, value: v, label: catName(v) })),
@@ -304,10 +328,13 @@ const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' 
 export const formatCents = (cents: number) => brl.format(cents / 100);
 export const formatMoney = (value: number | string) => brl.format(Number(value));
 
-export function formatLocation(loc: Offer['location']): string | null {
+/** Primeira posição da oferta, do mais geral ao mais específico ("Depósito · Corredor · Prateleira · Nível · Caixa"); `null` sem posição. */
+export function formatLocation(locations: Offer['locations'] | null | undefined): string | null {
+  const loc = locations?.[0];
   if (!loc) return null;
-  const parts = [loc.depot, loc.aisle && `Corredor ${loc.aisle}`, loc.shelf && `Prateleira ${loc.shelf}`, loc.bin && `Gaveta ${loc.bin}`].filter(Boolean);
-  return parts.length ? parts.join(' · ') : (loc.note ?? null);
+  const parts = [loc.depot, loc.floor && `Andar ${loc.floor}`, loc.room && `Sala ${loc.room}`, loc.path && `Corredor ${loc.path}`, loc.row && `Fila ${loc.row}`, loc.shelf && `Prateleira ${loc.shelf}`, loc.level && `Nível ${loc.level}`, loc.box && `Caixa ${loc.box}`].filter(Boolean);
+  const extra = locations!.length - 1;
+  return parts.length ? parts.join(' · ') + (extra > 0 ? ` (+${extra})` : '') : null;
 }
 
 // --- buscas recentes -------------------------------------------------------------------------------------------------

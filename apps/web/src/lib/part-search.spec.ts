@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeFilters,
+  formatLocation,
+  isSearchable,
   groupApplications,
   groupCrossPairs,
   highlight,
@@ -134,5 +136,37 @@ describe('pushRecent', () => {
     expect(pushRecent(['b', 'Bieleta', 'c'], 'bieleta')).toEqual(['bieleta', 'b', 'c']);
     expect(pushRecent(['a', 'b'], 'cc', 2)).toEqual(['cc', 'a']);
     expect(pushRecent(['a'], ' x ')).toEqual(['a']);
+  });
+});
+
+describe('modo Minha oficina', () => {
+  const base: SearchState = { q: '', page: 1, brands: [], categories: [], mine: true };
+
+  it('é pesquisável sem texto e vai para a lista da oficina', () => {
+    expect(isSearchable(base)).toBe(true);
+    const url = searchUrl({ ...base, q: ' biel ', inStock: true });
+    expect(url.startsWith('/api/catalog/workshop/parts?')).toBe(true);
+    expect(url).toContain('q=biel');
+    expect(url).toContain('inStock=true');
+  });
+
+  it('o estado sobrevive à URL e "com saldo" só vale no modo oficina', () => {
+    const s = { ...base, inStock: true };
+    expect(parseState(toPageParams(s))).toEqual(s);
+    expect(parseState(new URLSearchParams('est=1')).inStock).toBeUndefined();
+  });
+
+  it('"com saldo" aparece como chip removível', () => {
+    expect(activeFilters({ ...base, inStock: true }).map((f) => f.label)).toEqual(['Com saldo']);
+  });
+});
+
+describe('formatLocation', () => {
+  it('descreve a primeira posição e conta as demais', () => {
+    expect(formatLocation([{ depot: 'Matriz', path: 'B', shelf: '3', box: '7' }, { depot: 'Filial' }])).toBe('Matriz · Corredor B · Prateleira 3 · Caixa 7 (+1)');
+  });
+  it('sem posição, nada', () => {
+    expect(formatLocation([])).toBeNull();
+    expect(formatLocation(undefined)).toBeNull();
   });
 });

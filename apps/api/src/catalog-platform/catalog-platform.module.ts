@@ -6,6 +6,8 @@ import { FiscalObservationsService } from './fiscal-observations.service.js';
 import { PartCatalogLinkController } from './part-catalog-link.controller.js';
 import { PartCatalogLinkService } from './part-catalog-link.service.js';
 import { PartsSearchConfig } from './parts-search.config.js';
+import { WorkshopStockController } from './workshop-stock.controller.js';
+import { WorkshopStockService } from './workshop-stock.service.js';
 
 /**
  * Integração com a plataforma de catálogo (parts-search): busca e consulta em lote do cadastro global, com a identidade do usuário
@@ -13,8 +15,8 @@ import { PartsSearchConfig } from './parts-search.config.js';
  * Preço e saldo viram oferta na fase W.
  */
 @Module({
-  controllers: [CatalogPlatformController, PartCatalogLinkController, FiscalBackfillController],
-  providers: [PartsSearchConfig, CatalogPlatformService, PartCatalogLinkService, FiscalObservationsService, FiscalBackfillExport],
+  controllers: [CatalogPlatformController, PartCatalogLinkController, FiscalBackfillController, WorkshopStockController],
+  providers: [PartsSearchConfig, CatalogPlatformService, PartCatalogLinkService, FiscalObservationsService, FiscalBackfillExport, WorkshopStockService],
   exports: [CatalogPlatformService, PartCatalogLinkService, FiscalObservationsService],
 })
 export class CatalogPlatformModule {}

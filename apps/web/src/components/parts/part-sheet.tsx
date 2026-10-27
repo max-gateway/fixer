@@ -1,6 +1,5 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Boxes, Car, ChevronDown, ChevronLeft, ChevronRight, Copy, History, Loader2, PackagePlus, Repeat2, ScanBarcode, Search, TriangleAlert } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { PartImage } from '@/components/catalog/part-image';
@@ -8,12 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useToast } from '@/components/ui/toaster';
-import { postJson } from '@/lib/client-api';
 import { formatCents, formatLocation, formatMoney, groupApplications, groupCrossPairs, yearRange, type Application, type PartDetail, type PartHit } from '@/lib/part-search';
 import { cn } from '@/lib/utils';
 import { useCopy } from './part-card';
-import { usePartDetail, usePartHistory, useLocalPart, type LocalPart, type PartHistory } from './use-parts';
+import { useLocalPart, usePartDetail, usePartHistory, useRegisterPart, type LocalPart, type PartHistory } from './use-parts';
 
 const dateFmt = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 const fmtDate = (iso: string | null) => (iso ? dateFmt.format(new Date(iso)) : '—');
@@ -59,7 +56,7 @@ function Overview({ part, hit, onSearch }: { part: PartDetail; hit?: PartHit; on
           </div>
           <div className="text-right text-sm">
             <p className={cn('font-medium', offer.quantityAvailable > 0 ? 'text-emerald-700' : 'text-red-700')}>{offer.quantityAvailable > 0 ? `${offer.quantityAvailable} em estoque` : 'Sem saldo'}</p>
-            {formatLocation(offer.location) && <p className="text-xs text-muted-foreground">{formatLocation(offer.location)}</p>}
+            {formatLocation(offer.locations) && <p className="text-xs text-muted-foreground">{formatLocation(offer.locations)}</p>}
           </div>
         </div>
       )}
@@ -317,23 +314,14 @@ function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: 
 function ShopForm({ part }: { part: PartDetail }) {
   const [cost, setCost] = useState('');
   const [sell, setSell] = useState('');
-  const { toast } = useToast();
-  const client = useQueryClient();
+  const create = useRegisterPart(part.sku, part.name);
   const toNum = (s: string) => Number(s.replace(',', '.'));
   const valid = cost.trim() !== '' && sell.trim() !== '' && toNum(cost) >= 0 && toNum(sell) >= 0 && !Number.isNaN(toNum(cost)) && !Number.isNaN(toNum(sell));
-  const create = useMutation({
-    mutationFn: () => postJson('/api/parts/from-catalog', { catalogSku: part.sku, costPrice: toNum(cost), sellPrice: toNum(sell) }, 'Não foi possível cadastrar a peça.'),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ['local-part', part.sku] });
-      toast({ title: 'Peça cadastrada na oficina', description: part.name, tone: 'success' });
-    },
-    onError: (e) => toast({ title: e.message, tone: 'error' }),
-  });
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (valid) create.mutate();
+        if (valid) create.mutate({ costPrice: toNum(cost), sellPrice: toNum(sell) });
       }}
       className="space-y-3 rounded-xl border bg-card p-4"
     >

@@ -1,9 +1,10 @@
 'use client';
 
-import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
-import { getJson } from '@/lib/client-api';
-import { isSearchable, normalizeResult, searchUrl, type PartDetail, type PartHit, type SearchResult, type SearchState, type Suggestion } from '@/lib/part-search';
+import { useToast } from '@/components/ui/toaster';
+import { getJson, postJson } from '@/lib/client-api';
+import { isSearchable, normalizeResult, searchUrl, type PartDetail, type PartHit, type SearchResult, type SearchState, type Suggestion, type WorkshopStock } from '@/lib/part-search';
 
 /** Peça da oficina como `GET /parts` a devolve (decimais chegam como texto). */
 export type LocalPart = { id: string; sku: string; name: string; costPrice: string; sellPrice: string; stockQty: string; catalogSku: string | null };
@@ -64,6 +65,37 @@ export function usePartDetail(sku: string | undefined) {
     retry: false,
     staleTime: 5 * 60_000,
     queryFn: () => getJson<PartDetail>(`/api/catalog/parts/${encodeURIComponent(sku!)}`, 'Não foi possível abrir a ficha da peça.'),
+  });
+}
+
+/** Saldo e preço de venda da oficina para os skus de uma página de resultados, por sku do catálogo. Peça sem vínculo não aparece no mapa. */
+export function useWorkshopStock(skus: string[]) {
+  const key = [...skus].sort().join(',');
+  return useQuery({
+    queryKey: ['workshop-stock', key],
+    enabled: skus.length > 0,
+    retry: false,
+    staleTime: 15_000,
+    placeholderData: keepPreviousData,
+    queryFn: async (): Promise<Map<string, WorkshopStock>> => {
+      const { items } = await getJson<{ items: WorkshopStock[] }>(`/api/catalog/workshop/stock?${skus.map((s) => `skus=${encodeURIComponent(s)}`).join('&')}`, 'Não foi possível consultar o estoque da oficina.');
+      return new Map(items.map((i) => [i.catalogSku, i]));
+    },
+  });
+}
+
+/** Cadastra a peça do catálogo na oficina (nome e GTIN vêm do catálogo) e atualiza os saldos que a tela mostra. */
+export function useRegisterPart(sku: string, name: string, onDone?: () => void) {
+  const { toast } = useToast();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { costPrice: number; sellPrice: number }) => postJson('/api/parts/from-catalog', { catalogSku: sku, ...v }, 'Não foi possível cadastrar a peça.'),
+    onSuccess: async () => {
+      await Promise.all([client.invalidateQueries({ queryKey: ['local-part', sku] }), client.invalidateQueries({ queryKey: ['workshop-stock'] }), client.invalidateQueries({ queryKey: ['part-search'] })]);
+      toast({ title: 'Peça cadastrada na oficina', description: name, tone: 'success' });
+      onDone?.();
+    },
+    onError: (e) => toast({ title: e.message, tone: 'error' }),
   });
 }
 
