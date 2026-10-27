@@ -233,3 +233,13 @@ Métricas por rota e organização (latência, taxa, erro, `Retry-After`), estad
 4. **Remover a instalação dedicada** como modo do Fixer (I10).
 5. **Realm único e login único** para os usuários do Fixer: data (§20.7 do catalog-platform).
 6. Prioridade de **P-1 e P-2** (contrato novo) na plataforma, e quem publica o `catalog-client`.
+
+## Classificação fiscal na plataforma (ADR-9)
+
+Spec da plataforma: `docs/specs/parts-search-fiscal.md` (repositório `platform`), §13.5. No Fixer:
+
+- **Papéis das pessoas** (`platformRolesFor`): `invoices.reconcile` e `pricing.write` também dão `fiscal_editor`; `fiscal.verify` (o contador) dá `accountant`. `fiscal:admin` (curadoria do cadastro global) nunca vem de papel de oficina.
+- **Evidência das notas**: ao lançar uma nota (`POST /invoices/:id/confirm`), depois do commit e em segundo plano, as peças já vinculadas ao catálogo enviam NCM, CEST, origem e unidade ao `fiscal-observations`. Melhor esforço: não falha nem atrasa o lançamento. CPF de produtor rural e NCM sem 8 dígitos ficam de fora.
+- **Leitura**: `CatalogPlatformService.fiscalResolve` (até 500 SKUs, loja = o id da organização em minúsculas). A coluna fiscal local de `Part` segue como cache até o cadastro migrar.
+- **Backfill**: `GET /catalog-platform/fiscal-backfill` (permissão `fiscal.manage`) exporta NDJSON das peças casadas com dado fiscal; o CLI `fiscal-backfill` da plataforma o aplica com o client de serviço `fixer-sync`.
+- **Dependência**: `@max-gateway/catalog-client` 0.4.0 (rotas fiscais). Até ser publicado, o `typecheck` do `apps/api` não enxerga as rotas novas.

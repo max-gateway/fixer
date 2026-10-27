@@ -41,6 +41,36 @@ function build(responder: Responder, over: Partial<PartsSearchSettings> = {}) {
 const status = (e: unknown) => (e instanceof HttpException ? e.getStatus() : -1);
 const fail = async (p: Promise<unknown>) => p.then(() => undefined, (e: unknown) => e);
 
+describe('CatalogPlatformService: classificação fiscal (loja = a própria organização, em minúsculas)', () => {
+  it('fiscalResolve: POST /v1/stores/{loja}/fiscal:resolve com o token do usuário', async () => {
+    const { service, fetch } = build(() => json({ items: [], unknown: ['a'] }));
+    const out = await service.fiscalResolve(caller({ orgId: ORG_A.toUpperCase(), storeId: undefined }), ['a']);
+    expect(out).toEqual({ items: [], unknown: ['a'] });
+    const req = fetch.mock.calls[0]![0];
+    expect(req.method).toBe('POST');
+    expect(new URL(req.url).pathname).toBe(`/v1/stores/${ORG_A}/fiscal:resolve`);
+    expect(await req.clone().json()).toEqual({ skus: ['a'] });
+    expect(req.headers.get('authorization')).toBe('Bearer user-jwt');
+  });
+
+  it('fiscalObservations: POST em fiscal-observations com Idempotency-Key e os itens', async () => {
+    const { service, fetch } = build(() => json({ accepted: 1, duplicates: 0, rejected: [] }, { status: 202 }));
+    const item = { sku: 'a', accessKey: '0'.repeat(44), issuerCnpj: '12345678000195', observedAt: '2026-10-20T10:00:00Z', source: 'NFE_XML' as const, ncm: '68138110' };
+    await service.fiscalObservations(caller(), [item], 'fixer-invoice-1-0');
+    const req = fetch.mock.calls[0]![0];
+    expect(new URL(req.url).pathname).toBe(`/v1/stores/${ORG_A}/fiscal-observations`);
+    expect(req.headers.get('idempotency-key')).toBe('fixer-invoice-1-0');
+    expect(await req.clone().json()).toEqual({ items: [item] });
+  });
+
+  it('403 (sem fiscal:write) vira erro tratado, sem vazar a mensagem da plataforma', async () => {
+    const { service } = build(() => apiError(403, 'forbidden'));
+    const e = await fail(service.fiscalObservations(caller(), [], 'k'));
+    expect(status(e)).toBe(403);
+    expect(JSON.stringify((e as HttpException).getResponse())).not.toContain('texto interno da plataforma');
+  });
+});
+
 describe('CatalogPlatformService: o que vai à plataforma', () => {
   it('consulta em lote por sku: POST no catálogo, com o token do usuário, a organização, a loja e o traceparent', async () => {
     const { service, fetch } = build(() => json(lookupOk));

@@ -6,6 +6,12 @@ import { Bulkhead } from './resilience/bulkhead.js';
 import { BreakerRegistry } from './resilience/circuit-breaker.js';
 import { withRetry } from './resilience/retry.js';
 
+/**
+ * A loja da oficina na plataforma: o Fixer não tem lojas e registra uma por organização com o PRÓPRIO id da organização (`FixerTenantDirectory.storesOf`),
+ * em minúsculas. As rotas fiscais levam a loja no caminho (`/v1/stores/{storeId}/...`).
+ */
+export const storeOf = (caller: Pick<CallerContext, 'orgId' | 'storeId'>): string => (caller.storeId ?? caller.orgId).toLowerCase();
+
 /** Token de injeção do `fetch` (só os testes o trocam). */
 export const PARTS_SEARCH_FETCH = Symbol('PARTS_SEARCH_FETCH');
 
@@ -19,6 +25,7 @@ export interface CallerContext {
 
 export type SearchQuery = NonNullable<paths['/v1/catalogs/{catalog}/search']['get']['parameters']['query']>;
 export type VehiclePartsQuery = NonNullable<paths['/v1/catalogs/{catalog}/parts']['get']['parameters']['query']>;
+export type FiscalObservationItem = NonNullable<paths['/v1/stores/{storeId}/fiscal-observations']['post']['requestBody']>['content']['application/json']['items'][number];
 export type AutocompleteQuery = NonNullable<paths['/v1/catalogs/{catalog}/autocomplete']['get']['parameters']['query']>;
 
 /**
@@ -71,6 +78,26 @@ export class CatalogPlatformService {
   /** Skus ativos por GTIN (até 100). */
   lookupBarcodes(caller: CallerContext, catalog: string, barcodes: string[]) {
     return this.call(caller, async (client) => unwrap(await client.POST('/v1/catalogs/{catalog}/barcodes:lookup', { params: { path: { catalog } }, body: { barcodes } })));
+  }
+
+  /**
+   * Classificação fiscal RESOLVIDA (override da oficina sobre o cadastro global, com o aceite do contador) de até 500 peças do catálogo, no formato `item`
+   * do motor tributário. Peça sem classificação volta `INCOMPLETO`; peça que o catálogo não tem volta em `unknown`.
+   */
+  fiscalResolve(caller: CallerContext, skus: string[]) {
+    const storeId = storeOf(caller);
+    return this.call(caller, async (client) => unwrap(await client.POST('/v1/stores/{storeId}/fiscal:resolve', { params: { path: { storeId } }, body: { skus } })));
+  }
+
+  /**
+   * Evidência fiscal das notas de entrada (o que o fornecedor escreveu para a peça). Idempotente por (nota, peça), então repetir é seguro. Nunca altera a
+   * classificação em vigor: só alimenta o consenso do catálogo. A chave de acesso e o CNPJ do emitente vão em claro por TLS e a plataforma só guarda hash.
+   */
+  fiscalObservations(caller: CallerContext, items: FiscalObservationItem[], idempotencyKey: string) {
+    const storeId = storeOf(caller);
+    return this.call(caller, async (client) =>
+      unwrap(await client.POST('/v1/stores/{storeId}/fiscal-observations', { params: { path: { storeId }, header: { 'Idempotency-Key': idempotencyKey } }, body: { items } })),
+    );
   }
 
   private async call<T>(caller: CallerContext, op: (client: ReturnType<typeof createCatalogClient>) => Promise<T>): Promise<T> {

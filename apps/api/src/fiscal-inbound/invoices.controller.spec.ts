@@ -56,3 +56,29 @@ describe('InvoicesController.createPart (cadastro pelo item da nota, com ou sem 
     expect(invoices.createPartFromItem).not.toHaveBeenCalled();
   });
 });
+
+describe('InvoicesController.confirm (evidência fiscal para o catálogo, depois do lançamento)', () => {
+  const user = { id: 'u1' } as never;
+
+  it('lança a nota e SÓ DEPOIS dispara a evidência, com o token da pessoa', async () => {
+    const order: string[] = [];
+    const invoices = { confirm: vi.fn(async () => { order.push('confirm'); return { id: 'inv1' }; }) };
+    const observations = { emitInBackground: vi.fn((caller: () => unknown, id: string) => { order.push('emit'); expect(caller()).toEqual(CALLER); expect(id).toBe('inv1'); }) };
+    const controller = new InvoicesController(invoices as never, {} as never, {} as never, observations as never);
+    expect(await controller.confirm('inv1', user, request())).toEqual({ id: 'inv1' });
+    expect(order).toEqual(['confirm', 'emit']);
+  });
+
+  it('nota que não pôde ser lançada (409) nunca dispara a evidência', async () => {
+    const invoices = { confirm: vi.fn(async () => { throw new Error('conflito'); }) };
+    const observations = { emitInBackground: vi.fn() };
+    const controller = new InvoicesController(invoices as never, {} as never, {} as never, observations as never);
+    await expect(controller.confirm('inv1', user, request())).rejects.toThrow('conflito');
+    expect(observations.emitInBackground).not.toHaveBeenCalled();
+  });
+
+  it('sem o serviço (plataforma não configurada) o lançamento é o de sempre', async () => {
+    const controller = new InvoicesController({ confirm: vi.fn(async () => ({ id: 'inv1' })) } as never, {} as never, {} as never);
+    expect(await controller.confirm('inv1', user, request())).toEqual({ id: 'inv1' });
+  });
+});

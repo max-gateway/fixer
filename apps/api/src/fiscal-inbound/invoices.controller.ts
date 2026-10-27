@@ -1,10 +1,11 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Optional, Param, ParseIntPipe, Post, Put, Query, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser, type AuthUser } from '../auth/auth.decorators.js';
 import { RequirePermission } from '../auth/permissions.js';
 import { RequireFeature } from '../control-plane/feature.guard.js';
 import { parse } from '../common/parse.js';
 import { callerFrom, pickCatalog, type PlatformRequest } from '../catalog-platform/catalog-platform.controller.js';
+import { FiscalObservationsService } from '../catalog-platform/fiscal-observations.service.js';
 import { PartCatalogLinkService } from '../catalog-platform/part-catalog-link.service.js';
 import { CreatePartSchema, InvoicesService, ItemActionSchema, ListQuerySchema } from './invoices.service.js';
 import { ManifestService } from './sync/manifest.service.js';
@@ -17,6 +18,7 @@ export class InvoicesController {
     private readonly invoices: InvoicesService,
     private readonly manifest: ManifestService,
     private readonly catalogLinks: PartCatalogLinkService,
+    @Optional() private readonly fiscalObservations?: FiscalObservationsService,
   ) {}
 
   @Get()
@@ -74,8 +76,11 @@ export class InvoicesController {
   /** Lança a entrada no estoque (nota READY). */
   @Post(':id/confirm')
   @RequirePermission('invoices.reconcile')
-  confirm(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.invoices.confirm(id, user.id);
+  async confirm(@Param('id') id: string, @CurrentUser() user: AuthUser, @Req() req: PlatformRequest) {
+    const posted = await this.invoices.confirm(id, user.id);
+    // Evidência fiscal para o consenso do catálogo: depois do commit, em segundo plano, sem nunca falhar nem atrasar o lançamento.
+    this.fiscalObservations?.emitInBackground(() => callerFrom(req), id);
+    return posted;
   }
 
   @Post(':id/clear-review')

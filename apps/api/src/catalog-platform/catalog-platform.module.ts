@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { CatalogPlatformController } from './catalog-platform.controller.js';
 import { CatalogPlatformService } from './catalog-platform.service.js';
+import { FiscalBackfillController, FiscalBackfillExport } from './fiscal-backfill-export.js';
+import { FiscalObservationsService } from './fiscal-observations.service.js';
 import { PartCatalogLinkController } from './part-catalog-link.controller.js';
 import { PartCatalogLinkService } from './part-catalog-link.service.js';
 import { PartsSearchConfig } from './parts-search.config.js';
@@ -11,8 +13,8 @@ import { PartsSearchConfig } from './parts-search.config.js';
  * Preço e saldo viram oferta na fase W.
  */
 @Module({
-  controllers: [CatalogPlatformController, PartCatalogLinkController],
-  providers: [PartsSearchConfig, CatalogPlatformService, PartCatalogLinkService],
-  exports: [CatalogPlatformService, PartCatalogLinkService],
+  controllers: [CatalogPlatformController, PartCatalogLinkController, FiscalBackfillController],
+  providers: [PartsSearchConfig, CatalogPlatformService, PartCatalogLinkService, FiscalObservationsService, FiscalBackfillExport],
+  exports: [CatalogPlatformService, PartCatalogLinkService, FiscalObservationsService],
 })
 export class CatalogPlatformModule {}
