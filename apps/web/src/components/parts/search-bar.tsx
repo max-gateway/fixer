@@ -24,6 +24,7 @@ export function SearchBar({
   busy,
   inputRef,
   autoFocus,
+  vehicleId,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -36,6 +37,8 @@ export function SearchBar({
   busy: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
   autoFocus?: boolean;
+  /** Veículo escolhido: as sugestões dizem se a peça serve nele. */
+  vehicleId?: string;
 }) {
   const listId = useId();
   const [open, setOpen] = useState(false);
@@ -46,7 +49,7 @@ export function SearchBar({
   useEffect(() => setCanScan(canScanBarcodes()), []);
 
   const text = value.trim();
-  const suggest = useSuggestions(value, open && text.length >= 2);
+  const suggest = useSuggestions(value, open && text.length >= 2, vehicleId);
   const rows: Row[] = useMemo(() => {
     if (text.length < 2) return recents.map((r) => ({ id: `r:${r}`, kind: 'recent', text: r }));
     return (suggest.data?.data ?? []).map((s) => ({ id: `s:${s.sku}`, kind: 'suggestion', text: s.label, suggestion: s }));
@@ -206,6 +209,11 @@ export function SearchBar({
                         {[row.suggestion!.partNumber, row.suggestion!.brand, row.suggestion!.applicationsSummary?.slice(0, 2).join(', ')].filter(Boolean).join(' · ')}
                       </span>
                     </span>
+                    {vehicleId && row.suggestion!.compatibleWithVehicle !== undefined && (
+                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-medium', row.suggestion!.compatibleWithVehicle ? 'bg-emerald-100 text-emerald-900' : 'bg-muted text-muted-foreground')}>
+                        {row.suggestion!.compatibleWithVehicle ? 'Serve' : 'Não serve'}
+                      </span>
+                    )}
                     {i === active && <CornerDownLeft aria-hidden className="size-4 shrink-0 text-muted-foreground" />}
                   </>
                 )}

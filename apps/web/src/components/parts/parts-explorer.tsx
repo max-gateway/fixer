@@ -218,6 +218,7 @@ function Explorer({ initial }: { initial: SearchState }) {
         onClearRecents={() => setRecents([])}
         busy={busy}
         inputRef={inputRef}
+        {...(!mine && state.vehicle?.id ? { vehicleId: state.vehicle.id } : {})}
       />
 
       {manualVehicleWithText && (
@@ -341,6 +342,7 @@ function Explorer({ initial }: { initial: SearchState }) {
       <PartSheet
         sku={state.sku}
         hit={sheetHit}
+        {...(state.vehicle?.id ? { vehicle: state.vehicle } : {})}
         onClose={closePart}
         onSearchCode={(code) => {
           searchCode(code);

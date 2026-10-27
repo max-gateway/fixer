@@ -70,8 +70,13 @@ const detail = (over: Partial<PartDetail> = {}): PartDetail => ({
 });
 
 /** Roteia as chamadas da API do Fixer pela URL, como o servidor faria. */
-function route(handlers: { search?: (url: string) => unknown; detail?: unknown; local?: unknown; history?: unknown; stock?: unknown[]; workshop?: unknown }) {
+function route(handlers: { search?: (url: string) => unknown; detail?: unknown; local?: unknown; history?: unknown; stock?: unknown[]; workshop?: unknown; fiscal?: unknown; fits?: boolean }) {
   api.getJson.mockImplementation(async (url: string) => {
+    if (url.endsWith('/fiscal')) {
+      if (handlers.fiscal instanceof Error) throw handlers.fiscal;
+      return { fiscal: handlers.fiscal ?? null };
+    }
+    if (url.includes('/fits/')) return { compatible: handlers.fits ?? true };
     if (url.includes('/catalog/workshop/stock')) return { items: handlers.stock ?? [] };
     if (url.includes('/catalog/workshop/parts')) return handlers.workshop ?? result([]);
     if (url.includes('/catalog/parts/search') || url.includes('/catalog/vehicle-parts')) return handlers.search?.(url) ?? result([]);
@@ -236,5 +241,44 @@ describe('PartsExplorer', () => {
     await waitFor(() => expect(api.getJson.mock.calls.some(([u]) => String(u).includes('/catalog/workshop/parts') && String(u).includes('inStock=true'))).toBe(true));
     expect(screen.getByRole('button', { name: /com saldo.*remover filtro/i })).toBeTruthy();
     expect(api.getJson.mock.calls.some(([u]) => String(u).includes('/catalog/workshop/stock'))).toBe(false);
+  });
+
+  it('aba Fiscal mostra NCM formatado, a origem do dado e o aceite do contador', async () => {
+    route({
+      search: () => result([hit()]),
+      fiscal: {
+        sku: 'cat-1',
+        item: { ncm: '87083010', cest: null, origin: '0', exTipi: null, attributes: {} },
+        unit: 'UN',
+        fields: { ncm: { from: 'OVERRIDE', source: 'MANUAL', confidence: 'CONFIRMADO' } },
+        fiscalStatus: 'INCOMPLETO',
+        missing: ['cest'],
+        review: { accepted: true, reviewedAt: '2026-09-01T10:00:00Z', reviewedBy: 'c', stale: false },
+      },
+    });
+    const { user } = setup({ q: 'bieleta', sku: 'cat-1' });
+    const dialog = await screen.findByRole('dialog');
+    await user.click(await within(dialog).findByRole('tab', { name: /fiscal/i }));
+    expect(await within(dialog).findByText('8708.30.10')).toBeTruthy();
+    expect(within(dialog).getByText(/ajuste da oficina · confirmado/i)).toBeTruthy();
+    expect(within(dialog).getByText('Incompleto')).toBeTruthy();
+    expect(within(dialog).getByText(/falta: cest/i)).toBeTruthy();
+    expect(within(dialog).getByText(/aceito pelo contador em/i)).toBeTruthy();
+  });
+
+  it('aba Fiscal sem permissão mostra a mensagem da API e permite tentar de novo', async () => {
+    route({ search: () => result([hit()]), fiscal: new Error('Sem permissão para esta ação.') });
+    const { user } = setup({ q: 'bieleta', sku: 'cat-1' });
+    const dialog = await screen.findByRole('dialog');
+    await user.click(await within(dialog).findByRole('tab', { name: /fiscal/i }));
+    expect(await within(dialog).findByText('Sem permissão para esta ação.')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: /tentar de novo/i })).toBeTruthy();
+  });
+
+  it('com um veículo escolhido, a ficha diz se a peça serve nele', async () => {
+    route({ search: () => result([hit()]), fits: false });
+    setup({ q: 'bieleta', sku: 'cat-1', vehicle: { id: 'v1', label: 'Fiat Strada 1.4' } });
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByText(/não serve no fiat strada 1\.4/i)).toBeTruthy();
   });
 });

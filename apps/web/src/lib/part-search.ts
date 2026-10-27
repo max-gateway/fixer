@@ -94,6 +94,34 @@ export type PartDetail = {
   active: boolean;
 };
 
+// --- fiscal ----------------------------------------------------------------------------------------------------------
+
+export type FiscalStatus = 'CONFIRMADO' | 'ESTIMADO' | 'INCOMPLETO' | 'INVALIDO' | 'CONFLITO';
+
+/** Classificação fiscal resolvida (cadastro global + ajuste da oficina) como `GET /catalog/parts/:sku/fiscal` a devolve. */
+export type ResolvedFiscal = {
+  sku: string;
+  item: { ncm: string | null; cest: string | null; origin: string | null; exTipi: string | null; attributes: Record<string, string> };
+  unit: string | null;
+  fields: Record<string, { from: 'GLOBAL' | 'OVERRIDE'; source: string; confidence: string }>;
+  fiscalStatus: FiscalStatus;
+  missing: string[];
+  review: { accepted: boolean; reviewedAt: string | null; reviewedBy: string | null; stale: boolean };
+};
+
+export const FISCAL_STATUS: Record<FiscalStatus, { label: string; hint: string; tone: 'ok' | 'wait' | 'bad' }> = {
+  CONFIRMADO: { label: 'Confirmado', hint: 'Classificação completa e confirmada: o motor tributário calcula sem ressalvas.', tone: 'ok' },
+  ESTIMADO: { label: 'Estimado', hint: 'Completa, mas inferida (por exemplo, das notas dos fornecedores). Confira antes de emitir.', tone: 'wait' },
+  INCOMPLETO: { label: 'Incompleto', hint: 'Faltam dados: o motor tributário não calcula esta peça até completar.', tone: 'wait' },
+  INVALIDO: { label: 'Inválido', hint: 'Há dado fora do formato ou que não existe na tabela oficial.', tone: 'bad' },
+  CONFLITO: { label: 'Em conflito', hint: 'As fontes divergem. A curadoria do catálogo precisa decidir.', tone: 'bad' },
+};
+
+/** NCM de 8 dígitos como "8708.30.10"; o que não tiver 8 dígitos fica como veio. */
+export function formatNcm(ncm: string): string {
+  return /^[0-9]{8}$/.test(ncm) ? `${ncm.slice(0, 4)}.${ncm.slice(4, 6)}.${ncm.slice(6)}` : ncm;
+}
+
 export type VehicleFilter = { id?: string; make?: string; model?: string; label: string };
 
 /** Estado da busca: tudo o que a URL guarda, para a busca ser compartilhável e sobreviver a recarregar. */

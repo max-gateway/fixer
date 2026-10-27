@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } f
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/ui/toaster';
 import { getJson, postJson } from '@/lib/client-api';
-import { isSearchable, normalizeResult, searchUrl, type PartDetail, type PartHit, type SearchResult, type SearchState, type Suggestion, type WorkshopStock } from '@/lib/part-search';
+import { isSearchable, normalizeResult, searchUrl, type PartDetail, type PartHit, type ResolvedFiscal, type SearchResult, type SearchState, type Suggestion, type WorkshopStock } from '@/lib/part-search';
 
 /** Peça da oficina como `GET /parts` a devolve (decimais chegam como texto). */
 export type LocalPart = { id: string; sku: string; name: string; costPrice: string; sellPrice: string; stockQty: string; catalogSku: string | null };
@@ -46,15 +46,16 @@ export function usePartSearch(state: SearchState) {
   });
 }
 
-export function useSuggestions(text: string, enabled: boolean) {
+/** Com `vehicleId`, cada sugestão vem marcada com `compatibleWithVehicle`. */
+export function useSuggestions(text: string, enabled: boolean, vehicleId?: string) {
   const q = text.trim();
   return useQuery({
-    queryKey: ['part-suggest', q],
+    queryKey: ['part-suggest', q, vehicleId ?? null],
     enabled: enabled && q.length >= 2,
     retry: false,
     staleTime: 60_000,
     placeholderData: keepPreviousData,
-    queryFn: () => getJson<{ data: Suggestion[] }>(`/api/catalog/parts/autocomplete?q=${encodeURIComponent(q)}&limit=8`, SEARCH_ERROR),
+    queryFn: () => getJson<{ data: Suggestion[] }>(`/api/catalog/parts/autocomplete?q=${encodeURIComponent(q)}&limit=8${vehicleId ? `&vehicleId=${encodeURIComponent(vehicleId)}` : ''}`, SEARCH_ERROR),
   });
 }
 
@@ -65,6 +66,27 @@ export function usePartDetail(sku: string | undefined) {
     retry: false,
     staleTime: 5 * 60_000,
     queryFn: () => getJson<PartDetail>(`/api/catalog/parts/${encodeURIComponent(sku!)}`, 'Não foi possível abrir a ficha da peça.'),
+  });
+}
+
+/** Classificação fiscal da peça para a oficina (exige a permissão de ver a precificação). */
+export function useFiscal(sku: string) {
+  return useQuery({
+    queryKey: ['part-fiscal', sku],
+    retry: false,
+    staleTime: 60_000,
+    queryFn: () => getJson<{ fiscal: ResolvedFiscal | null }>(`/api/catalog/parts/${encodeURIComponent(sku)}/fiscal`, 'Não foi possível consultar a classificação fiscal.'),
+  });
+}
+
+/** A peça serve neste veículo? Só com o id do veículo (a família montadora/modelo não tem uma resposta única). */
+export function useFits(sku: string | undefined, vehicleId: string | undefined) {
+  return useQuery({
+    queryKey: ['part-fits', sku, vehicleId],
+    enabled: Boolean(sku && vehicleId),
+    retry: false,
+    staleTime: 5 * 60_000,
+    queryFn: () => getJson<{ compatible: boolean }>(`/api/catalog/parts/${encodeURIComponent(sku!)}/fits/${encodeURIComponent(vehicleId!)}`, 'Não foi possível checar a compatibilidade.'),
   });
 }
 

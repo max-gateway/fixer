@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { REQUIRED_PERMISSION } from '../auth/permissions.js';
 import { CatalogPlatformController, callerFrom } from './catalog-platform.controller.js';
 
 const ORG = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -35,12 +36,29 @@ describe('callerFrom (quem está chamando a plataforma)', () => {
 });
 
 describe('CatalogPlatformController', () => {
-  const service = { search: vi.fn(), autocomplete: vi.fn(), vehicleParts: vi.fn(), part: vi.fn(), fits: vi.fn(), lookupParts: vi.fn(), lookupBarcodes: vi.fn() };
+  const service = { search: vi.fn(), autocomplete: vi.fn(), vehicleParts: vi.fn(), part: vi.fn(), fits: vi.fn(), lookupParts: vi.fn(), lookupBarcodes: vi.fn(), fiscalResolve: vi.fn() };
   const controller = new CatalogPlatformController(service as never);
   const CALLER = { token: 'user-jwt', orgId: ORG };
 
   beforeEach(() => {
     for (const fn of Object.values(service)) fn.mockReset().mockResolvedValue({ ok: true });
+  });
+
+  describe('GET /catalog/parts/:sku/fiscal', () => {
+    it('devolve a classificação resolvida da peça, consultada pela organização do usuário', async () => {
+      service.fiscalResolve.mockResolvedValue({ items: [{ sku: 'cat-1', fiscalStatus: 'CONFIRMADO' }], unknown: [] });
+      expect(await controller.fiscal('cat-1', request())).toEqual({ fiscal: { sku: 'cat-1', fiscalStatus: 'CONFIRMADO' } });
+      expect(service.fiscalResolve).toHaveBeenCalledWith(CALLER, ['cat-1']);
+    });
+
+    it('peça que o catálogo não tem volta fiscal nulo, sem erro', async () => {
+      service.fiscalResolve.mockResolvedValue({ items: [], unknown: ['cat-9'] });
+      expect(await controller.fiscal('cat-9', request())).toEqual({ fiscal: null });
+    });
+
+    it('exige a permissão de ver a precificação (dado privado da oficina)', () => {
+      expect(Reflect.getMetadata(REQUIRED_PERMISSION, CatalogPlatformController.prototype.fiscal)).toBe('pricing.read');
+    });
   });
 
   describe('GET /catalog/parts/search', () => {

@@ -1,16 +1,17 @@
 'use client';
 
-import { Boxes, Car, ChevronDown, ChevronLeft, ChevronRight, Copy, History, Loader2, PackagePlus, Repeat2, ScanBarcode, Search, TriangleAlert } from 'lucide-react';
+import { Boxes, Car, ChevronDown, ChevronLeft, ChevronRight, Copy, History, Landmark, Loader2, PackagePlus, Repeat2, ScanBarcode, Search, TriangleAlert } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { PartImage } from '@/components/catalog/part-image';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { formatCents, formatLocation, formatMoney, groupApplications, groupCrossPairs, yearRange, type Application, type PartDetail, type PartHit } from '@/lib/part-search';
+import { formatCents, formatLocation, formatMoney, groupApplications, groupCrossPairs, yearRange, type Application, type PartDetail, type PartHit, type VehicleFilter } from '@/lib/part-search';
 import { cn } from '@/lib/utils';
+import { FiscalTab } from './fiscal-tab';
 import { useCopy } from './part-card';
-import { useLocalPart, usePartDetail, usePartHistory, useRegisterPart, type LocalPart, type PartHistory } from './use-parts';
+import { useFits, useLocalPart, usePartDetail, usePartHistory, useRegisterPart, type LocalPart, type PartHistory } from './use-parts';
 
 const dateFmt = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 const fmtDate = (iso: string | null) => (iso ? dateFmt.format(new Date(iso)) : '—');
@@ -486,6 +487,7 @@ export function PartSheet({
   onVehicle,
   onPrev,
   onNext,
+  vehicle,
 }: {
   sku: string | undefined;
   hit: PartHit | undefined;
@@ -494,7 +496,10 @@ export function PartSheet({
   onVehicle: (a: Application) => void;
   onPrev?: () => void;
   onNext?: () => void;
+  /** Veículo escolhido na busca: o cabeçalho diz se a peça serve nele. */
+  vehicle?: VehicleFilter;
 }) {
+  const fits = useFits(sku, vehicle?.id);
   const detail = usePartDetail(sku);
   const part = detail.data;
   const title = part?.name ?? hit?.name ?? 'Peça';
@@ -510,6 +515,11 @@ export function PartSheet({
               {(part?.brand ?? hit?.brand) && <span className="rounded-full bg-brand/10 px-2 py-0.5 font-medium text-brand">{(part?.brand ?? hit?.brand)!.name}</span>}
               {(part?.isUniversalFit ?? hit?.isUniversalFit) && <span className="rounded-full border px-2 py-0.5 text-muted-foreground">Universal</span>}
               {part && !part.active && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-900">Inativa no catálogo</span>}
+              {vehicle && fits.data && (
+                <span className={cn('rounded-full px-2 py-0.5 font-medium', fits.data.compatible ? 'bg-emerald-100 text-emerald-900' : 'bg-red-100 text-red-900')}>
+                  {fits.data.compatible ? 'Serve' : 'Não serve'} no {vehicle.label}
+                </span>
+              )}
             </div>
             <SheetTitle className="text-base">{title}</SheetTitle>
             <SheetDescription id="part-sheet-desc" className="tabular">
@@ -538,7 +548,7 @@ export function PartSheet({
         )}
         {part && (
           <Tabs defaultValue="resumo" className="flex min-h-0 flex-1 flex-col gap-0">
-            <TabsList className="mx-5 mt-3 grid w-auto grid-cols-4">
+            <TabsList className="mx-5 mt-3 grid w-auto grid-cols-5">
               <TabsTrigger value="resumo">
                 <Boxes aria-hidden /> Resumo
               </TabsTrigger>
@@ -547,6 +557,9 @@ export function PartSheet({
               </TabsTrigger>
               <TabsTrigger value="cross">
                 <Repeat2 aria-hidden /> Equivalentes <Count n={crossCount} />
+              </TabsTrigger>
+              <TabsTrigger value="fiscal">
+                <Landmark aria-hidden /> Fiscal
               </TabsTrigger>
               <TabsTrigger value="oficina">
                 <History aria-hidden /> Oficina
@@ -561,6 +574,9 @@ export function PartSheet({
               </TabsContent>
               <TabsContent value="cross">
                 <Cross part={part} onSearch={onSearchCode} />
+              </TabsContent>
+              <TabsContent value="fiscal">
+                <FiscalTab sku={part.sku} />
               </TabsContent>
               <TabsContent value="oficina">
                 <ShopTab part={part} />
