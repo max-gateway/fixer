@@ -29,7 +29,6 @@ type Props = {
   user: NavUser | null;
   /** Oficina em uso (multi-tenant). `canSwitch`: o usuário participa de mais de uma. */
   org?: { name: string; canSwitch: boolean } | null;
-  signOutAction: () => Promise<void>;
   defaultCollapsed?: boolean;
   /** Faixa de aviso entre a barra do topo e o conteúdo (ex.: certificado vencendo). */
   banner?: ReactNode;
@@ -40,7 +39,7 @@ type Props = {
  * Estrutura da área interna: menu lateral recolhível (desktop) ou gaveta + tab bar (celular),
  * barra superior com contexto, busca (⌘K), sino e conta, e o conteúdo da página.
  */
-export function AppShell({ brand, user, org, signOutAction, defaultCollapsed = false, banner, children }: Props) {
+export function AppShell({ brand, user, org, defaultCollapsed = false, banner, children }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const reduce = useReducedMotion();
@@ -141,7 +140,7 @@ export function AppShell({ brand, user, org, signOutAction, defaultCollapsed = f
                   <Search />
                 </Button>
                 <NotificationBell />
-                {user && <UserMenu user={user} org={org} signOutAction={signOutAction} onOpenPalette={openPalette} />}
+                {user && <UserMenu user={user} org={org} onOpenPalette={openPalette} />}
               </div>
             </div>
 
@@ -161,7 +160,7 @@ export function AppShell({ brand, user, org, signOutAction, defaultCollapsed = f
       </div>
 
       <MobileDrawer open={drawerOpen} onOpenChange={setDrawerOpen} brand={brand} org={org} mod={mod} onOpenPalette={() => (setDrawerOpen(false), openPalette())} />
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} signOutAction={signOutAction} />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <GoHint show={goPending} />
       <MobileTabBar onOpenMenu={() => setDrawerOpen(true)} />
     </TooltipProvider>

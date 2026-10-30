@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { auth, signOut } from '@/auth';
+import { auth } from '@/auth';
 import { CertificateBanner } from '@/components/certificate-banner';
 import { AppShell, SIDEBAR_COOKIE } from '@/components/nav/app-shell';
 import { InboxProvider } from '@/components/notifications/inbox-provider';
@@ -21,11 +21,6 @@ async function loadCertificateAlert(): Promise<CertificateAlert | null> {
   } catch {
     return null;
   }
-}
-
-async function signOutAction() {
-  'use server';
-  await signOut();
 }
 
 // Área interna da oficina (exige login via proxy.ts). O portal do cliente fica em /o/[token].
@@ -53,7 +48,6 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           brand={{ name: b.displayName, logoUrl: b.logoUrl, iconUrl: b.iconUrl, logoHasName: b.logoHasName }}
           user={user}
           org={org}
-          signOutAction={signOutAction}
           defaultCollapsed={defaultCollapsed}
           banner={certAlert && ctx.active ? <CertificateBanner alert={certAlert} orgId={ctx.active} /> : null}
         >

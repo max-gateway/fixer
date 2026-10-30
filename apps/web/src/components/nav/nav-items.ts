@@ -1,4 +1,4 @@
-import { ClipboardList, FileText, Receipt, LayoutDashboard, Plus, UserPlus, Users, Bell, Settings, KeyRound, PackageSearch, type LucideIcon } from 'lucide-react';
+import { ClipboardList, FileText, Receipt, LayoutDashboard, Plus, UserPlus, Users, Bell, Settings, KeyRound, PackageSearch, UsersRound, type LucideIcon } from 'lucide-react';
 
 // Fonte única da navegação: sidebar, tab bar mobile, paleta de comandos e atalhos leem daqui.
 // Para criar uma nova seção: declare o link e coloque-o em um grupo de NAV_GROUPS (ele aparece na sidebar, na gaveta
@@ -25,6 +25,17 @@ export const NAV_LINKS: NavLink[] = [
   { id: 'notas', href: '/notas', label: 'Notas', icon: FileText, goKey: 'f', match: 'prefix', mobile: false, keywords: ['nfe', 'nf-e', 'compras', 'fornecedor', 'xml', 'entrada', 'estoque', 'fiscal'] },
   { id: 'contas-a-pagar', href: '/contas-a-pagar', label: 'Contas a pagar', icon: Receipt, goKey: 'b', match: 'prefix', mobile: false, keywords: ['financeiro', 'boleto', 'vencimento', 'duplicata', 'parcela', 'pagamento', 'fornecedor'] },
 ];
+
+export const TEAM_LINK: NavLink = {
+  id: 'equipe',
+  href: '/equipe',
+  label: 'Equipe',
+  icon: UsersRound,
+  goKey: 't',
+  match: 'prefix',
+  mobile: false,
+  keywords: ['funcionarios', 'pessoas', 'mecanicos', 'colaboradores', 'rh', 'vinculo', 'funcao', 'admissao', 'time', 'tecnicos'],
+};
 
 export const NOTIFICATIONS_LINK: NavLink = {
   id: 'notificacoes',
@@ -64,7 +75,7 @@ export type NavGroup = { id: string; label: string; items: NavLink[] };
 export const NAV_GROUPS: NavGroup[] = [
   { id: 'operacao', label: 'Operação', items: NAV_LINKS.filter((l) => ['painel', 'ordens', 'pecas', 'clientes'].includes(l.id)) },
   { id: 'financeiro', label: 'Financeiro', items: NAV_LINKS.filter((l) => ['contas-a-pagar', 'notas'].includes(l.id)) },
-  { id: 'oficina', label: 'Oficina', items: [NOTIFICATIONS_LINK, SETTINGS_LINK, ACCESS_LINK] },
+  { id: 'oficina', label: 'Oficina', items: [TEAM_LINK, NOTIFICATIONS_LINK, SETTINGS_LINK, ACCESS_LINK] },
 ];
 
 /** Todos os destinos navegáveis, na ordem dos grupos (paleta, atalhos "g" e dica). */

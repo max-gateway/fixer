@@ -10,7 +10,7 @@ const live = { sku: 'cat-1', name: 'Bieleta Estabilizadora', partNumber: 'BE-123
 describe('InvoicesController.createPart (cadastro pelo item da nota, com ou sem peça do catálogo)', () => {
   const invoices = { createPartFromItem: vi.fn() };
   const links = { resolveLive: vi.fn() };
-  const controller = new InvoicesController(invoices as never, {} as never, links as never);
+  const controller = new InvoicesController(invoices as never, {} as never, links as never, {} as never);
   const body = { sellPrice: 70, unitFactor: 1, saveMapping: true };
 
   beforeEach(() => {
@@ -64,7 +64,7 @@ describe('InvoicesController.confirm (evidência fiscal para o catálogo, depois
     const order: string[] = [];
     const invoices = { confirm: vi.fn(async () => { order.push('confirm'); return { id: 'inv1' }; }) };
     const observations = { emitInBackground: vi.fn((caller: () => unknown, id: string) => { order.push('emit'); expect(caller()).toEqual(CALLER); expect(id).toBe('inv1'); }) };
-    const controller = new InvoicesController(invoices as never, {} as never, {} as never, observations as never);
+    const controller = new InvoicesController(invoices as never, {} as never, {} as never, {} as never, observations as never);
     expect(await controller.confirm('inv1', user, request())).toEqual({ id: 'inv1' });
     expect(order).toEqual(['confirm', 'emit']);
   });
@@ -72,13 +72,13 @@ describe('InvoicesController.confirm (evidência fiscal para o catálogo, depois
   it('nota que não pôde ser lançada (409) nunca dispara a evidência', async () => {
     const invoices = { confirm: vi.fn(async () => { throw new Error('conflito'); }) };
     const observations = { emitInBackground: vi.fn() };
-    const controller = new InvoicesController(invoices as never, {} as never, {} as never, observations as never);
+    const controller = new InvoicesController(invoices as never, {} as never, {} as never, {} as never, observations as never);
     await expect(controller.confirm('inv1', user, request())).rejects.toThrow('conflito');
     expect(observations.emitInBackground).not.toHaveBeenCalled();
   });
 
   it('sem o serviço (plataforma não configurada) o lançamento é o de sempre', async () => {
-    const controller = new InvoicesController({ confirm: vi.fn(async () => ({ id: 'inv1' })) } as never, {} as never, {} as never);
+    const controller = new InvoicesController({ confirm: vi.fn(async () => ({ id: 'inv1' })) } as never, {} as never, {} as never, {} as never);
     expect(await controller.confirm('inv1', user, request())).toEqual({ id: 'inv1' });
   });
 });

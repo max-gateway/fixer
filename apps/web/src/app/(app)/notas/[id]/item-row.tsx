@@ -22,6 +22,7 @@ const ORIGIN: Record<InvoiceItem['resolution'], string | null> = {
   UNRESOLVED: null,
   AUTO_MAP: 'Automático (vínculo do fornecedor)',
   AUTO_EAN: 'Automático (código de barras)',
+  AUTO_CATALOG: 'Automático (catálogo)',
   MANUAL: 'Escolhido por você',
   IGNORED: null,
 };

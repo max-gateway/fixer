@@ -18,10 +18,10 @@ type Command = {
   run: () => void;
 };
 
-type Props = { open: boolean; onOpenChange: (o: boolean) => void; signOutAction: () => Promise<void> };
+type Props = { open: boolean; onOpenChange: (o: boolean) => void };
 
 /** Paleta de comandos (Ctrl/⌘ K): navegar, criar e sair sem tirar a mão do teclado. */
-export function CommandPalette({ open, onOpenChange, signOutAction }: Props) {
+export function CommandPalette({ open, onOpenChange }: Props) {
   const reduce = useReducedMotion();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -47,7 +47,7 @@ export function CommandPalette({ open, onOpenChange, signOutAction }: Props) {
                   className="pointer-events-auto w-full max-w-xl overflow-hidden rounded-2xl border bg-popover text-popover-foreground shadow-2xl"
                 >
                   <Dialog.Title className="sr-only">Paleta de comandos</Dialog.Title>
-                  <PaletteBody close={() => onOpenChange(false)} signOutAction={signOutAction} />
+                  <PaletteBody close={() => onOpenChange(false)} />
                 </motion.div>
               </Dialog.Content>
             </div>
@@ -58,7 +58,16 @@ export function CommandPalette({ open, onOpenChange, signOutAction }: Props) {
   );
 }
 
-function PaletteBody({ close, signOutAction }: { close: () => void; signOutAction: () => Promise<void> }) {
+/** Logout é um POST em /logout (Keycloak encerra a sessão SSO e volta ao /login); sem server action. */
+function signOut() {
+  const f = document.createElement('form');
+  f.method = 'post';
+  f.action = '/logout';
+  document.body.appendChild(f);
+  f.submit();
+}
+
+function PaletteBody({ close }: { close: () => void }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [query, setQuery] = useState('');
@@ -81,11 +90,11 @@ function PaletteBody({ close, signOutAction }: { close: () => void; signOutActio
         id: 'sair', group: 'Conta', label: 'Sair', icon: LogOut, keywords: ['logout', 'encerrar sessao'],
         run: () => {
           close();
-          startTransition(() => void signOutAction());
+          signOut();
         },
       },
     ];
-  }, [close, router, signOutAction]);
+  }, [close, router]);
 
   const results = useMemo(() => {
     const tokens = normalize(query).split(/\s+/).filter(Boolean);

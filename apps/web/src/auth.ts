@@ -9,6 +9,7 @@ const issuer = () =>
 type Token = {
   accessToken?: string;
   refreshToken?: string;
+  idToken?: string; // só para o id_token_hint do logout; nunca vai para a sessão do navegador
   expiresAt?: number; // epoch em segundos
   error?: 'RefreshTokenError';
   [k: string]: unknown;
@@ -65,6 +66,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => ({
           ...t,
           accessToken: account.access_token,
           refreshToken: account.refresh_token,
+          idToken: account.id_token,
           expiresAt: account.expires_at,
         };
       }

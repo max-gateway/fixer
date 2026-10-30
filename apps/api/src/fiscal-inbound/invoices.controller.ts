@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Optional, Param, ParseIntPipe, Post, Put, Query, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Optional, Param, ParseIntPipe, Post, Put, Query, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser, type AuthUser } from '../auth/auth.decorators.js';
 import { RequirePermission } from '../auth/permissions.js';
@@ -7,6 +7,7 @@ import { parse } from '../common/parse.js';
 import { callerFrom, pickCatalog, type PlatformRequest } from '../catalog-platform/catalog-platform.controller.js';
 import { FiscalObservationsService } from '../catalog-platform/fiscal-observations.service.js';
 import { PartCatalogLinkService } from '../catalog-platform/part-catalog-link.service.js';
+import { CatalogMatchService } from './catalog-match.service.js';
 import { CreatePartSchema, InvoicesService, ItemActionSchema, ListQuerySchema } from './invoices.service.js';
 import { ManifestService } from './sync/manifest.service.js';
 
@@ -18,6 +19,7 @@ export class InvoicesController {
     private readonly invoices: InvoicesService,
     private readonly manifest: ManifestService,
     private readonly catalogLinks: PartCatalogLinkService,
+    private readonly matcher: CatalogMatchService,
     @Optional() private readonly fiscalObservations?: FiscalObservationsService,
   ) {}
 
@@ -71,6 +73,14 @@ export class InvoicesController {
     // A peça do catálogo é resolvida ANTES da transação, com o token da própria pessoa; nome e SKU padrão vêm de lá, nunca do corpo.
     const live = await this.catalogLinks.resolveLive(callerFrom(req), pickCatalog(req, catalog), input.catalogSku);
     return this.invoices.createPartFromItem(id, n, input, { sku: live.sku, name: live.name, partNumber: live.partNumber });
+  }
+
+  /** Casa os itens sem peça com o catálogo global (GTIN ou código do fabricante) e cadastra/vincula a peça da oficina. Idempotente. */
+  @Post(':id/catalog-match')
+  @RequirePermission('invoices.reconcile')
+  @HttpCode(200)
+  catalogMatch(@Param('id') id: string, @Req() req: PlatformRequest) {
+    return this.matcher.matchInvoice(callerFrom(req), pickCatalog(req, undefined), id);
   }
 
   /** Lança a entrada no estoque (nota READY). */

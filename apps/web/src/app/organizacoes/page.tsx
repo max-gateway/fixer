@@ -1,6 +1,6 @@
 import { Building2, ChevronRight } from 'lucide-react';
 import { redirect } from 'next/navigation';
-import { auth, signOut } from '@/auth';
+import { auth } from '@/auth';
 import { getBranding } from '@/lib/branding';
 import { getOrgContext, listOrganizations, orgLabel } from '@/lib/org-server';
 
@@ -50,13 +50,7 @@ export default async function OrganizationsPage() {
           ))}
         </ul>
 
-        <form
-          className="mt-8 text-center"
-          action={async () => {
-            'use server';
-            await signOut({ redirectTo: '/login' });
-          }}
-        >
+        <form className="mt-8 text-center" action="/logout" method="post">
           <button className="text-sm text-slate-500 underline-offset-4 hover:text-slate-700 hover:underline">Sair</button>
         </form>
       </div>

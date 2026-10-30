@@ -13,7 +13,6 @@ import { UserAvatar, type NavUser } from './user-avatar';
 type Props = {
   user: NavUser;
   org?: { name: string; canSwitch: boolean } | null;
-  signOutAction: () => Promise<void>;
   onOpenPalette: () => void;
 };
 
@@ -21,7 +20,7 @@ type Props = {
  * Área do usuário: avatar com anel em gradiente que gira ao abrir, indicador de conexão em tempo real
  * e um card de conta com atalhos úteis e saída.
  */
-export function UserMenu({ user, org, signOutAction, onOpenPalette }: Props) {
+export function UserMenu({ user, org, onOpenPalette }: Props) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
   const { live, unreadCount } = useInbox();
@@ -125,7 +124,7 @@ export function UserMenu({ user, org, signOutAction, onOpenPalette }: Props) {
           </MenuButton>
         </div>
 
-        <form action={signOutAction} className="border-t p-1.5">
+        <form action="/logout" method="post" className="border-t p-1.5">
           <button
             type="submit"
             className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium text-destructive outline-none transition-colors hover:bg-red-50 focus-visible:bg-red-50 [&_svg]:size-4"
