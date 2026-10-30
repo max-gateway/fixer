@@ -104,12 +104,23 @@ services:
       # NF-e pelo gateway central (o certificado nunca vive aqui).
       DFE_GATEWAY_URL: ${DFE_GATEWAY_URL:-}
       DFE_GATEWAY_API_KEY: ${DFE_GATEWAY_API_KEY:-}
+      # Chave mestra que cifra o que o Fixer guarda de fiscal (JSON {"k1":"<base64 de 32 bytes>"}). Sem ela a sincronização fiscal fica indisponível.
+      FISCAL_ENC_KEYS: ${FISCAL_ENC_KEYS:-}
+      FISCAL_ACTIVE_KEY_ID: ${FISCAL_ACTIVE_KEY_ID:-k1}
+      # Serviços opcionais da plataforma: vazio = recurso desligado.
+      INTEGRA_CONTADOR_URL: ${INTEGRA_CONTADOR_URL:-}
+      INTEGRA_CONTADOR_API_KEY: ${INTEGRA_CONTADOR_API_KEY:-}
+      COST_ENGINE_URL: ${COST_ENGINE_URL:-}
+      COST_ENGINE_API_KEY: ${COST_ENGINE_API_KEY:-}
+      CNPJ_LOOKUP_SERVICE_URL: ${CNPJ_LOOKUP_SERVICE_URL:-}
+      PLATE_LOOKUP_SERVICE_URL: ${PLATE_LOOKUP_SERVICE_URL:-}
       # Controle de acesso (convites): link do e-mail volta para o web público.
       ACCESS_DIRECTORY_MODE: organization
       ACCESS_INVITE_REDIRECT_URI: https://${FIXER_HOST}
       KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-}
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
-      PORTAL_PUBLIC_URL: https://${FIXER_HOST}
+      # A API lê PORTAL_BASE_URL (links do portal do cliente); sem ela cairia em http://localhost:3001.
+      PORTAL_BASE_URL: https://${FIXER_HOST}
 
   fixer-web:
     <<: *restart
