@@ -121,7 +121,8 @@ export class FiscalAutofillService {
     const apply: Apply = (field, currentValue, next, w) => {
       const r = decide(field, currentValue, next, provs.get(field));
       fields.push({ ...r, ...(r.outcome === 'PREENCHIDO' || r.outcome === 'IGUAL' ? { source: w.source, confidence: w.confidence } : {}) });
-      if (r.outcome === 'PREENCHIDO') (data as Record<string, unknown>)[field] = next;
+      // A RBT12 mora no perfil de imposto (profileWrite), não em TenantFiscalSettings.
+      if (r.outcome === 'PREENCHIDO' && field !== 'rbt12') (data as Record<string, unknown>)[field] = next;
       if (r.outcome === 'PREENCHIDO' || (r.outcome === 'IGUAL' && provs.get(field)?.source !== 'MANUAL')) writes.push({ field, ...w });
       return r;
     };
