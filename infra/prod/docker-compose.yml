@@ -144,6 +144,8 @@ services:
       # Callback do login: https://<FIXER_HOST>/api/auth/callback/keycloak (precisa estar no redirectUris do client).
       AUTH_URL: https://${FIXER_HOST}
       PORTAL_PUBLIC_URL: https://${FIXER_HOST}
+      # Serviço de notificações da plataforma (inbox em tempo real), alcançado pelo nome do contêiner na platform_net.
+      NOTIFICATIONS_URL: ${NOTIFICATIONS_URL:-http://notifications:3005}
 
 networks:
   platform_net:
