@@ -3,6 +3,10 @@
 @import '@fontsource/bai-jamjuree/500.css';
 @import '@fontsource/bai-jamjuree/600.css';
 @import '@fontsource/bai-jamjuree/700.css';
+@import '@fontsource/work-sans/400.css';
+@import '@fontsource/work-sans/500.css';
+@import '@fontsource/work-sans/600.css';
+@import '@fontsource/work-sans/700.css';
 
 /*
  * Identidade Max Gateway: conteúdo claro e arejado, com header/login/hero em preto profundo e azul elétrico.
@@ -69,7 +73,10 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --font-sans: 'Bai Jamjuree', ui-sans-serif, system-ui, sans-serif;
+  /* Work Sans: corpo e interface (texto corrido, formulários, tabelas, botões, rótulos). */
+  --font-sans: 'Work Sans', ui-sans-serif, system-ui, sans-serif;
+  /* Bai Jamjuree: voz da marca (títulos h1–h4, hero, nome do tenant, números em destaque). Uso: `font-display`. */
+  --font-display: 'Bai Jamjuree', ui-sans-serif, system-ui, sans-serif;
 
   --color-brand: var(--brand-primary);
   --color-brand-hover: var(--brand-hover);
@@ -95,6 +102,12 @@
 }
 
 @layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+  }
   button:not(:disabled),
   [role='button']:not([aria-disabled='true']) {
     cursor: pointer;
