@@ -178,9 +178,10 @@ function UploadForm({ hasCredential, enroll, savedCnpj, receita, onDone, onCance
       }
       const saved = await postJson('/api/fiscal/credentials', { pfxBase64, password, environment }, 'Não foi possível enviar o certificado.');
       // Agora o certificado existe no servidor: com a autorização, o preenchimento já traz a RBT12 oficial do PGDAS-D e os fatos da
-      // declaração. A falha aqui não desfaz o envio (o certificado já está salvo): vira aviso, e "Buscar de novo" repete.
+      // declaração. Vale também na renovação com a autorização já ligada: o certificado novo é o que assina o termo na Receita.
+      // A falha aqui não desfaz o envio (o certificado já está salvo): vira aviso, e "Buscar de novo" repete.
       const authorize = Boolean(receita?.available) && receitaConsent && !receita?.enabled;
-      if (receita?.available && (authorize || (!hasCredential && receita.enabled))) {
+      if (receita?.available && (authorize || receita.enabled)) {
         try {
           if (authorize) await putJson('/api/fiscal/autofill/consent', { enabled: true }, 'Não foi possível salvar a autorização.');
           await postJson('/api/fiscal/autofill', {}, 'A consulta à Receita falhou agora.');
