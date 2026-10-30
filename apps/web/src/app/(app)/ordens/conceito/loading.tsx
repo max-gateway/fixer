@@ -38,15 +38,12 @@ export default function Loading() {
         </div>
       </Stage>
 
-      <Stage i={1} className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <Stage i={1} className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border lg:grid-cols-4">
         {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="surface flex items-start gap-3 rounded-2xl border bg-card p-4">
-            <Bone className="size-9 rounded-xl" />
-            <div className="flex-1 space-y-2">
-              <Bone className="h-3 w-2/3" />
-              <Bone className="h-6 w-1/2" />
-              <Bone className="h-3 w-4/5" />
-            </div>
+          <div key={i} className="space-y-2 bg-card p-4">
+            <Bone className="h-3 w-2/3" />
+            <Bone className="h-7 w-1/2" />
+            <Bone className="h-3 w-4/5" />
           </div>
         ))}
       </Stage>
@@ -55,7 +52,7 @@ export default function Loading() {
         <Bone className="h-4 w-32" />
         <div className="flex gap-3 overflow-hidden">
           {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="surface w-72 shrink-0 space-y-3 rounded-2xl border bg-card p-3.5">
+            <div key={i} className="w-72 shrink-0 space-y-3 rounded-xl border bg-card p-3.5">
               <div className="flex gap-3">
                 <Bone className="size-8 rounded-lg" />
                 <div className="flex-1 space-y-2">
@@ -83,7 +80,7 @@ export default function Loading() {
 
       <Stage i={4} className="-mx-4 flex gap-3 overflow-hidden px-4 sm:mx-0 sm:px-0">
         {COLUMN_CARDS.map((n, c) => (
-          <div key={c} className="w-[17.5rem] shrink-0 space-y-2 rounded-2xl border bg-slate-100/70 p-2 sm:w-[18.5rem] xl:min-w-0 xl:flex-1">
+          <div key={c} className="w-72 shrink-0 space-y-2.5 p-1.5 xl:w-auto xl:min-w-64 xl:flex-1">
             <div className="flex items-center gap-2 px-1 pt-1 pb-1">
               <Bone className="size-2 rounded-full" />
               <Bone className="h-4 w-24" />
@@ -95,7 +92,7 @@ export default function Loading() {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.35 + c * 0.06 + i * 0.05, duration: 0.35 }}
-                className="space-y-2.5 rounded-xl border bg-card p-3"
+                className="space-y-2.5 rounded-lg border bg-card p-3"
               >
                 <div className="flex justify-between">
                   <Bone className="h-3.5 w-12" />

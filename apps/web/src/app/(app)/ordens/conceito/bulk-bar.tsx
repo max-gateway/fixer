@@ -2,12 +2,12 @@
 
 import { ArrowRightLeft, MessageCircle, UserRoundCog, X } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { UserAvatar } from '@/components/nav/user-avatar';
 import { Button } from '@/components/ui/button';
 import { Command, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { STATUS_LABEL, type OrderStatus } from '@/lib/orders';
 import { brl0, MECHANICS, orderTotal, TRANSITIONS, type MockOrder } from './mock-data';
+import { Initials } from './order-bits';
 
 type Props = {
   selected: MockOrder[];
@@ -73,7 +73,7 @@ export function BulkBar({ selected, onClear, onMove, onAssign, onNotify }: Props
                   <CommandGroup>
                     {MECHANICS.map((m) => (
                       <CommandItem key={m.id} value={m.name} onSelect={() => onAssign(m.id)}>
-                        <UserAvatar name={m.name} className="size-5 text-[9px]" /> {m.name}
+                        <Initials name={m.name} className="size-5 text-[9px]" /> {m.name}
                       </CommandItem>
                     ))}
                   </CommandGroup>

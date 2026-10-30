@@ -1,17 +1,16 @@
 'use client';
 
 import { Check, ExternalLink, MessageCircle, Phone, UserRoundCog } from 'lucide-react';
-import { Plate, StatusBadge } from '@/components/orders/status-badge';
+import { Plate } from '@/components/orders/status-badge';
 import { Button } from '@/components/ui/button';
 import { Command, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
-import { STATUS_LABEL, STATUS_STYLE, type OrderStatus } from '@/lib/orders';
+import { STATUS_LABEL, type OrderStatus } from '@/lib/orders';
 import { cn } from '@/lib/utils';
-import { UserAvatar } from '@/components/nav/user-avatar';
 import { brl0, MECHANICS, orderTotal, PRIMARY_NEXT, TRANSITIONS, sinceLabel, type MockOrder } from './mock-data';
-import { ChecklistBar, DueChip, PriorityMark } from './order-bits';
+import { ChecklistBar, DueChip, Initials, PriorityMark, StatusLabel } from './order-bits';
 
 const STEPS: OrderStatus[] = ['QUOTE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED', 'DELIVERED'];
 
@@ -42,9 +41,9 @@ function Body({ order: o, onMove, onAssign, onNotify }: Omit<Props, 'order' | 'o
     <>
       <header className="space-y-3 border-b px-5 pt-5 pb-4 pr-14">
         <div className="flex items-center gap-2">
-          <SheetTitle className="tabular text-brand">Ordem #{o.number}</SheetTitle>
+          <SheetTitle className="tabular">Ordem #{o.number}</SheetTitle>
           <PriorityMark priority={o.priority} />
-          <StatusBadge status={o.status} />
+          <StatusLabel status={o.status} />
         </div>
         <SheetDescription className="flex flex-wrap items-center gap-2">
           <Plate value={o.vehicle.plate} />
@@ -57,7 +56,7 @@ function Body({ order: o, onMove, onAssign, onNotify }: Omit<Props, 'order' | 'o
           <ol className="flex items-center gap-1 pt-1" aria-label="Etapas da ordem">
             {STEPS.map((s, i) => (
               <li key={s} className="flex flex-1 flex-col gap-1">
-                <span className={cn('h-1.5 rounded-full transition-colors', i <= stepIndex ? STATUS_STYLE[s].dot : 'bg-slate-200', o.status === 'AWAITING_PART' && i === stepIndex && 'bg-amber-500')} />
+                <span className={cn('h-1 rounded-full transition-colors', i <= stepIndex ? 'bg-slate-900' : 'bg-slate-200')} />
                 <span className={cn('text-[10px] leading-none', i === stepIndex ? 'font-semibold text-foreground' : 'text-muted-foreground')}>{STATUS_LABEL[s]}</span>
               </li>
             ))}
@@ -99,7 +98,7 @@ function Body({ order: o, onMove, onAssign, onNotify }: Omit<Props, 'order' | 'o
                 <Popover>
                   <PopoverTrigger asChild>
                     <button type="button" className="inline-flex items-center gap-2 rounded-lg border bg-card px-2 py-1 text-sm shadow-xs hover:border-ring/50">
-                      {mechanic ? <UserAvatar name={mechanic.name} className="size-5 text-[9px]" /> : <UserRoundCog aria-hidden className="size-4 text-muted-foreground" />}
+                      {mechanic ? <Initials name={mechanic.name} className="size-5 text-[9px]" /> : <UserRoundCog aria-hidden className="size-4 text-muted-foreground" />}
                       {mechanic?.name ?? 'Atribuir'}
                     </button>
                   </PopoverTrigger>
@@ -109,7 +108,7 @@ function Body({ order: o, onMove, onAssign, onNotify }: Omit<Props, 'order' | 'o
                         <CommandGroup heading="Equipe">
                           {MECHANICS.map((m) => (
                             <CommandItem key={m.id} value={m.name} onSelect={() => onAssign(o.id, m.id)}>
-                              <UserAvatar name={m.name} className="size-5 text-[9px]" />
+                              <Initials name={m.name} className="size-5 text-[9px]" />
                               {m.name}
                               {m.id === o.mechanicId && <Check aria-hidden className="ml-auto size-4" />}
                             </CommandItem>
@@ -148,7 +147,7 @@ function Body({ order: o, onMove, onAssign, onNotify }: Omit<Props, 'order' | 'o
                   <span className="tabular text-muted-foreground">{brl0(p.price * p.qty)}</span>
                 </li>
               ))}
-              <li className="flex justify-between gap-3 bg-brand-soft px-3 py-2.5 font-semibold">
+              <li className="flex justify-between gap-3 bg-slate-50 px-3 py-2.5 font-semibold">
                 <span>Total</span>
                 <span className="tabular">{brl0(orderTotal(o))}</span>
               </li>
@@ -162,7 +161,7 @@ function Body({ order: o, onMove, onAssign, onNotify }: Omit<Props, 'order' | 'o
             <ol className="relative space-y-4 border-l pl-4">
               {[...o.timeline].reverse().map((t, i) => (
                 <li key={i} className="relative">
-                  <span aria-hidden className="absolute top-1.5 -left-[1.28rem] size-2 rounded-full bg-brand ring-4 ring-background" />
+                  <span aria-hidden className="absolute top-1.5 -left-[1.28rem] size-2 rounded-full bg-slate-400 ring-4 ring-background" />
                   <p className="text-sm">{t.text}</p>
                   <p className="text-xs text-muted-foreground">
                     {t.by} · há {sinceLabel(t.at)}

@@ -22,17 +22,11 @@ function kpis(orders: MockOrder[]): Kpi[] {
   ];
 }
 
-const TONE: Record<Kpi['tone'], string> = {
-  neutral: 'bg-brand-soft text-brand',
-  bad: 'bg-red-100 text-red-700',
-  good: 'bg-emerald-100 text-emerald-700',
-  warn: 'bg-amber-100 text-amber-800',
-};
 
 /** Números que respondem "como está meu dia". Cada um é um atalho para a visão correspondente. */
 export function KpiStrip({ orders, view, onView }: { orders: MockOrder[]; view: ViewId; onView: (v: ViewId) => void }) {
   return (
-    <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <ul className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border lg:grid-cols-4">
       {kpis(orders).map((k) => {
         const active = view === k.view && k.view !== 'all';
         return (
@@ -42,18 +36,16 @@ export function KpiStrip({ orders, view, onView }: { orders: MockOrder[]; view: 
               aria-pressed={active}
               onClick={() => onView(active ? 'all' : k.view)}
               className={cn(
-                'surface group flex w-full items-start gap-3 rounded-2xl border bg-card p-4 text-left transition-all hover:-translate-y-0.5 hover:border-brand/40',
-                active && 'border-brand ring-[3px] ring-brand/15',
+                'flex h-full w-full flex-col gap-1 bg-card p-4 text-left transition-colors hover:bg-slate-50',
+                active && 'bg-slate-50 shadow-[inset_0_-2px_0_var(--foreground)]',
               )}
             >
-              <span className={cn('grid size-9 shrink-0 place-items-center rounded-xl', TONE[k.tone])}>
-                <k.icon aria-hidden className="size-4.5" />
+              <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <k.icon aria-hidden className="size-3.5" />
+                <span className="truncate">{k.label}</span>
               </span>
-              <span className="min-w-0">
-                <span className="block truncate text-xs font-medium text-muted-foreground">{k.label}</span>
-                <span className="tabular block text-xl leading-tight font-semibold tracking-tight">{k.value}</span>
-                <span className="block truncate text-xs text-muted-foreground">{k.hint}</span>
-              </span>
+              <span className={cn('tabular text-2xl leading-tight font-semibold tracking-tight', k.tone === 'bad' && 'text-red-700')}>{k.value}</span>
+              <span className="truncate text-xs text-muted-foreground">{k.hint}</span>
             </button>
           </li>
         );
@@ -63,7 +55,7 @@ export function KpiStrip({ orders, view, onView }: { orders: MockOrder[]; view: 
 }
 
 const KIND_ICON = { approved: BadgeCheck, part: PackageCheck, late: Flame, quote: Clock, pickup: CarFront } as const;
-const KIND_TONE = { approved: 'text-emerald-700 bg-emerald-100', part: 'text-sky-700 bg-sky-100', late: 'text-red-700 bg-red-100', quote: 'text-amber-800 bg-amber-100', pickup: 'text-brand bg-brand-soft' } as const;
+const KIND_TONE = { approved: 'text-slate-600', part: 'text-slate-600', late: 'text-red-700', quote: 'text-slate-600', pickup: 'text-slate-600' } as const;
 
 /** Fila de decisões do dia: cada item já traz o botão que resolve, sem abrir a ordem. */
 export function AttentionInbox({ items, onAct, onOpen }: { items: Attention[]; onAct: (a: Attention) => void; onOpen: (orderId: string) => void }) {
@@ -75,7 +67,7 @@ export function AttentionInbox({ items, onAct, onOpen }: { items: Attention[]; o
         <h2 id="inbox-title" className="text-sm font-semibold">
           Precisa de você
         </h2>
-        <span className="tabular rounded-full bg-brand px-1.5 text-xs font-semibold text-white">{items.length}</span>
+        <span className="tabular text-xs text-muted-foreground">{items.length}</span>
         <span className="text-xs text-muted-foreground">resolva daqui, sem abrir a ordem</span>
       </div>
       <ul className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0 [scrollbar-width:none]">
@@ -90,10 +82,10 @@ export function AttentionInbox({ items, onAct, onOpen }: { items: Attention[]; o
                 animate={{ opacity: 1, scale: 1 }}
                 exit={reduce ? undefined : { opacity: 0, scale: 0.92, width: 0, marginRight: -12 }}
                 transition={{ duration: 0.22 }}
-                className="surface w-72 shrink-0 snap-start rounded-2xl border bg-card p-3.5"
+                className="w-72 shrink-0 snap-start rounded-xl border bg-card p-3.5"
               >
                 <div className="flex items-start gap-3">
-                  <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', KIND_TONE[a.kind])}>
+                  <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg bg-slate-100', KIND_TONE[a.kind])}>
                     <Icon aria-hidden className="size-4" />
                   </span>
                   <button type="button" onClick={() => onOpen(a.orderId)} className="min-w-0 flex-1 rounded text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40">

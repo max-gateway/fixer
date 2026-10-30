@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, GripVertical, Wrench } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { Plate } from '@/components/orders/status-badge';
 import { STATUS_LABEL, STATUS_STYLE, type OrderStatus } from '@/lib/orders';
@@ -27,8 +27,8 @@ type Props = {
 };
 
 /**
- * Quadro por etapa. Arrastar libera só as colunas para onde a ordem pode ir (as outras escurecem), e quem não arrasta
- * (toque, teclado) usa o botão de um clique do cartão. Mesma regra de transição nos dois caminhos.
+ * Quadro por etapa. Arrastar libera só as colunas para onde a ordem pode ir (as outras ficam esmaecidas), e quem não
+ * arrasta (toque, teclado) usa o botão do rodapé do cartão. Mesma regra de transição nos dois caminhos.
  */
 export function Board({ orders, compact, recentlyMovedId, onOpen, onMove }: Props) {
   const [dragging, setDragging] = useState<MockOrder | null>(null);
@@ -37,17 +37,12 @@ export function Board({ orders, compact, recentlyMovedId, onOpen, onMove }: Prop
   const allowed = (to: OrderStatus) => !!dragging && TRANSITIONS[dragging.status].includes(to);
 
   return (
-    <div
-      className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-4 sm:mx-0 sm:px-0 xl:snap-none"
-      role="list"
-      aria-label="Quadro de ordens por etapa"
-    >
+    <div className="-mx-4 flex snap-x snap-mandatory items-start gap-4 overflow-x-auto px-4 pb-4 sm:mx-0 sm:px-0 xl:snap-none" role="list" aria-label="Quadro de ordens por etapa">
       {BOARD_COLUMNS.map((status) => {
         const items = orders.filter((o) => o.status === status);
         const sum = items.reduce((n, o) => n + orderTotal(o), 0);
         const canDrop = allowed(status);
         const blocked = !!dragging && dragging.status !== status && !canDrop;
-        const bays = status === 'IN_PROGRESS' ? items.length : null;
 
         return (
           <section
@@ -67,34 +62,22 @@ export function Board({ orders, compact, recentlyMovedId, onOpen, onMove }: Prop
               setOver(null);
             }}
             className={cn(
-              'flex w-[17.5rem] shrink-0 snap-start flex-col rounded-2xl border bg-slate-100/70 transition-all duration-150 sm:w-[18.5rem] xl:min-w-0 xl:flex-1',
-              canDrop && 'border-dashed border-brand/60 bg-brand-soft/60',
-              over === status && 'scale-[1.01] border-brand bg-brand-soft shadow-[0_0_0_3px_color-mix(in_oklab,var(--brand-primary)_18%,transparent)]',
-              blocked && 'opacity-45 saturate-50',
+              'flex w-72 shrink-0 snap-start flex-col rounded-xl p-1.5 transition-colors duration-150 xl:w-auto xl:min-w-64 xl:flex-1',
+              canDrop && 'bg-slate-100 outline-1 outline-dashed outline-slate-400',
+              over === status && 'bg-slate-200/70 outline-slate-900',
+              blocked && 'opacity-40',
             )}
           >
-            <header className="flex items-center gap-2 px-3 pt-3 pb-2">
+            <header className="flex items-center gap-2 px-2 pt-1.5 pb-3">
               <span aria-hidden className={cn('size-2 rounded-full', STATUS_STYLE[status].dot)} />
               <h3 className="text-[13px] font-semibold">{STATUS_LABEL[status]}</h3>
-              <span className="tabular rounded-full bg-card px-1.5 text-xs font-semibold text-muted-foreground shadow-xs">{items.length}</span>
-              <span className="tabular ml-auto text-xs text-muted-foreground">{sum > 0 ? brl0(sum) : ''}</span>
+              <span className="tabular text-xs text-muted-foreground">{items.length}</span>
+              <span className="tabular ml-auto text-xs text-muted-foreground">
+                {status === 'IN_PROGRESS' ? `${items.length}/${BAYS_TOTAL} elevadores` : sum > 0 ? brl0(sum) : ''}
+              </span>
             </header>
 
-            {bays !== null && (
-              <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg bg-card/80 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-                <Wrench aria-hidden className="size-3" />
-                <span className="tabular">
-                  {bays}/{BAYS_TOTAL} elevadores
-                </span>
-                <div className="ml-auto flex gap-0.5" aria-hidden>
-                  {Array.from({ length: BAYS_TOTAL }, (_, i) => (
-                    <span key={i} className={cn('h-2.5 w-1.5 rounded-sm', i < bays ? 'bg-brand' : 'bg-slate-300')} />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <ul className="flex min-h-24 flex-1 flex-col gap-2 px-2 pb-2">
+            <ul className="flex min-h-20 flex-col gap-2.5">
               {items.map((o) => (
                 <li key={o.id}>
                   <OrderCard
@@ -110,7 +93,7 @@ export function Board({ orders, compact, recentlyMovedId, onOpen, onMove }: Prop
                 </li>
               ))}
               {items.length === 0 && (
-                <li className="grid flex-1 place-items-center rounded-xl border border-dashed border-slate-300 px-3 py-6 text-center text-xs text-muted-foreground">
+                <li className="grid h-20 place-items-center rounded-lg border border-dashed border-slate-300 text-xs text-muted-foreground">
                   {canDrop ? 'Solte aqui' : 'Nada por aqui'}
                 </li>
               )}
@@ -142,8 +125,8 @@ function OrderCard({
   onDragEnd: () => void;
 }) {
   const next = PRIMARY_NEXT[o.status];
-  const firstService = o.services[0]?.name ?? 'Sem serviço';
   const extra = o.services.length - 1;
+  const partArrived = o.status === 'AWAITING_PART' && !!o.partEta && Date.parse(o.partEta) <= NOW;
 
   return (
     <article
@@ -165,56 +148,60 @@ function OrderCard({
       }}
       aria-label={`Ordem ${o.number}, ${o.vehicle.brand} ${o.vehicle.model}, ${o.customer.name}`}
       className={cn(
-        'group surface relative cursor-pointer rounded-xl border bg-card p-3 text-left transition-[transform,box-shadow,opacity] duration-150 outline-none',
-        'hover:-translate-y-px hover:border-brand/40 focus-visible:border-brand focus-visible:ring-[3px] focus-visible:ring-ring/30',
-        dragging && 'rotate-1 opacity-40',
-        justMoved && 'animate-rise ring-2 ring-brand/50',
-        !isActive(o) && 'opacity-80',
+        'cursor-pointer overflow-hidden rounded-lg border bg-card text-left shadow-xs transition-[box-shadow,border-color,opacity] duration-150 outline-none',
+        'hover:border-slate-300 hover:shadow-md focus-visible:border-slate-900 focus-visible:ring-[3px] focus-visible:ring-slate-900/10',
+        dragging && 'opacity-40',
+        justMoved && 'animate-rise border-slate-900',
+        !isActive(o) && 'bg-slate-50',
       )}
     >
-      <GripVertical aria-hidden className="absolute top-3 left-0.5 size-3.5 text-slate-300 opacity-0 transition-opacity group-hover:opacity-100 max-sm:hidden" />
+      <div className="space-y-2.5 p-3">
+        <div className="flex items-center gap-1.5">
+          <span className="tabular text-xs font-semibold text-slate-500">#{o.number}</span>
+          <PriorityMark priority={o.priority} />
+          <DueChip order={o} className="ml-auto" />
+        </div>
 
-      <div className="flex items-center gap-1.5">
-        <span className="tabular text-xs font-semibold text-brand">#{o.number}</span>
-        <PriorityMark priority={o.priority} />
-        <DueChip order={o} className="ml-auto" />
-      </div>
+        <div className="space-y-1.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <Plate value={o.vehicle.plate} className="shrink-0" />
+            <span className="truncate text-sm font-semibold">
+              {o.vehicle.brand} {o.vehicle.model}
+            </span>
+          </div>
+          <p className="truncate text-[13px] text-muted-foreground">{o.customer.name}</p>
+        </div>
 
-      <div className="mt-2 flex items-center gap-2">
-        <Plate value={o.vehicle.plate} />
-        <span className="truncate text-sm font-medium">
-          {o.vehicle.brand} {o.vehicle.model}
-        </span>
-      </div>
-      <p className="mt-1 truncate text-[13px] text-muted-foreground">{o.customer.name}</p>
+        {!compact && (
+          <p className="flex min-w-0 items-center gap-1.5 text-xs text-slate-600">
+            <span className="truncate">{o.services[0]?.name ?? 'Sem serviço'}</span>
+            {extra > 0 && <span className="shrink-0 text-muted-foreground">+{extra}</span>}
+          </p>
+        )}
 
-      {!compact && (
-        <p className="mt-2 truncate text-xs text-slate-600">
-          {firstService}
-          {extra > 0 && <span className="ml-1 rounded bg-slate-100 px-1 font-medium text-slate-500">+{extra}</span>}
-        </p>
-      )}
+        {o.status === 'IN_PROGRESS' && <ChecklistBar done={o.checklist.done} total={o.checklist.total} />}
+        {o.status === 'AWAITING_PART' && (
+          <p className="text-xs text-muted-foreground">{partArrived ? 'Peça chegou: pode retomar' : 'Peça prevista para amanhã'}</p>
+        )}
 
-      {o.status === 'IN_PROGRESS' && <ChecklistBar done={o.checklist.done} total={o.checklist.total} className="mt-2" />}
-      {o.status === 'AWAITING_PART' && o.partEta && (
-        <p className="mt-2 text-[11px] text-amber-800">
-          {Date.parse(o.partEta) <= NOW ? 'Peça chegou, retomar' : 'Peça prevista para amanhã'}
-        </p>
-      )}
-
-      <div className="mt-3 flex items-center gap-2 border-t pt-2.5">
-        <MechanicAvatar id={o.mechanicId} />
-        <Signals order={o} />
-        <span className="tabular ml-auto text-sm font-semibold">{brl0(orderTotal(o))}</span>
+        <div className="flex items-center gap-2 pt-0.5">
+          <MechanicAvatar id={o.mechanicId} />
+          <Signals order={o} />
+          <span className="tabular ml-auto text-sm font-semibold">{brl0(orderTotal(o))}</span>
+        </div>
       </div>
 
       {next && (
         <button
           type="button"
           onClick={(e) => (e.stopPropagation(), onAdvance())}
-          className="absolute -bottom-2.5 left-1/2 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-brand/30 bg-card px-3 py-1 text-xs font-semibold text-brand shadow-sm transition-all hover:bg-brand hover:text-white focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none sm:translate-y-1 sm:opacity-0 sm:group-focus-within:translate-y-0 sm:group-focus-within:opacity-100 sm:group-hover:translate-y-0 sm:group-hover:opacity-100"
+          className={cn(
+            'flex w-full items-center justify-between border-t bg-slate-50 px-3 py-2 text-xs font-semibold transition-colors hover:bg-slate-900 hover:text-white focus-visible:bg-slate-900 focus-visible:text-white focus-visible:outline-none',
+            partArrived ? 'text-slate-900' : 'text-slate-600',
+          )}
         >
-          {next.label} <ArrowRight aria-hidden className="size-3" />
+          {next.label}
+          <ArrowRight aria-hidden className="size-3.5" />
         </button>
       )}
     </article>

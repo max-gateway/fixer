@@ -2,12 +2,12 @@
 
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Plate, StatusBadge } from '@/components/orders/status-badge';
+import { Plate } from '@/components/orders/status-badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { brl0, orderTotal, sinceLabel, type MockOrder } from './mock-data';
-import { DueChip, MechanicAvatar, PriorityMark, Signals } from './order-bits';
+import { DueChip, MechanicAvatar, PriorityMark, Signals, StatusLabel } from './order-bits';
 
 type SortKey = 'number' | 'due' | 'total' | 'updated';
 
@@ -57,7 +57,7 @@ export function OrdersTable({ orders, selected, onSelectedChange, onOpen }: Prop
   }
 
   return (
-    <div className="surface overflow-hidden rounded-2xl border bg-card">
+    <div className="overflow-hidden rounded-xl border bg-card">
       <Table>
         <TableHeader className="bg-slate-50/80">
           <TableRow className="hover:bg-transparent">
@@ -94,13 +94,13 @@ export function OrdersTable({ orders, selected, onSelectedChange, onOpen }: Prop
                   onOpen(o.id);
                 }
               }}
-              className="group cursor-pointer outline-none focus-visible:bg-brand-soft/60"
+              className="group cursor-pointer outline-none focus-visible:bg-slate-50"
             >
               <TableCell className="w-10 pr-0 pl-4" onClick={(e) => e.stopPropagation()}>
                 <Checkbox aria-label={`Selecionar ordem ${o.number}`} checked={selected.has(o.id)} onCheckedChange={(v) => toggle(o.id, v === true)} />
               </TableCell>
               <TableCell className="whitespace-nowrap">
-                <span className="tabular inline-flex items-center gap-1 font-semibold text-brand">
+                <span className="tabular inline-flex items-center gap-1 font-semibold text-slate-500">
                   #{o.number}
                   <PriorityMark priority={o.priority} />
                 </span>
@@ -115,7 +115,7 @@ export function OrdersTable({ orders, selected, onSelectedChange, onOpen }: Prop
               </TableCell>
               <TableCell className="max-w-44 truncate max-md:hidden">{o.customer.name}</TableCell>
               <TableCell>
-                <StatusBadge status={o.status} />
+                <StatusLabel status={o.status} />
               </TableCell>
               <TableCell className="max-w-52 truncate text-slate-600 max-lg:hidden">
                 {o.services[0]?.name}

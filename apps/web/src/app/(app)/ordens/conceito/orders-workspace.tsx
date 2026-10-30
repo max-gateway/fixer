@@ -3,7 +3,6 @@
 import { FileSearch, Keyboard, LayoutGrid, List, Plus, Search, X } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { UserAvatar } from '@/components/nav/user-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +31,7 @@ import {
   type MockOrder,
   type ViewId,
 } from './mock-data';
+import { Initials } from './order-bits';
 import { OrderPeek } from './order-peek';
 import { OrdersTable } from './orders-table';
 
@@ -186,7 +186,7 @@ function Workspace() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-semibold tracking-tight">Ordens de serviço</h1>
-            <Badge variant="warning">Conceito · dados fictícios</Badge>
+            <Badge variant="outline" className="text-muted-foreground">Conceito · dados fictícios</Badge>
           </div>
           <p className="text-sm text-muted-foreground">Quinta, 30 de outubro · o que precisa de você, o que está na oficina e o que está pronto.</p>
         </div>
@@ -248,11 +248,11 @@ function Workspace() {
                   aria-pressed={active}
                   title={`${m.name} · ${load}/${m.bays} em andamento`}
                   onClick={() => setMechanic(active ? null : m.id)}
-                  className={cn('group relative rounded-full p-0.5 transition-all', active ? 'ring-2 ring-brand ring-offset-2' : 'opacity-70 hover:opacity-100', mechanic && !active && 'opacity-40')}
+                  className={cn('group relative rounded-full p-0.5 transition-all', active ? 'ring-2 ring-slate-900 ring-offset-2' : 'opacity-70 hover:opacity-100', mechanic && !active && 'opacity-40')}
                 >
-                  <UserAvatar name={m.name} className="size-8" />
+                  <Initials name={m.name} className="size-8 text-xs" />
                   <span aria-hidden className="absolute inset-x-1 -bottom-1 h-1 overflow-hidden rounded-full bg-slate-300">
-                    <span className={cn('block h-full', load >= m.bays ? 'bg-red-500' : 'bg-emerald-500')} style={{ width: `${Math.min(100, (load / m.bays) * 100)}%` }} />
+                    <span className={cn('block h-full', load >= m.bays ? 'bg-red-600' : 'bg-slate-600')} style={{ width: `${Math.min(100, (load / m.bays) * 100)}%` }} />
                   </span>
                 </button>
               );
@@ -261,7 +261,7 @@ function Workspace() {
               type="button"
               aria-pressed={mechanic === 'none'}
               onClick={() => setMechanic(mechanic === 'none' ? null : 'none')}
-              className={cn('ml-1 h-8 rounded-full border border-dashed px-2.5 text-xs font-medium text-slate-600 hover:border-slate-400', mechanic === 'none' && 'border-brand bg-brand-soft text-brand')}
+              className={cn('ml-1 h-8 rounded-full border border-dashed px-2.5 text-xs font-medium text-slate-600 hover:border-slate-400', mechanic === 'none' && 'border-slate-900 bg-slate-900 text-white')}
             >
               Sem mecânico
             </button>
@@ -304,7 +304,7 @@ function Workspace() {
               {VIEWS.map((v) => (
                 <TabsTrigger key={v.id} value={v.id} title={v.hint} className="flex-none px-3">
                   {v.label}
-                  <span className={cn('tabular rounded-full px-1.5 text-[11px]', view === v.id ? 'bg-brand-soft text-brand' : 'bg-slate-200/70 text-slate-500')}>{viewCount(v.id)}</span>
+                  <span className={cn('tabular rounded-full px-1.5 text-[11px]', view === v.id ? 'bg-slate-900 text-white' : 'bg-slate-200/70 text-slate-500')}>{viewCount(v.id)}</span>
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -312,7 +312,7 @@ function Workspace() {
           <p className="tabular text-xs text-muted-foreground" aria-live="polite">
             {visible.length} {visible.length === 1 ? 'ordem' : 'ordens'} · {brl0(total)}
             {filtered && (
-              <button type="button" onClick={clearFilters} className="ml-2 font-semibold text-brand hover:underline">
+              <button type="button" onClick={clearFilters} className="ml-2 font-semibold text-foreground underline">
                 Limpar filtros
               </button>
             )}
