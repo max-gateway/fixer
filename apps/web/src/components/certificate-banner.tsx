@@ -36,7 +36,7 @@ export function CertificateBanner({ alert, orgId }: { alert: CertificateAlert; o
         <Icon aria-hidden className="mt-0.5 size-4 shrink-0" />
         <p className="min-w-0 flex-1">
           <span className="font-semibold">{copy.title}</span> {copy.detail}{' '}
-          <Link href="/configuracoes" className="font-medium underline underline-offset-2">
+          <Link href="/configuracoes#certificado" className="font-medium underline underline-offset-2">
             Renovar certificado
           </Link>
         </p>
