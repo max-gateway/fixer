@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Deploy do Fixer (ambiente de teste) na mg-platform. Rode NA VM, de qualquer pasta, ou de fora:
-#   ssh mg-platform 'bash ~/fixer/infra/prod/deploy.sh [branch]'
+#   ssh ubuntu@mg-platform 'bash ~/fixer/infra/prod/deploy.sh [branch]'
+# Pelo Tailscale SSH o usuário é obrigatório: sem ele vai o usuário local, e a política do tailnet recusa.
 # O token de leitura do GitHub Packages (build de @max-gateway/*) vem de NODE_AUTH_TOKEN
 # ou do arquivo ~/.fixer-npm-token (chmod 600), nesta ordem.
 set -euo pipefail

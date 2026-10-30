@@ -76,7 +76,9 @@ preenchidos (passo 1), a API consome os eventos. O usuário de teste precisa ser
 
 ## Deploy automatizado
 Na `mg-platform`, `infra/prod/deploy.sh [branch]` faz `git pull` (só fast-forward), `compose up -d --build` e confere `https://$FIXER_HOST/login`.
-Guarde o token do GitHub Packages em `~/.fixer-npm-token` (`chmod 600`) ou exporte `NODE_AUTH_TOKEN`. De fora da VM:
+Guarde o token do GitHub Packages em `~/.fixer-npm-token` (`chmod 600`) ou exporte `NODE_AUTH_TOKEN`. De fora da VM, pelo Tailscale:
 ```sh
-ssh mg-platform 'bash ~/fixer/infra/prod/deploy.sh feat/fiscal-platform'
+ssh ubuntu@mg-platform 'bash ~/fixer/infra/prod/deploy.sh feat/fiscal-platform'
 ```
+O usuário `ubuntu@` é obrigatório: sem ele o SSH usa o usuário local da máquina, e a política do tailnet recusa
+(`tailnet policy does not permit you to SSH as user ...`).
