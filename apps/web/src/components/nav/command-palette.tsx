@@ -4,7 +4,7 @@ import { CornerDownLeft, LogOut, Search, type LucideIcon } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useRouter } from 'next/navigation';
 import { Dialog } from 'radix-ui';
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Kbd } from './kbd';
 import { ALL_LINKS, NAV_ACTIONS, normalize } from './nav-items';
 
@@ -69,7 +69,6 @@ function signOut() {
 
 function PaletteBody({ close }: { close: () => void }) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
