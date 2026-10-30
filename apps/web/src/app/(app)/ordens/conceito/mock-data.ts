@@ -20,8 +20,6 @@ export const MECHANICS: Mechanic[] = [
   { id: 'm4', name: 'Aline Prado', bays: 2 },
 ];
 export const BAYS_TOTAL = MECHANICS.reduce((n, m) => n + m.bays, 0);
-/** Usuário logado no conceito: alimenta a visão "Minhas". */
-export const ME = 'm1';
 
 export type MockOrder = {
   id: string;
@@ -46,6 +44,8 @@ export type MockOrder = {
   /** Previsão de chegada da peça (só em AWAITING_PART). */
   partEta?: string;
   invoice: 'none' | 'pending' | 'issued';
+  /** Último aviso enviado ao cliente pelo WhatsApp. */
+  notifiedAt?: string;
   timeline: { at: string; text: string; by: string }[];
 };
 
@@ -99,7 +99,7 @@ export const INITIAL_ORDERS: MockOrder[] = [
 
 // ── Regras de negócio (espelham status.ts da API, usadas só no conceito) ────────────────────────────
 
-/** Para onde cada status pode ir. O quadro usa isto para liberar ou bloquear o "soltar". */
+/** Para onde cada status pode ir. O painel lateral usa isto para listar os movimentos possíveis. */
 export const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   QUOTE: ['APPROVED', 'CANCELLED'],
   APPROVED: ['IN_PROGRESS', 'CANCELLED'],
@@ -110,7 +110,7 @@ export const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   CANCELLED: [],
 };
 
-/** Ação principal de cada etapa: o botão de um clique no cartão. */
+/** Ação principal de cada etapa: o botão de destaque do painel lateral. */
 export const PRIMARY_NEXT: Partial<Record<OrderStatus, { to: OrderStatus; label: string }>> = {
   QUOTE: { to: 'APPROVED', label: 'Aprovar' },
   APPROVED: { to: 'IN_PROGRESS', label: 'Iniciar' },
@@ -118,8 +118,6 @@ export const PRIMARY_NEXT: Partial<Record<OrderStatus, { to: OrderStatus; label:
   AWAITING_PART: { to: 'IN_PROGRESS', label: 'Retomar' },
   COMPLETED: { to: 'DELIVERED', label: 'Entregar' },
 };
-
-export const BOARD_COLUMNS: OrderStatus[] = ['QUOTE', 'APPROVED', 'IN_PROGRESS', 'AWAITING_PART', 'COMPLETED', 'DELIVERED'];
 
 export const brl0 = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 
@@ -163,57 +161,58 @@ export function sinceLabel(iso: string): string {
   return `${Math.floor(h / 24)} d`;
 }
 
-export type Attention = {
-  id: string;
-  orderId: string;
-  kind: 'approved' | 'part' | 'late' | 'quote' | 'pickup';
-  title: string;
-  detail: string;
-  action: { label: string; do: 'approve' | 'resume' | 'notify' | 'deliver' };
-};
+// ── De quem é a vez ─────────────────────────────────────────────────────────────────────────────────
 
-/** Caixa de entrada do dia: o que está parado esperando uma decisão da oficina, do mais urgente ao menos. */
-export function attentionItems(orders: MockOrder[]): Attention[] {
-  const out: (Attention & { weight: number })[] = [];
-  for (const o of orders) {
-    const who = `#${o.number} · ${o.customer.name.split(' ')[0]}`;
-    if (o.status === 'QUOTE' && o.customerApproved)
-      out.push({ id: `a-${o.id}`, orderId: o.id, kind: 'approved', weight: 0, title: `${who} aprovou o orçamento`, detail: 'Aprovado pelo portal. Falta só confirmar.', action: { label: 'Confirmar', do: 'approve' } });
-    else if (o.status === 'AWAITING_PART' && o.partEta && Date.parse(o.partEta) <= NOW)
-      out.push({ id: `a-${o.id}`, orderId: o.id, kind: 'part', weight: 1, title: `Peça de ${who} chegou`, detail: `${o.parts[0]?.name ?? 'Peça'} · parada há ${sinceLabel(o.updatedAt)}`, action: { label: 'Retomar', do: 'resume' } });
-    else if (health(o) === 'late')
-      out.push({ id: `a-${o.id}`, orderId: o.id, kind: 'late', weight: 2, title: `${who} passou do prazo`, detail: `${dueLabel(o)} · avise o cliente`, action: { label: 'Avisar', do: 'notify' } });
-    else if (o.status === 'COMPLETED' && hoursSince(o.updatedAt) > 24)
-      out.push({ id: `a-${o.id}`, orderId: o.id, kind: 'pickup', weight: 3, title: `${who} pronto há ${sinceLabel(o.updatedAt)}`, detail: 'Carro parado no pátio, cliente não retirou.', action: { label: 'Avisar', do: 'notify' } });
-    else if (o.status === 'QUOTE' && hoursSince(o.updatedAt) > 48)
-      out.push({ id: `a-${o.id}`, orderId: o.id, kind: 'quote', weight: 4, title: `${who} sem resposta`, detail: `Orçamento de ${brl0(orderTotal(o))} parado há ${sinceLabel(o.updatedAt)}`, action: { label: 'Cobrar', do: 'notify' } });
-  }
-  return out.sort((a, b) => a.weight - b.weight).map(({ weight: _w, ...a }) => a);
-}
+/**
+ * A tela agrupa pelo que a ordem espera, não pelo status: a oficina precisa agir, o carro está sendo trabalhado,
+ * o cliente precisa responder/retirar, a peça precisa chegar. Status vira detalhe do painel lateral.
+ */
+export type Lane = 'yours' | 'shop' | 'customer' | 'part' | 'done';
 
-// ── Visões salvas ───────────────────────────────────────────────────────────────────────────────────
-
-export type ViewId = 'all' | 'mine' | 'attention' | 'waiting' | 'pickup';
-
-export const VIEWS: { id: ViewId; label: string; hint: string }[] = [
-  { id: 'all', label: 'Todas', hint: 'Tudo que está aberto na oficina' },
-  { id: 'mine', label: 'Minhas', hint: 'Ordens atribuídas a você' },
-  { id: 'attention', label: 'Atenção', hint: 'Atrasadas, em risco ou com peça parada' },
-  { id: 'waiting', label: 'Aguardando cliente', hint: 'Orçamentos sem resposta' },
-  { id: 'pickup', label: 'Prontas p/ retirada', hint: 'Concluídas que o cliente ainda não buscou' },
+export const LANES: { id: Lane; label: string; hint: string }[] = [
+  { id: 'yours', label: 'Sua vez', hint: 'Parado esperando uma ação da oficina' },
+  { id: 'shop', label: 'Na oficina', hint: 'Sendo trabalhado, dentro do combinado' },
+  { id: 'customer', label: 'Esperando o cliente', hint: 'Orçamento enviado ou carro pronto para retirar' },
+  { id: 'part', label: 'Esperando peça', hint: 'Parado até a peça chegar' },
+  { id: 'done', label: 'Entregues', hint: 'Saíram da oficina' },
 ];
 
-export function inView(o: MockOrder, view: ViewId): boolean {
-  switch (view) {
-    case 'all':
-      return true;
-    case 'mine':
-      return o.mechanicId === ME;
-    case 'attention':
-      return health(o) === 'late' || health(o) === 'risk' || (o.status === 'AWAITING_PART' && !!o.partEta && Date.parse(o.partEta) <= NOW);
-    case 'waiting':
-      return o.status === 'QUOTE';
-    case 'pickup':
-      return o.status === 'COMPLETED';
+/** Mover de etapa, avisar o cliente pelo WhatsApp, ou abrir o painel (quando a decisão pede escolha, como o mecânico). */
+export type Next = { label: string; to: OrderStatus } | { label: string; notify: true } | { label: string; open: true };
+
+/** Onde a ordem está, a frase que explica o porquê e o único botão que resolve. */
+export type Situation = { lane: Lane; text: string; late: boolean; next: Next | null; weight: number };
+
+/** Avisado há menos de 12 h: a bola voltou para o cliente. */
+const recentlyNotified = (o: MockOrder) => !!o.notifiedAt && hoursSince(o.notifiedAt) < 12;
+
+export function situation(o: MockOrder): Situation {
+  const h = health(o);
+  const late = h === 'late';
+  const partArrived = o.status === 'AWAITING_PART' && !!o.partEta && Date.parse(o.partEta) <= NOW;
+  const service = o.services[0]?.name ?? 'Sem serviço';
+
+  switch (o.status) {
+    case 'QUOTE':
+      if (o.customerApproved) return { lane: 'yours', weight: 0, late: false, text: 'Cliente aprovou o orçamento pelo portal', next: { label: 'Confirmar', to: 'APPROVED' } };
+      if (hoursSince(o.updatedAt) > 48 && !recentlyNotified(o))
+        return { lane: 'yours', weight: 4, late: false, text: `Orçamento de ${brl0(orderTotal(o))} sem resposta há ${sinceLabel(o.updatedAt)}`, next: { label: 'Cobrar', notify: true } };
+      return { lane: 'customer', weight: 0, late: false, text: recentlyNotified(o) ? `Cliente cobrado há ${sinceLabel(o.notifiedAt!)}` : `Orçamento enviado há ${sinceLabel(o.updatedAt)}`, next: null };
+    case 'APPROVED':
+      if (!o.mechanicId) return { lane: 'yours', weight: 3, late, text: 'Aprovada, falta escolher o mecânico', next: { label: 'Atribuir', open: true } };
+      if (h === 'risk' || late) return { lane: 'yours', weight: 2, late, text: `${late ? 'Prazo estourado' : `Prazo ${dueLabel(o)}`} e ainda não começou`, next: { label: 'Iniciar', to: 'IN_PROGRESS' } };
+      return { lane: 'shop', weight: 1, late: false, text: `Aprovada, na fila · ${service}`, next: { label: 'Iniciar', to: 'IN_PROGRESS' } };
+    case 'IN_PROGRESS':
+      if (late && !recentlyNotified(o)) return { lane: 'yours', weight: 1, late, text: `Atrasado ${dueLabel(o)!.replace('atrasada ', '')} · o cliente ainda não sabe`, next: { label: 'Avisar cliente', notify: true } };
+      return { lane: 'shop', weight: 0, late, text: late ? `${service} · cliente avisado do atraso` : service, next: { label: 'Concluir', to: 'COMPLETED' } };
+    case 'AWAITING_PART':
+      if (partArrived) return { lane: 'yours', weight: 1, late, text: `${o.parts[0]?.name ?? 'Peça'} chegou · carro parado há ${sinceLabel(o.updatedAt)}`, next: { label: 'Retomar', to: 'IN_PROGRESS' } };
+      return { lane: 'part', weight: 0, late, text: `${o.parts[0]?.name ?? 'Peça'} prevista ${o.partEta ? dueLabel({ ...o, promisedAt: o.partEta }) : 'sem data'}`, next: null };
+    case 'COMPLETED':
+      if (hoursSince(o.updatedAt) > 24 && !recentlyNotified(o))
+        return { lane: 'yours', weight: 3, late: false, text: `Pronto há ${sinceLabel(o.updatedAt)} e o cliente não retirou`, next: { label: 'Cobrar retirada', notify: true } };
+      return { lane: 'customer', weight: 1, late: false, text: recentlyNotified(o) ? `Pronto · cliente avisado há ${sinceLabel(o.notifiedAt!)}` : `Pronto há ${sinceLabel(o.updatedAt)} · aguardando retirada`, next: { label: 'Entregar', to: 'DELIVERED' } };
+    default:
+      return { lane: 'done', weight: 0, late: false, text: `${o.status === 'CANCELLED' ? 'Cancelada' : 'Entregue'} há ${sinceLabel(o.updatedAt)}`, next: null };
   }
 }

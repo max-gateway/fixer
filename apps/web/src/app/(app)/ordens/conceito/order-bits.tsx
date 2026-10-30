@@ -1,18 +1,38 @@
-import { ChevronsUp, Clock, Eye, FileText, Flame, MessageCircle, MessageCircleOff } from 'lucide-react';
+import { ChevronsUp, Clock, Flame } from 'lucide-react';
 import { Hint } from '@/components/hint';
 import { STATUS_LABEL, STATUS_STYLE, type OrderStatus } from '@/lib/orders';
 import { cn } from '@/lib/utils';
 import { dueLabel, health, MECHANICS, type MockOrder, type Priority } from './mock-data';
 
 /*
- * Paleta do conceito: neutra. Cor só onde ela informa: a bolinha do status, o atraso (vermelho)
- * e a ação principal (azul da marca). O resto é tinta e cinza.
+ * Linguagem da logo: preto profundo, azul elétrico e o traço inclinado do "E" de FIXER.
+ * Azul marca o que é da oficina fazer; vermelho, só o atraso. O resto é tinta e cinza-azulado.
  */
+
+/** O traço inclinado da logo. Abre cada grupo e marca a linha que pede ação. */
+export function Slash({ className }: { className?: string }) {
+  return <span aria-hidden className={cn('inline-block h-1.5 w-7 -skew-x-[35deg] rounded-[2px] bg-brand', className)} />;
+}
+
+/** Placa Mercosul em miniatura: a faixa azul faz o carro ser reconhecido de relance na lista. */
+export function PlateMark({ value, size = 'md', className }: { value: string; size?: 'md' | 'lg'; className?: string }) {
+  return (
+    <span
+      aria-label={`Placa ${value}`}
+      className={cn('inline-flex shrink-0 flex-col overflow-hidden rounded-md border-2 border-[#0f141b] bg-white shadow-xs', className)}
+    >
+      <span aria-hidden className={cn('bg-[#1d3f9f] text-center font-bold tracking-[0.3em] text-white', size === 'lg' ? 'py-0.5 text-[8px]' : 'h-1.5 text-[0px]')}>
+        BRASIL
+      </span>
+      <span className={cn('tabular font-mono font-bold tracking-[0.14em] text-[#0f141b]', size === 'lg' ? 'px-3 py-1 text-xl' : 'px-1.5 py-0.5 text-[13px] leading-tight')}>{value}</span>
+    </span>
+  );
+}
 
 /** Status como texto com bolinha, sem fundo colorido. */
 export function StatusLabel({ status, className }: { status: OrderStatus; className?: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap text-slate-700', className)}>
+    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap', className)}>
       <span aria-hidden className={cn('size-1.5 rounded-full', STATUS_STYLE[status].dot)} />
       {STATUS_LABEL[status]}
     </span>
@@ -49,55 +69,25 @@ export function PriorityMark({ priority }: { priority: Priority }) {
   );
 }
 
-/** Iniciais num círculo neutro (sem degradê). */
+/** Iniciais num círculo em tinta da marca. */
 export function Initials({ name, className }: { name: string; className?: string }) {
   const parts = name.trim().split(/\s+/);
   const text = (parts[0]![0]! + (parts.length > 1 ? parts[parts.length - 1]![0]! : '')).toUpperCase();
   return (
-    <span aria-hidden className={cn('inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200 ring-inset select-none', className)}>
+    <span aria-hidden className={cn('font-display inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-secondary text-[10px] font-semibold text-white select-none', className)}>
       {text}
     </span>
   );
 }
 
-export function MechanicAvatar({ id, className }: { id: string | null; className?: string }) {
+/** Mecânico pelo primeiro nome; sem ninguém, um aviso discreto. */
+export function MechanicName({ id, className }: { id: string | null; className?: string }) {
   const m = MECHANICS.find((x) => x.id === id);
-  if (!m)
-    return (
-      <span title="Sem mecânico" aria-label="Sem mecânico" className={cn('inline-flex size-6 items-center justify-center rounded-full border border-dashed border-slate-300 text-[10px] text-slate-400', className)}>
-        ?
-      </span>
-    );
+  if (!m) return <span className={cn('text-xs text-muted-foreground italic', className)}>sem mecânico</span>;
   return (
-    <span title={m.name}>
-      <Initials name={m.name} className={className} />
-    </span>
-  );
-}
-
-/** Sinais de relacionamento com o cliente: ícones pequenos, todos no mesmo cinza. */
-export function Signals({ order }: { order: MockOrder }) {
-  return (
-    <span className="flex items-center gap-1.5 text-slate-400">
-      {order.whatsappLinked ? (
-        <Hint content="WhatsApp vinculado: o cliente recebe os avisos" label="WhatsApp vinculado">
-          <MessageCircle aria-hidden className="size-3.5 text-slate-500" />
-        </Hint>
-      ) : (
-        <Hint content="Sem WhatsApp vinculado. Envie o código OS ao cliente." label="WhatsApp não vinculado">
-          <MessageCircleOff aria-hidden className="size-3.5" />
-        </Hint>
-      )}
-      {order.portalViewed && (
-        <Hint content="O cliente já abriu o portal desta ordem" label="Portal visualizado">
-          <Eye aria-hidden className="size-3.5 text-slate-500" />
-        </Hint>
-      )}
-      {order.invoice === 'pending' && (
-        <Hint content="Nota fiscal pendente de emissão" label="Nota fiscal pendente">
-          <FileText aria-hidden className="size-3.5 text-slate-500" />
-        </Hint>
-      )}
+    <span className={cn('inline-flex items-center gap-1.5 text-xs text-slate-700', className)}>
+      <Initials name={m.name} className="size-5 text-[9px]" />
+      {m.name.split(' ')[0]}
     </span>
   );
 }
@@ -106,8 +96,8 @@ export function ChecklistBar({ done, total, className }: { done: number; total: 
   const pct = total ? Math.round((done / total) * 100) : 0;
   return (
     <div className={cn('flex items-center gap-2', className)}>
-      <div role="progressbar" aria-label="Checklist" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} className="h-1 flex-1 overflow-hidden rounded-full bg-slate-200">
-        <div className="h-full rounded-full bg-slate-700 transition-[width] duration-500" style={{ width: `${pct}%` }} />
+      <div role="progressbar" aria-label="Checklist" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200">
+        <div className="h-full rounded-full bg-brand transition-[width] duration-500" style={{ width: `${pct}%` }} />
       </div>
       <span className="tabular text-[11px] text-muted-foreground">
         {done}/{total}
