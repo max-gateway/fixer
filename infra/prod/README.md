@@ -73,3 +73,10 @@ preenchidos (passo 1), a API consome os eventos. O usuário de teste precisa ser
 - `notifications` (e-mails/webhooks): sem ele o proxy `/api/notifications` responde 502 e o resto funciona.
 - `workforce`, `cost-engine`, `plate-lookup`, `cnpj-lookup`: sem as URLs, cada recurso fica desligado ou usa o padrão do código (localhost), e o restante segue.
 - Backups: o volume `pgdata` não tem rotina de backup aqui. Não use dados reais.
+
+## Deploy automatizado
+Na `mg-platform`, `infra/prod/deploy.sh [branch]` faz `git pull` (só fast-forward), `compose up -d --build` e confere `https://$FIXER_HOST/login`.
+Guarde o token do GitHub Packages em `~/.fixer-npm-token` (`chmod 600`) ou exporte `NODE_AUTH_TOKEN`. De fora da VM:
+```sh
+ssh mg-platform 'bash ~/fixer/infra/prod/deploy.sh feat/fiscal-platform'
+```
