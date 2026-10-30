@@ -113,7 +113,6 @@ services:
       COST_ENGINE_URL: ${COST_ENGINE_URL:-}
       COST_ENGINE_API_KEY: ${COST_ENGINE_API_KEY:-}
       CNPJ_LOOKUP_SERVICE_URL: ${CNPJ_LOOKUP_SERVICE_URL:-}
-      PLATE_LOOKUP_SERVICE_URL: ${PLATE_LOOKUP_SERVICE_URL:-}
       # Controle de acesso (convites): link do e-mail volta para o web público.
       ACCESS_DIRECTORY_MODE: organization
       ACCESS_INVITE_REDIRECT_URI: https://${FIXER_HOST}
