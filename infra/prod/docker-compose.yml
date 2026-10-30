@@ -99,6 +99,8 @@ services:
       CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY:-}
       RABBITMQ_URL: ${RABBITMQ_URL:-}
       LICENSE_REQUIRED: ${LICENSE_REQUIRED:-false}
+      # Workforce (tela Equipe): serviço da plataforma na platform_net, sem host público. Vazio = a tela responde "indisponível".
+      WORKFORCE_URL: ${WORKFORCE_URL:-}
       # NF-e pelo gateway central (o certificado nunca vive aqui).
       DFE_GATEWAY_URL: ${DFE_GATEWAY_URL:-}
       DFE_GATEWAY_API_KEY: ${DFE_GATEWAY_API_KEY:-}
