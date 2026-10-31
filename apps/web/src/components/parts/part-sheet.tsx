@@ -1,6 +1,6 @@
 'use client';
 
-import { Boxes, Car, ChevronDown, ChevronLeft, ChevronRight, Copy, History, Landmark, Loader2, PackagePlus, Repeat2, ScanBarcode, Search, TriangleAlert } from 'lucide-react';
+import { Boxes, Car, ChevronDown, ChevronLeft, ChevronRight, Copy, History, Landmark, Repeat2, ScanBarcode, Search, TriangleAlert, Warehouse } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { PartImage } from '@/components/catalog/part-image';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { formatCents, formatLocation, formatMoney, groupApplications, groupCross
 import { cn } from '@/lib/utils';
 import { FiscalTab } from './fiscal-tab';
 import { useCopy } from './part-card';
-import { useFits, useLocalPart, usePartDetail, usePartHistory, useRegisterPart, type LocalPart, type PartHistory } from './use-parts';
+import { useFits, useLocalPart, usePartDetail, usePartHistory, type LocalPart, type PartHistory } from './use-parts';
 
 const dateFmt = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 const fmtDate = (iso: string | null) => (iso ? dateFmt.format(new Date(iso)) : '—');
@@ -209,7 +209,7 @@ function Fitment({ part, onVehicle }: { part: PartDetail; onVehicle: (a: Applica
                           onClick={() => onVehicle(a)}
                           className="shrink-0 rounded-md border bg-background px-2 py-1 font-medium text-brand hover:border-ring/50 hover:bg-accent"
                         >
-                          Outras peças deste veículo
+                          Buscar peças para este veículo
                         </button>
                       </li>
                     ))}
@@ -309,46 +309,6 @@ function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: 
       <p className="tabular text-lg font-semibold tracking-tight">{value}</p>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
-  );
-}
-
-function ShopForm({ part }: { part: PartDetail }) {
-  const [cost, setCost] = useState('');
-  const [sell, setSell] = useState('');
-  const create = useRegisterPart(part.sku, part.name);
-  const toNum = (s: string) => Number(s.replace(',', '.'));
-  const valid = cost.trim() !== '' && sell.trim() !== '' && toNum(cost) >= 0 && toNum(sell) >= 0 && !Number.isNaN(toNum(cost)) && !Number.isNaN(toNum(sell));
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (valid) create.mutate({ costPrice: toNum(cost), sellPrice: toNum(sell) });
-      }}
-      className="space-y-3 rounded-xl border bg-card p-4"
-    >
-      <p className="text-sm font-medium">Cadastrar na oficina</p>
-      <p className="text-xs text-muted-foreground">Nome e código de barras vêm do catálogo. Informe o custo e o preço de venda para começar a controlar estoque e histórico.</p>
-      <div className="grid grid-cols-2 gap-3">
-        {[
-          ['Custo (R$)', cost, setCost],
-          ['Venda (R$)', sell, setSell],
-        ].map(([label, val, set]) => (
-          <label key={label as string} className="space-y-1 text-xs font-medium">
-            {label as string}
-            <input
-              inputMode="decimal"
-              value={val as string}
-              onChange={(e) => (set as (v: string) => void)(e.target.value)}
-              placeholder="0,00"
-              className="tabular h-10 w-full rounded-lg border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/20"
-            />
-          </label>
-        ))}
-      </div>
-      <Button type="submit" disabled={!valid || create.isPending} className="w-full">
-        {create.isPending ? <Loader2 aria-hidden className="animate-spin" /> : <PackagePlus aria-hidden />} Cadastrar peça
-      </Button>
-    </form>
   );
 }
 
@@ -469,10 +429,28 @@ function ShopTab({ part }: { part: PartDetail }) {
   if (local.isLoading) return <Skeleton className="h-40 rounded-xl" />;
   if (local.isError) return <Empty>Não foi possível consultar o estoque da oficina.</Empty>;
   if (local.data) return <HistoryView local={local.data} />;
+  return <Empty>A oficina ainda não teve esta peça: sem estoque, compras nem vendas. Ela entra no estoque pela nota de compra, e o histórico aparece aqui.</Empty>;
+}
+
+/** O que a oficina tem da peça, logo abaixo do título: é a primeira pergunta no balcão. O histórico fica na aba Oficina. */
+function ShopStrip({ sku, onOpen }: { sku: string; onOpen: () => void }) {
+  const local = useLocalPart(sku);
+  if (local.isError) return null;
+  if (local.isLoading) return <Skeleton aria-hidden className="mx-5 mt-3 h-11 rounded-xl" />;
+  const part = local.data;
+  const qty = part ? Number(part.stockQty) : 0;
   return (
-    <div className="space-y-4">
-      <Empty>Esta peça ainda não está no estoque da oficina, então não há histórico de compra nem de venda.</Empty>
-      <ShopForm part={part} />
+    <div className={cn('mx-5 mt-3 flex items-center gap-3 rounded-xl border px-3 py-2 text-sm', qty > 0 ? 'border-emerald-200 bg-emerald-50' : 'bg-muted/40')}>
+      <Warehouse aria-hidden className={cn('size-4 shrink-0', qty > 0 ? 'text-emerald-700' : 'text-muted-foreground')} />
+      <p className="min-w-0 flex-1">
+        <strong className="font-semibold">{qty > 0 ? `${num(qty)} em estoque` : 'Sem estoque na oficina'}</strong>
+        {part && <span className="tabular text-muted-foreground"> · venda {formatMoney(part.sellPrice)} · código interno {part.sku}</span>}
+      </p>
+      {part && (
+        <Button variant="ghost" size="sm" onClick={onOpen}>
+          Histórico
+        </Button>
+      )}
     </div>
   );
 }
@@ -501,6 +479,7 @@ export function PartSheet({
 }) {
   const fits = useFits(sku, vehicle?.id);
   const detail = usePartDetail(sku);
+  const [tab, setTab] = useState('resumo');
   const part = detail.data;
   const title = part?.name ?? hit?.name ?? 'Peça';
   const crossCount = part ? groupCrossPairs(part.crossPairs, { partNumber: part.partNumber, brand: part.brand?.name }).reduce((n, g) => n + g.codes.length, 0) : 0;
@@ -527,6 +506,7 @@ export function PartSheet({
             </SheetDescription>
           </div>
         </header>
+        {sku && <ShopStrip sku={sku} onOpen={() => setTab('oficina')} />}
 
         {detail.isLoading && (
           <div className="space-y-3 p-5">
@@ -547,7 +527,7 @@ export function PartSheet({
           </div>
         )}
         {part && (
-          <Tabs defaultValue="resumo" className="flex min-h-0 flex-1 flex-col gap-0">
+          <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-0">
             <TabsList className="mx-5 mt-3 grid w-auto grid-cols-5">
               <TabsTrigger value="resumo">
                 <Boxes aria-hidden /> Resumo

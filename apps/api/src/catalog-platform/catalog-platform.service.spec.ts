@@ -41,64 +41,28 @@ function build(responder: Responder, over: Partial<PartsSearchSettings> = {}) {
 const status = (e: unknown) => (e instanceof HttpException ? e.getStatus() : -1);
 const fail = async (p: Promise<unknown>) => p.then(() => undefined, (e: unknown) => e);
 
-describe('CatalogPlatformService: classificação fiscal (a loja vem da plataforma, nunca é suposta)', () => {
-  const stores = (...ids: string[]) => json({ data: ids.map((storeId) => ({ storeId, name: null })) });
+describe('CatalogPlatformService: classificação fiscal (da organização, sem loja: ADR-10 da plataforma)', () => {
   const path = (req: Request) => new URL(req.url).pathname;
 
-  it('fiscalResolve: descobre a única loja da organização (GET /v1/stores) e faz POST /v1/stores/{loja}/fiscal:resolve com o token do usuário', async () => {
-    const { service, fetch } = build((req) => (path(req) === '/v1/stores' ? stores('principal') : json({ items: [], unknown: ['a'] })));
+  it('fiscalResolve: POST /v1/fiscal:resolve com o token do usuário e a organização, sem descobrir loja', async () => {
+    const { service, fetch } = build(() => json({ items: [], unknown: ['a'] }));
     const out = await service.fiscalResolve(caller({ storeId: undefined }), ['a']);
     expect(out).toEqual({ items: [], unknown: ['a'] });
-    const [list, resolve] = fetch.mock.calls.map(([r]) => r);
-    expect(list!.method).toBe('GET');
-    expect(list!.headers.get('authorization')).toBe('Bearer user-jwt');
-    expect(resolve!.method).toBe('POST');
-    expect(path(resolve!)).toBe('/v1/stores/principal/fiscal:resolve');
-    expect(await resolve!.clone().json()).toEqual({ skus: ['a'] });
-  });
-
-  it('a loja descoberta fica em cache por organização: a segunda chamada não pergunta de novo, e outra organização pergunta a dela', async () => {
-    const { service, fetch } = build((req) => (path(req) === '/v1/stores' ? stores('principal') : json({ items: [], unknown: [] })));
-    await service.fiscalResolve(caller({ storeId: undefined }), ['a']);
-    await service.fiscalResolve(caller({ storeId: undefined, orgId: ORG_A.toUpperCase() }), ['b']);
-    expect(fetch.mock.calls.filter(([r]) => path(r) === '/v1/stores')).toHaveLength(1);
-    await service.fiscalResolve(caller({ storeId: undefined, orgId: ORG_B }), ['c']);
-    expect(fetch.mock.calls.filter(([r]) => path(r) === '/v1/stores')).toHaveLength(2);
-  });
-
-  it('loja já escolhida pelo chamador vale e não consulta a plataforma', async () => {
-    const { service, fetch } = build(() => json({ items: [], unknown: [] }));
-    await service.fiscalResolve(caller({ storeId: 'matriz' }), ['a']);
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(path(fetch.mock.calls[0]![0])).toBe('/v1/stores/matriz/fiscal:resolve');
+    const req = fetch.mock.calls[0]![0];
+    expect(req.method).toBe('POST');
+    expect(path(req)).toBe('/v1/fiscal:resolve');
+    expect(await req.clone().json()).toEqual({ skus: ['a'] });
+    expect(req.headers.get('authorization')).toBe('Bearer user-jwt');
+    expect(req.headers.get('x-org-id')).toBe(ORG_A);
   });
 
-  it('organização sem loja (422) ou com várias (409) é erro explícito, sem chamar o fiscal e sem palpite', async () => {
-    const none = build(() => stores());
-    expect(status(await fail(none.service.fiscalResolve(caller({ storeId: undefined }), ['a'])))).toBe(422);
-    expect(none.fetch).toHaveBeenCalledTimes(1);
-    const many = build(() => stores('a', 'b'));
-    expect(status(await fail(many.service.fiscalResolve(caller({ storeId: undefined }), ['a'])))).toBe(409);
-    expect(many.fetch).toHaveBeenCalledTimes(1);
-  });
-
-  it('falha ao descobrir a loja não fica em cache: a próxima chamada tenta de novo', async () => {
-    let listed = 0;
-    const { service, fetch } = build((req) => {
-      if (path(req) !== '/v1/stores') return json({ items: [], unknown: [] });
-      return ++listed === 1 ? apiError(403, 'forbidden') : stores('principal');
-    });
-    expect(status(await fail(service.fiscalResolve(caller({ storeId: undefined }), ['a'])))).toBe(403);
-    await service.fiscalResolve(caller({ storeId: undefined }), ['a']);
-    expect(fetch.mock.calls.filter(([r]) => path(r) === '/v1/stores')).toHaveLength(2);
-  });
-
-  it('fiscalObservations: POST em fiscal-observations com Idempotency-Key e os itens', async () => {
+  it('fiscalObservations: POST em /v1/fiscal-observations com Idempotency-Key e os itens', async () => {
     const { service, fetch } = build(() => json({ accepted: 1, duplicates: 0, rejected: [] }, { status: 202 }));
     const item = { sku: 'a', accessKey: '0'.repeat(44), issuerCnpj: '12345678000195', observedAt: '2026-10-20T10:00:00Z', source: 'NFE_XML' as const, ncm: '68138110' };
-    await service.fiscalObservations(caller({ storeId: 'principal' }), [item], 'fixer-invoice-1-0');
+    await service.fiscalObservations(caller(), [item], 'fixer-invoice-1-0');
     const req = fetch.mock.calls[0]![0];
-    expect(new URL(req.url).pathname).toBe('/v1/stores/principal/fiscal-observations');
+    expect(path(req)).toBe('/v1/fiscal-observations');
     expect(req.headers.get('idempotency-key')).toBe('fixer-invoice-1-0');
     expect(await req.clone().json()).toEqual({ items: [item] });
   });
@@ -108,6 +72,30 @@ describe('CatalogPlatformService: classificação fiscal (a loja vem da platafor
     const e = await fail(service.fiscalObservations(caller(), [], 'k'));
     expect(status(e)).toBe(403);
     expect(JSON.stringify((e as HttpException).getResponse())).not.toContain('texto interno da plataforma');
+  });
+});
+
+describe('CatalogPlatformService: diretório de veículos', () => {
+  const url = (fetch: ReturnType<typeof build>['fetch']) => new URL(fetch.mock.calls[0]![0].url);
+
+  it('cascata: GET vehicles com montadora, modelo e ano', async () => {
+    const { service, fetch } = build(() => json({ makes: [] }));
+    await service.vehicleFacets(caller(), CATALOG, { make: 'Fiat', model: 'Strada', year: 2016 });
+    expect(url(fetch).pathname).toBe(`/v1/catalogs/${CATALOG}/vehicles`);
+    expect(Object.fromEntries(url(fetch).searchParams)).toEqual({ make: 'Fiat', model: 'Strada', year: '2016' });
+  });
+
+  it('texto livre: GET vehicles:resolve com q e limite', async () => {
+    const { service, fetch } = build(() => json({ data: [] }));
+    await service.resolveVehicles(caller(), CATALOG, 'gol 1.6 2015', 5);
+    expect(url(fetch).pathname).toBe(`/v1/catalogs/${CATALOG}/vehicles:resolve`);
+    expect(Object.fromEntries(url(fetch).searchParams)).toEqual({ q: 'gol 1.6 2015', limit: '5' });
+  });
+
+  it('um veículo: GET vehicles/{id}; 404 da plataforma vira 404 tratado', async () => {
+    const { service, fetch } = build(() => apiError(404, 'not_found'));
+    expect(status(await fail(service.vehicle(caller(), CATALOG, 'v-1')))).toBe(404);
+    expect(url(fetch).pathname).toBe(`/v1/catalogs/${CATALOG}/vehicles/v-1`);
   });
 });
 

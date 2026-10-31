@@ -1,10 +1,10 @@
 'use client';
 
-import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
-import { useToast } from '@/components/ui/toaster';
-import { getJson, postJson } from '@/lib/client-api';
-import { isSearchable, normalizeResult, searchUrl, type PartDetail, type PartHit, type ResolvedFiscal, type SearchResult, type SearchState, type Suggestion, type WorkshopStock } from '@/lib/part-search';
+import { getJson } from '@/lib/client-api';
+import { normalizeResult, searchUrl, type PartDetail, type PartHit, type ResolvedFiscal, type SearchResult, type SearchState, type Suggestion, type WorkshopStock } from '@/lib/part-search';
+import { shopVehicles, type DirectoryVehicle, type PlateResolution, type VehicleFacets } from '@/lib/vehicles';
 
 /** Peça da oficina como `GET /parts` a devolve (decimais chegam como texto). */
 export type LocalPart = { id: string; sku: string; name: string; costPrice: string; sellPrice: string; stockQty: string; catalogSku: string | null };
@@ -33,12 +33,11 @@ export type PartHistory = {
 
 const SEARCH_ERROR = 'Não foi possível buscar no catálogo.';
 
-/** Resultado da busca. Enquanto a próxima página chega, a anterior continua na tela, então filtrar e paginar não pisca. */
+/** A lista da tela (oficina, veículo ou catálogo, conforme o estado). Enquanto a próxima página chega, a anterior continua na tela, então filtrar e paginar não pisca. */
 export function usePartSearch(state: SearchState) {
   const url = searchUrl(state);
   return useQuery({
     queryKey: ['part-search', url],
-    enabled: isSearchable(state),
     retry: false,
     staleTime: 30_000,
     placeholderData: keepPreviousData,
@@ -106,21 +105,6 @@ export function useWorkshopStock(skus: string[]) {
   });
 }
 
-/** Cadastra a peça do catálogo na oficina (nome e GTIN vêm do catálogo) e atualiza os saldos que a tela mostra. */
-export function useRegisterPart(sku: string, name: string, onDone?: () => void) {
-  const { toast } = useToast();
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (v: { costPrice: number; sellPrice: number }) => postJson('/api/parts/from-catalog', { catalogSku: sku, ...v }, 'Não foi possível cadastrar a peça.'),
-    onSuccess: async () => {
-      await Promise.all([client.invalidateQueries({ queryKey: ['local-part', sku] }), client.invalidateQueries({ queryKey: ['workshop-stock'] }), client.invalidateQueries({ queryKey: ['part-search'] })]);
-      toast({ title: 'Peça cadastrada na oficina', description: name, tone: 'success' });
-      onDone?.();
-    },
-    onError: (e) => toast({ title: e.message, tone: 'error' }),
-  });
-}
-
 /** A peça da oficina vinculada a esta peça do catálogo (se houver). */
 export function useLocalPart(catalogSku: string | undefined) {
   return useQuery({
@@ -149,6 +133,61 @@ export function usePartDetails(skus: string[]) {
       staleTime: 5 * 60_000,
       queryFn: () => getJson<PartDetail>(`/api/catalog/parts/${encodeURIComponent(sku)}`, 'Não foi possível abrir a ficha da peça.'),
     })),
+  });
+}
+
+// --- veículo ----------------------------------------------------------------------------------------------------------
+
+const VEHICLE_ERROR = 'Não foi possível consultar os veículos do catálogo.';
+
+/** Cascata do diretório: montadoras; com a montadora, os modelos; com o modelo, os anos e os veículos (do ano, se escolhido). */
+export function useVehicleFacets(sel: { make?: string; model?: string; year?: number }, enabled = true) {
+  const p = new URLSearchParams();
+  if (sel.make) p.set('make', sel.make);
+  if (sel.make && sel.model) p.set('model', sel.model);
+  if (sel.make && sel.model && sel.year) p.set('year', String(sel.year));
+  return useQuery({
+    queryKey: ['vehicle-facets', p.toString()],
+    enabled,
+    retry: false,
+    staleTime: 10 * 60_000,
+    placeholderData: keepPreviousData,
+    queryFn: () => getJson<VehicleFacets>(`/api/catalog/vehicles${p.size ? `?${p}` : ''}`, VEHICLE_ERROR),
+  });
+}
+
+/** Texto livre ("gol 1.6 2015") → veículos candidatos. */
+export function useVehicleResolve(text: string) {
+  const q = text.trim();
+  return useQuery({
+    queryKey: ['vehicle-resolve', q],
+    enabled: q.length >= 2,
+    retry: false,
+    staleTime: 10 * 60_000,
+    placeholderData: keepPreviousData,
+    queryFn: () => getJson<{ data: DirectoryVehicle[]; year?: number }>(`/api/catalog/vehicles/resolve?q=${encodeURIComponent(q)}&limit=12`, VEHICLE_ERROR),
+  });
+}
+
+/** Placa → o que ela diz do carro e os veículos do catálogo que casam. A placa já consultada não gera nova cobrança (o Fixer guarda a consulta). */
+export function usePlateVehicles(plate: string | undefined) {
+  return useQuery({
+    queryKey: ['vehicle-plate', plate],
+    enabled: Boolean(plate),
+    retry: false,
+    staleTime: Infinity,
+    queryFn: () => getJson<PlateResolution>(`/api/catalog/vehicles/plate/${encodeURIComponent(plate!)}`, 'Não foi possível consultar a placa.'),
+  });
+}
+
+/** Veículos das ordens de serviço em aberto (atalho: peças para o carro que está na oficina agora). */
+export function useShopVehicles(enabled: boolean) {
+  return useQuery({
+    queryKey: ['shop-vehicles'],
+    enabled,
+    retry: false,
+    staleTime: 60_000,
+    queryFn: async () => shopVehicles(await getJson<Parameters<typeof shopVehicles>[0]>('/api/service-orders', 'Não foi possível carregar as ordens de serviço.')),
   });
 }
 

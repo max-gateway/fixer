@@ -25,6 +25,7 @@ export function SearchBar({
   inputRef,
   autoFocus,
   vehicleId,
+  placeholder = 'Busque por nome, código, marca + código ou código de barras',
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -39,6 +40,7 @@ export function SearchBar({
   autoFocus?: boolean;
   /** Veículo escolhido: as sugestões dizem se a peça serve nele. */
   vehicleId?: string;
+  placeholder?: string;
 }) {
   const listId = useId();
   const [open, setOpen] = useState(false);
@@ -126,7 +128,7 @@ export function SearchBar({
           aria-autocomplete="list"
           aria-activedescendant={active >= 0 && rows[active] ? `${listId}-${active}` : undefined}
           aria-label="Buscar peças"
-          placeholder="Busque por nome, código, marca + código ou código de barras"
+          placeholder={placeholder}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}

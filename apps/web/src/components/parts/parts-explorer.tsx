@@ -9,12 +9,15 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/
 import { ToastProvider } from '@/components/ui/toaster';
 import {
   activeFilters,
-  isSearchable,
   pushRecent,
   RANK_WINDOW,
+  searchText,
+  sourceOf,
   toggle,
   toPageParams,
+  yearRange,
   type Application,
+  type Availability,
   type PartHit,
   type SearchState,
   type Suggestion,
@@ -28,11 +31,11 @@ import { FacetPanel } from './facets';
 import { Pagination } from './pagination';
 import { CardSkeleton, PartCard, useCopy, type CardView } from './part-card';
 import { PartSheet } from './part-sheet';
-import { ActiveFilters, FiltersButton, ModeSwitch, StockToggle, ViewToggle } from './results-toolbar';
+import { ActiveFilters, AvailabilityFilter, FiltersButton, ViewToggle } from './results-toolbar';
 import { SearchBar } from './search-bar';
 import { ShortcutsDialog } from './shortcuts-dialog';
 import { usePartSearch, useStored, useWorkshopStock } from './use-parts';
-import { VehiclePopover } from './vehicle-picker';
+import { VehicleBar } from './vehicle-picker';
 
 const DEBOUNCE_MS = 250;
 
@@ -49,6 +52,10 @@ export function PartsExplorer({ initial }: { initial: SearchState }) {
   );
 }
 
+/**
+ * Peças: uma tela só para consultar o catálogo e o estoque. Abre no estoque da oficina; digitar busca no catálogo inteiro, e cada peça diz o que a
+ * oficina tem dela; o veículo (placa ou modelo) restringe tudo ao que serve. "Na oficina" e "Com saldo" são filtros, não outra tela.
+ */
 function Explorer({ initial }: { initial: SearchState }) {
   const [state, setState] = useState<SearchState>(initial);
   const [input, setInput] = useState(initial.q);
@@ -56,17 +63,17 @@ function Explorer({ initial }: { initial: SearchState }) {
   const [recents, setRecents] = useStored<string[]>('pecas:recentes', []);
   const [compare, setCompare] = useState<PartHit[]>([]);
   const [selected, setSelected] = useState(-1);
-  const [dialog, setDialog] = useState<null | 'compare' | 'shortcuts' | 'filters'>(null);
+  const [dialog, setDialog] = useState<null | 'compare' | 'shortcuts' | 'filters' | 'vehicle'>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const copy = useCopy();
 
-  const mine = Boolean(state.mine);
+  const source = sourceOf(state);
   const search = usePartSearch(state);
-  const result = isSearchable(state) ? search.data : undefined;
+  const result = search.data;
   const hits = result?.data ?? [];
-  // No modo "Minha oficina" cada resultado já traz o estoque; na busca do catálogo ele é buscado à parte, em lote.
-  const stock = useWorkshopStock(mine ? [] : hits.map((h) => h.sku));
+  // A lista da oficina já traz o estoque de cada peça; nas listas do catálogo ele é buscado à parte, em lote.
+  const stock = useWorkshopStock(source === 'workshop' ? [] : hits.map((h) => h.sku));
 
   // --- estado: URL, busca com debounce, recentes ---------------------------------------------------------------------
   useEffect(() => {
@@ -104,19 +111,23 @@ function Explorer({ initial }: { initial: SearchState }) {
     [remember, state.q],
   );
   const closePart = useCallback(() => setState((s) => ({ ...s, sku: undefined })), []);
+  /** Código vindo da ficha (equivalente, OEM, GTIN): busca no catálogo inteiro, que é quem entende código. */
   const searchCode = useCallback(
     (code: string) => {
       setInput(code);
-      setState((s) => ({ q: code, page: 1, brands: [], categories: [], ...(s.vehicle ? { vehicle: s.vehicle } : {}) }));
+      setState((s) => ({ q: code, page: 1, brands: [], categories: [], avail: 'all', ...(s.vehicle ? { vehicle: s.vehicle } : {}) }));
       remember(code);
     },
     [remember],
   );
   const setVehicle = useCallback((vehicle: VehicleFilter | undefined) => setState((s) => ({ ...s, page: 1, sku: undefined, vehicle })), []);
-  const pickVehicle = useCallback((a: Application) => setVehicle({ id: a.vehicleId, make: a.make, model: a.model, label: a.vehicleName }), [setVehicle]);
-  const clearFilters = () => patch({ brands: [], categories: [], vehicle: undefined, inStock: undefined });
-  /** Trocar de modo recomeça a lista: marca, categoria e veículo são do catálogo e não existem na oficina. */
-  const setMode = useCallback((next: boolean) => setState((s) => ({ q: s.q, page: 1, brands: [], categories: [], ...(next ? { mine: true } : {}) })), []);
+  const pickApplication = useCallback(
+    (a: Application) => setVehicle({ id: a.vehicleId, label: [a.vehicleName, a.yearFrom || a.yearTo ? yearRange(a.yearFrom, a.yearTo) : ''].filter(Boolean).join(' · ') }),
+    [setVehicle],
+  );
+  /** Marca e categoria são do catálogo: na lista da oficina não existem, então trocar para ela as limpa (nada de filtro escondido). */
+  const setAvail = useCallback((avail: Availability) => setState((s) => ({ ...s, page: 1, avail, ...(avail === 'all' ? {} : { brands: [], categories: [] }) })), []);
+  const clearFilters = () => patch({ brands: [], categories: [] });
 
   const toggleCompare = useCallback((hit: PartHit) => setCompare((c) => (c.some((x) => x.sku === hit.sku) ? c.filter((x) => x.sku !== hit.sku) : c.length >= MAX_COMPARE ? c : [...c, hit])), []);
 
@@ -153,6 +164,7 @@ function Explorer({ initial }: { initial: SearchState }) {
           else if (e.key === 'c' && hits[selected]) void copy(hits[selected]!.partNumber, 'Código');
           else if (e.key === 'x' && hits[selected]) toggleCompare(hits[selected]!);
           else if (e.key === 'v') setView((v) => (v === 'grid' ? 'list' : 'grid'));
+          else if (e.key === 'e') setDialog('vehicle');
           else if (e.key === '[' && state.page > 1) goPage(state.page - 1);
           else if (e.key === ']' && result && state.page < result.totalPages) goPage(state.page + 1);
       }
@@ -162,21 +174,24 @@ function Explorer({ initial }: { initial: SearchState }) {
   }, [dialog, hits, selected, state.sku, state.page, result, openPart, copy, toggleCompare, setView, goPage]);
 
   // --- derivados -----------------------------------------------------------------------------------------------------
-  const filters = activeFilters(state, result?.facets);
-  const filterCount = filters.length;
+  const text = searchText(state);
+  const catalog = source === 'catalog';
+  const filters = catalog ? activeFilters(state, result?.facets) : [];
   const sheetHit = hits.find((h) => h.sku === state.sku) ?? compare.find((h) => h.sku === state.sku);
   const sheetIndex = hits.findIndex((h) => h.sku === state.sku);
   const settling = input.trim() !== state.q.trim();
-  const busy = settling || (isSearchable(state) && search.isFetching);
+  const busy = settling || search.isFetching;
   const from = result ? (result.page - 1) * result.limit + 1 : 0;
-  const manualVehicleWithText = !mine && state.vehicle && !state.vehicle.id && state.q.trim().length > 0;
-  const hasFacets = !mine && (Boolean(result && (result.facets.brands.length > 0 || result.facets.categories.length > 0)) || state.brands.length > 0 || state.categories.length > 0);
-  const stockLoading = !mine && !stock.data && (stock.isPending || stock.isFetching);
+  const hasFacets = catalog && (Boolean(result && (result.facets.brands.length > 0 || result.facets.categories.length > 0)) || state.brands.length > 0 || state.categories.length > 0);
+  const stockLoading = source !== 'workshop' && !stock.data && (stock.isPending || stock.isFetching);
+  // Primeira vez: nada digitado, nenhum filtro e a oficina ainda sem estoque.
+  const firstRun = source === 'workshop' && !text && state.avail === 'all' && result?.total === 0;
 
-  function removeFilter(kind: 'brand' | 'category' | 'vehicle' | 'stock', value: string) {
-    if (kind === 'vehicle') setVehicle(undefined);
-    else if (kind === 'stock') patch({ inStock: undefined });
-    else if (kind === 'brand') patch({ brands: state.brands.filter((b) => b !== value) });
+  const heading =
+    source === 'workshop' ? (state.avail === 'stock' ? 'Com saldo na oficina' : text ? 'Na oficina' : 'Estoque da oficina') : source === 'vehicle' ? `Peças para ${state.vehicle!.label}` : 'Catálogo';
+
+  function removeFilter(kind: 'brand' | 'category', value: string) {
+    if (kind === 'brand') patch({ brands: state.brands.filter((b) => b !== value) });
     else patch({ categories: state.categories.filter((c) => c !== value) });
   }
 
@@ -192,46 +207,38 @@ function Explorer({ initial }: { initial: SearchState }) {
 
   return (
     <div ref={top} className="scroll-mt-20 space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
           <h1 className="text-xl font-semibold tracking-tight">Peças</h1>
-          <ModeSwitch mine={mine} onChange={setMode} />
+          <p className="text-sm text-muted-foreground">Catálogo e estoque da oficina, numa busca só.</p>
         </div>
-        <div className="flex items-center gap-2">
-          {!mine && <VehiclePopover vehicle={state.vehicle} onApply={setVehicle} />}
-          <Button variant="outline" size="sm" onClick={() => setDialog('shortcuts')} aria-label="Atalhos de teclado">
-            <Command aria-hidden /> <span className="hidden sm:inline">Atalhos</span> <Kbd className="text-muted-foreground">?</Kbd>
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" onClick={() => setDialog('shortcuts')} aria-label="Atalhos de teclado">
+          <Command aria-hidden /> <span className="hidden sm:inline">Atalhos</span> <Kbd className="text-muted-foreground">?</Kbd>
+        </Button>
       </header>
 
-      <SearchBar
-        value={input}
-        onChange={setInput}
-        onSubmit={submit}
-        onPick={(s: Suggestion) => {
-          setInput(s.partNumber);
-          setState((st) => ({ ...st, q: s.partNumber, page: 1, brands: [], categories: [], sku: s.sku }));
-          remember(s.partNumber);
-        }}
-        recents={recents}
-        onClearRecents={() => setRecents([])}
-        busy={busy}
-        inputRef={inputRef}
-        {...(!mine && state.vehicle?.id ? { vehicleId: state.vehicle.id } : {})}
-      />
+      <div className="grid gap-2 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
+        <VehicleBar vehicle={state.vehicle} onChange={setVehicle} open={dialog === 'vehicle'} onOpenChange={(o) => setDialog(o ? 'vehicle' : null)} />
+        <SearchBar
+          value={input}
+          onChange={setInput}
+          onSubmit={submit}
+          onPick={(s: Suggestion) => {
+            setInput(s.partNumber);
+            setState((st) => ({ ...st, q: s.partNumber, page: 1, brands: [], categories: [], avail: 'all', sku: s.sku }));
+            remember(s.partNumber);
+          }}
+          recents={recents}
+          onClearRecents={() => setRecents([])}
+          busy={busy}
+          inputRef={inputRef}
+          placeholder={state.vehicle ? `Buscar peça para ${state.vehicle.label}` : undefined}
+          {...(state.vehicle ? { vehicleId: state.vehicle.id } : {})}
+        />
+      </div>
 
-      {manualVehicleWithText && (
-        <Alert variant="warning">
-          <TriangleAlert aria-hidden />
-          <AlertDescription>
-            O veículo “{state.vehicle!.label}” não está filtrando a busca por texto. Apague o texto para ver as peças dele, ou abra uma peça e use a aba Veículos para escolher o modelo exato.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {!isSearchable(state) ? (
-        <Welcome recents={recents} onPick={submit} />
+      {firstRun ? (
+        <Welcome recents={recents} onPick={submit} onVehicle={() => setDialog('vehicle')} />
       ) : (
         <div className={cn('grid gap-6', hasFacets && 'lg:grid-cols-[14rem_minmax(0,1fr)]')}>
           {hasFacets && (
@@ -241,31 +248,33 @@ function Explorer({ initial }: { initial: SearchState }) {
           )}
           <section aria-label="Resultados" className="min-w-0 space-y-3">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <p aria-live="polite" className="text-sm text-muted-foreground">
-                {result ? (
-                  result.total === 0 ? (
-                    'Nenhuma peça encontrada'
+              <div aria-live="polite" className="min-w-0">
+                <h2 className="text-sm font-semibold">{heading}</h2>
+                <p className="text-sm text-muted-foreground">
+                  {result ? (
+                    result.total === 0 ? (
+                      'Nenhuma peça'
+                    ) : (
+                      <>
+                        <strong className="font-semibold text-foreground">{result.total.toLocaleString('pt-BR')}</strong> {result.total === 1 ? 'peça' : 'peças'}
+                        {result.totalPages > 1 && (
+                          <span className="tabular">
+                            {' '}
+                            · {from}–{from + hits.length - 1}
+                          </span>
+                        )}
+                      </>
+                    )
+                  ) : search.isError ? (
+                    ''
                   ) : (
-                    <>
-                      <strong className="font-semibold text-foreground">{result.total.toLocaleString('pt-BR')}</strong> {result.total === 1 ? 'peça' : 'peças'}
-                      {mine && ' na oficina'}
-                      {result.totalPages > 1 && (
-                        <span className="tabular">
-                          {' '}
-                          · {from}–{from + hits.length - 1}
-                        </span>
-                      )}
-                    </>
-                  )
-                ) : search.isError ? (
-                  ''
-                ) : (
-                  'Buscando…'
-                )}
-              </p>
-              <div className="ml-auto flex items-center gap-2">
-                {mine && <StockToggle on={Boolean(state.inStock)} onChange={(on) => patch({ inStock: on || undefined })} />}
-                {hasFacets && <FiltersButton count={filterCount} onClick={() => setDialog('filters')} />}
+                    'Buscando…'
+                  )}
+                </p>
+              </div>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <AvailabilityFilter value={state.avail} onChange={setAvail} disabled={Boolean(state.vehicle)} />
+                {hasFacets && <FiltersButton count={filters.length} onClick={() => setDialog('filters')} />}
                 <ViewToggle view={view} onChange={setView} />
               </div>
             </div>
@@ -290,10 +299,10 @@ function Explorer({ initial }: { initial: SearchState }) {
                 ))}
               </Grid>
             ) : hits.length === 0 ? (
-              mine ? (
-                <NoWorkshopParts filtered={filterCount > 0 || state.q.trim().length > 0} onClear={clearFilters} onCatalog={() => setMode(false)} />
+              source === 'workshop' ? (
+                <NoWorkshopParts query={text} stockOnly={state.avail === 'stock'} onCatalog={() => setAvail('all')} />
               ) : (
-                <NoResults query={state.q} filtered={filterCount > 0} onClear={clearFilters} onExample={submit} />
+                <NoResults query={text} {...(state.vehicle ? { vehicle: state.vehicle.label } : {})} filtered={filters.length > 0} onClear={clearFilters} onExample={submit} />
               )
             ) : (
               <>
@@ -316,7 +325,7 @@ function Explorer({ initial }: { initial: SearchState }) {
                             openPart(h.sku);
                           }}
                           onToggleCompare={() => toggleCompare(h)}
-                          onBrand={h.brand && !mine ? () => patch({ brands: toggle(state.brands, h.brand!.key) }) : undefined}
+                          onBrand={h.brand && catalog ? () => patch({ brands: toggle(state.brands, h.brand!.key) }) : undefined}
                           {...(local ? { stock: local } : {})}
                           stockLoading={stockLoading}
                         />
@@ -327,7 +336,7 @@ function Explorer({ initial }: { initial: SearchState }) {
                 {result.truncated && (
                   <p className="flex items-start gap-2 rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground">
                     <Sparkles aria-hidden className="mt-0.5 size-4 shrink-0" />
-                    Mostrando as {RANK_WINDOW} mais relevantes de {result.total.toLocaleString('pt-BR')}. Para chegar às outras, refine com marca, categoria ou um código.
+                    Mostrando as {RANK_WINDOW} mais relevantes de {result.total.toLocaleString('pt-BR')}. Para chegar às outras, refine com marca, categoria, veículo ou um código.
                   </p>
                 )}
                 <Pagination page={result.page} pages={result.totalPages} onPage={goPage} />
@@ -342,13 +351,13 @@ function Explorer({ initial }: { initial: SearchState }) {
       <PartSheet
         sku={state.sku}
         hit={sheetHit}
-        {...(state.vehicle?.id ? { vehicle: state.vehicle } : {})}
+        {...(state.vehicle ? { vehicle: state.vehicle } : {})}
         onClose={closePart}
         onSearchCode={(code) => {
           searchCode(code);
           inputRef.current?.focus();
         }}
-        onVehicle={pickVehicle}
+        onVehicle={pickApplication}
         onPrev={sheetIndex > 0 ? () => { setSelected(sheetIndex - 1); setState((s) => ({ ...s, sku: hits[sheetIndex - 1]!.sku })); } : undefined}
         onNext={sheetIndex >= 0 && sheetIndex < hits.length - 1 ? () => { setSelected(sheetIndex + 1); setState((s) => ({ ...s, sku: hits[sheetIndex + 1]!.sku })); } : undefined}
       />
@@ -375,7 +384,7 @@ function Explorer({ initial }: { initial: SearchState }) {
           </div>
           <div className="flex-1 overflow-y-auto p-5">{facetPanel}</div>
           <div className="flex gap-2 border-t p-3">
-            <Button variant="outline" className="flex-1" onClick={clearFilters} disabled={filterCount === 0}>
+            <Button variant="outline" className="flex-1" onClick={clearFilters} disabled={filters.length === 0}>
               Limpar
             </Button>
             <Button className="flex-1" onClick={() => setDialog(null)}>

@@ -70,15 +70,30 @@ const detail = (over: Partial<PartDetail> = {}): PartDetail => ({
 });
 
 /** Roteia as chamadas da API do Fixer pela URL, como o servidor faria. */
-function route(handlers: { search?: (url: string) => unknown; detail?: unknown; local?: unknown; history?: unknown; stock?: unknown[]; workshop?: unknown; fiscal?: unknown; fits?: boolean }) {
+function route(handlers: {
+  search?: (url: string) => unknown;
+  detail?: unknown;
+  local?: unknown;
+  history?: unknown;
+  stock?: unknown[];
+  workshop?: (url: string) => unknown;
+  fiscal?: unknown;
+  fits?: boolean;
+  vehicles?: (url: string) => unknown;
+  plate?: unknown;
+  orders?: unknown[];
+}) {
   api.getJson.mockImplementation(async (url: string) => {
+    if (url.startsWith('/api/catalog/vehicles/plate/')) return handlers.plate;
+    if (url.startsWith('/api/catalog/vehicles')) return handlers.vehicles?.(url) ?? { makes: [] };
+    if (url === '/api/service-orders') return handlers.orders ?? [];
     if (url.endsWith('/fiscal')) {
       if (handlers.fiscal instanceof Error) throw handlers.fiscal;
       return { fiscal: handlers.fiscal ?? null };
     }
     if (url.includes('/fits/')) return { compatible: handlers.fits ?? true };
     if (url.includes('/catalog/workshop/stock')) return { items: handlers.stock ?? [] };
-    if (url.includes('/catalog/workshop/parts')) return handlers.workshop ?? result([]);
+    if (url.includes('/catalog/workshop/parts')) return handlers.workshop?.(url) ?? result([]);
     if (url.includes('/catalog/parts/search') || url.includes('/catalog/vehicle-parts')) return handlers.search?.(url) ?? result([]);
     if (url.includes('/catalog/parts/autocomplete')) return { data: [] };
     if (url.match(/\/catalog\/parts\/[^/?]+$/)) return handlers.detail ?? detail();
@@ -93,18 +108,26 @@ function setup(initial: Partial<import('@/lib/part-search').SearchState> = {}) {
   const user = userEvent.setup();
   render(
     <QueryClientProvider client={client}>
-      <PartsExplorer initial={{ q: '', page: 1, brands: [], categories: [], ...initial }} />
+      <PartsExplorer initial={{ q: '', page: 1, brands: [], categories: [], avail: 'all', ...initial }} />
     </QueryClientProvider>,
   );
   return { user };
 }
 
 describe('PartsExplorer', () => {
-  it('sem busca mostra exemplos e não chama a plataforma', () => {
+  it('sem texto abre no estoque da oficina, com o saldo de cada peça e sem buscar o estoque à parte', async () => {
+    route({ workshop: () => result([hit({ workshop: { catalogSku: 'cat-1', partId: 'p1', sku: 'BE-123', stockQty: 3, sellPrice: 50 } })]) });
+    setup();
+    expect(await screen.findByRole('heading', { name: 'Estoque da oficina' })).toBeTruthy();
+    expect(await screen.findByText('3 em estoque')).toBeTruthy();
+    expect(api.getJson.mock.calls.some(([u]) => String(u).includes('/catalog/workshop/stock'))).toBe(false);
+  });
+
+  it('oficina ainda sem estoque: boas-vindas com o convite para escolher o veículo', async () => {
     route({});
     setup();
-    expect(screen.getByText(/experimente buscar/i)).toBeTruthy();
-    expect(api.getJson).not.toHaveBeenCalled();
+    expect(await screen.findByText(/o catálogo inteiro já está disponível/i)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /escolher veículo/i }).length).toBeGreaterThan(0);
   });
 
   it('busca vinda da URL lista as peças com contagem e filtros', async () => {
@@ -169,13 +192,14 @@ describe('PartsExplorer', () => {
     expect((screen.getByRole('combobox', { name: /buscar peças/i }) as HTMLInputElement).value).toBe('N-1');
   });
 
-  it('aba Oficina: peça fora do estoque oferece o cadastro; vinculada mostra compras e vendas', async () => {
+  it('aba Oficina: peça que a oficina nunca teve é só "sem estoque" (nada de cadastrar); com estoque mostra compras e vendas', async () => {
     route({ search: () => result([hit()]), local: [] });
     const { user } = setup({ q: 'bieleta', sku: 'cat-1' });
     let dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByText('Sem estoque na oficina')).toBeTruthy();
     await user.click(await within(dialog).findByRole('tab', { name: /oficina/i }));
-    expect(await within(dialog).findByText(/ainda não está no estoque da oficina/i)).toBeTruthy();
-    expect(within(dialog).getByRole('button', { name: /cadastrar peça/i })).toBeTruthy();
+    expect(await within(dialog).findByText(/entra no estoque pela nota de compra/i)).toBeTruthy();
+    expect(within(dialog).queryByRole('button', { name: /cadastrar/i })).toBeNull();
     cleanup();
 
     const part = { id: 'p1', sku: 'BE-123', name: 'Bieleta', costPrice: '40', sellPrice: '89.9', stockQty: '4', catalogSku: 'cat-1', avgCost: '41' };
@@ -192,7 +216,8 @@ describe('PartsExplorer', () => {
     });
     const { user: user2 } = setup({ q: 'bieleta', sku: 'cat-1' });
     dialog = await screen.findByRole('dialog');
-    await user2.click(await within(dialog).findByRole('tab', { name: /oficina/i }));
+    expect(await within(dialog).findByText('4 em estoque')).toBeTruthy();
+    await user2.click(await within(dialog).findByRole('button', { name: 'Histórico' }));
     expect(await within(dialog).findByText('Distribuidora Alfa')).toBeTruthy();
     expect(within(dialog).getByText(/NF 321/)).toBeTruthy();
     expect(within(dialog).getByText(/OS 77 · João/)).toBeTruthy();
@@ -219,7 +244,7 @@ describe('PartsExplorer', () => {
     expect(document.activeElement).toBe(screen.getByRole('combobox', { name: /buscar peças/i }));
   });
 
-  it('mostra o saldo e o preço da oficina na linha e oferece cadastro para a peça que não está lá', async () => {
+  it('mostra o saldo e o preço da oficina na linha; a peça que a oficina nunca teve aparece sem estoque, sem botão de cadastro', async () => {
     route({
       search: () => result([hit(), hit({ sku: 'cat-2', name: 'Bieleta Traseira', partNumber: 'BT-9' })]),
       stock: [{ catalogSku: 'cat-1', partId: 'p1', sku: 'BE-123', stockQty: 4, sellPrice: 89.9 }],
@@ -227,20 +252,90 @@ describe('PartsExplorer', () => {
     setup({ q: 'bieleta' });
     expect(await screen.findByText('4 em estoque')).toBeTruthy();
     expect(screen.getByText(/89,90/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /cadastrar bieleta traseira na oficina/i })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /cadastrar bieleta estabilizadora/i })).toBeNull();
+    expect(screen.getByText('Sem estoque')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /cadastrar/i })).toBeNull();
   });
 
-  it('"Minha oficina" lista as peças cadastradas sem texto e liga "Só com saldo"', async () => {
-    const workshop = result([hit({ workshop: { catalogSku: 'cat-1', partId: 'p1', sku: 'BE-123', stockQty: 0, sellPrice: 50 } })]);
-    route({ workshop });
-    const { user } = setup();
-    await user.click(screen.getByRole('button', { name: 'Minha oficina' }));
-    expect(await screen.findByText('Sem saldo')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: /só com saldo/i }));
+  it('"Na oficina" e "Com saldo" são filtros da mesma busca: o texto continua, a lista vem da oficina e marca/categoria saem', async () => {
+    route({ search: () => result([hit()]), workshop: () => result([hit({ workshop: { catalogSku: 'cat-1', partId: 'p1', sku: 'BE-123', stockQty: 0, sellPrice: 50 } })]) });
+    const { user } = setup({ q: 'bieleta', brands: ['FIAT'] });
+    await screen.findByRole('button', { name: /fiat.*remover filtro/i });
+    await user.click(screen.getByRole('radio', { name: 'Na oficina' }));
+    expect(await screen.findByText('Sem estoque')).toBeTruthy();
+    expect(api.getJson.mock.calls.some(([u]) => String(u).includes('/catalog/workshop/parts') && String(u).includes('q=bieleta'))).toBe(true);
+    expect(screen.queryByRole('button', { name: /fiat.*remover filtro/i })).toBeNull();
+    await user.click(screen.getByRole('radio', { name: 'Com saldo' }));
     await waitFor(() => expect(api.getJson.mock.calls.some(([u]) => String(u).includes('/catalog/workshop/parts') && String(u).includes('inStock=true'))).toBe(true));
-    expect(screen.getByRole('button', { name: /com saldo.*remover filtro/i })).toBeTruthy();
-    expect(api.getJson.mock.calls.some(([u]) => String(u).includes('/catalog/workshop/stock'))).toBe(false);
+  });
+
+  it('nada na oficina para o texto: oferece buscar no catálogo inteiro', async () => {
+    route({ search: () => result([hit()]) });
+    const { user } = setup({ q: 'bieleta', avail: 'mine' });
+    expect(await screen.findByText(/nada na oficina para “bieleta”/i)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /buscar no catálogo inteiro/i }));
+    expect(await screen.findByRole('button', { name: /abrir bieleta/i })).toBeTruthy();
+  });
+
+  it('veículo pela cascata: montadora → modelo → ano → versão; a lista passa a ser a do veículo e a disponibilidade trava', async () => {
+    const strada = { vehicleId: 'v-strada', make: 'Fiat', model: 'Strada', name: 'Strada Working 1.4', engine: '1.4', yearFrom: 2014, yearTo: 2020, partCount: 321 };
+    route({
+      workshop: () => result([hit()]),
+      search: () => result([hit()]),
+      vehicles: (url) => {
+        const p = new URL(url, 'http://x').searchParams;
+        const makes = [
+          { name: 'Fiat', vehicles: 10, parts: 900 },
+          { name: 'Volkswagen', vehicles: 8, parts: 700 },
+        ];
+        if (!p.get('make')) return { makes };
+        if (!p.get('model')) return { makes, models: [{ name: 'Strada', vehicles: 3, parts: 400 }] };
+        return { makes, models: [], years: [2016, 2015], vehicles: [strada] };
+      },
+    });
+    const { user } = setup();
+    await user.click(await screen.findByRole('button', { name: /escolher veículo/i }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(await within(dialog).findByRole('button', { name: /^fiat/i }));
+    await user.click(await within(dialog).findByRole('button', { name: /^strada/i }));
+    await user.click(await within(dialog).findByRole('button', { name: '2016' }));
+    await waitFor(() => expect(api.getJson.mock.calls.some(([u]) => String(u).includes('year=2016'))).toBe(true));
+    await user.click(await within(dialog).findByRole('button', { name: /fiat strada working 1\.4/i }));
+
+    expect(await screen.findByText('Fiat Strada Working 1.4 · 2016')).toBeTruthy();
+    await waitFor(() => expect(api.getJson.mock.calls.some(([u]) => String(u).includes('/catalog/vehicle-parts?') && String(u).includes('vehicleId=v-strada'))).toBe(true));
+    expect((screen.getByRole('radio', { name: 'Na oficina' }) as HTMLButtonElement).disabled).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: /remover o veículo/i }));
+    expect(await screen.findByRole('heading', { name: 'Estoque da oficina' })).toBeTruthy();
+  });
+
+  it('veículo pela placa de uma OS aberta: mostra o que a placa diz e as versões do catálogo', async () => {
+    const gol = { vehicleId: 'v-gol', make: 'Volkswagen', model: 'Gol', name: 'VW Gol 1.6 MSI', engine: '1.6', yearFrom: 2013, yearTo: 2016, partCount: 50 };
+    route({
+      workshop: () => result([hit()]),
+      search: () => result([hit()]),
+      orders: [{ id: 'o1', number: 42, status: 'IN_PROGRESS', createdAt: '', customer: { id: 'c', name: 'Ana' }, vehicle: { id: 'x', plate: 'ABC1D23', brand: 'VW', model: 'Gol' } }],
+      plate: { plate: 'ABC1D23', vehicle: { label: 'VW/GOL 1.6 MSI', make: 'vw', model: 'gol', engine: '1.6', year: 2015 }, candidates: [gol] },
+    });
+    const { user } = setup();
+    await user.click(await screen.findByRole('button', { name: /escolher veículo/i }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(await within(dialog).findByRole('button', { name: /ABC1D23/ }));
+    expect(await within(dialog).findByText('VW/GOL 1.6 MSI')).toBeTruthy();
+    await user.click(within(dialog).getByRole('button', { name: /vw gol 1\.6 msi/i }));
+    expect(await screen.findByText('VW Gol 1.6 MSI · 2015')).toBeTruthy();
+  });
+
+  it('placa inválida não consulta nada e explica o formato', async () => {
+    route({ workshop: () => result([hit()]) });
+    const { user } = setup();
+    await user.click(await screen.findByRole('button', { name: /escolher veículo/i }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('tab', { name: /placa/i }));
+    await user.type(within(dialog).getByPlaceholderText('ABC1D23'), 'AB12');
+    await user.click(within(dialog).getByRole('button', { name: /^buscar$/i }));
+    expect(within(dialog).getByText(/placa inválida/i)).toBeTruthy();
+    expect(api.getJson.mock.calls.some(([u]) => String(u).includes('/vehicles/plate/'))).toBe(false);
   });
 
   it('aba Fiscal mostra NCM formatado, a origem do dado e o aceite do contador', async () => {

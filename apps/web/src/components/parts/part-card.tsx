@@ -107,7 +107,7 @@ export function PartCard({
       </button>
     </span>
   );
-  const stockCell = <StockCell sku={hit.sku} name={hit.name} {...(workshop ? { stock: workshop } : {})} loading={stockLoading ?? false} align={list ? 'start' : 'end'} />;
+  const stockCell = <StockCell {...(workshop ? { stock: workshop } : {})} loading={stockLoading ?? false} align={list ? 'start' : 'end'} />;
   const compareButton = (
     <button
       type="button"

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 
 const SHORTCUTS: [string[], string][] = [
   [['/'], 'Ir para a busca'],
+  [['e'], 'Escolher o veículo (placa ou modelo)'],
   [['↑', '↓'], 'Navegar nas sugestões'],
   [['j', 'k'], 'Próxima / anterior peça da lista'],
   [['Enter'], 'Abrir a peça selecionada'],

@@ -243,3 +243,9 @@ Spec da plataforma: `docs/specs/parts-search-fiscal.md` (repositório `platform`
 - **Leitura**: `CatalogPlatformService.fiscalResolve` (até 500 SKUs, loja = o id da organização em minúsculas). A coluna fiscal local de `Part` segue como cache até o cadastro migrar.
 - **Backfill**: `GET /catalog-platform/fiscal-backfill` (permissão `fiscal.manage`) exporta NDJSON das peças casadas com dado fiscal; o CLI `fiscal-backfill` da plataforma o aplica com o client de serviço `fixer-sync`.
 - **Dependência**: `@max-gateway/catalog-client` 0.4.0 (rotas fiscais). Até ser publicado, o `typecheck` do `apps/api` não enxerga as rotas novas.
+
+## Busca de peças: veículo e estoque numa tela só (2026-10-31)
+
+- **Veículo:** a escolha usa o diretório de veículos da plataforma (`GET /v1/catalogs/{c}/vehicles`, `vehicles:resolve`, `vehicles/{id}`; migração 022 do parts-search), com os mesmos ids que a busca aceita em `vehicleId`. A placa continua do Fixer (consulta paga, guardada por placa): `GET /catalog/vehicles/plate/:placa` traduz o que ela devolve (montadora e modelo pela regra das variantes, motor pela cilindrada, ano-modelo) em consultas ao diretório, da mais específica à mais solta.
+- **Estoque:** `/pecas` não tem mais "Catálogo" e "Minha oficina" separados. Sem texto abre no estoque da oficina; com texto busca no catálogo inteiro e cada peça diz o que a oficina tem; "Na oficina" e "Com saldo" são filtros. Peça do catálogo que a oficina nunca teve é "sem estoque", não "não cadastrada": a peça local nasce sozinha quando entra pela nota. Com veículo escolhido, a disponibilidade não filtra (a oficina não sabe em que veículo cada peça dela serve); isso vira filtro exato quando o Fixer publicar ofertas e puder usar `scope=mine` (§10).
+- **Fiscal:** rotas por organização (ADR-10 da plataforma): `POST /v1/fiscal:resolve` e `POST /v1/fiscal-observations`, sem descobrir loja. Exige `@max-gateway/catalog-client` 0.6.0.

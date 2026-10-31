@@ -35,7 +35,7 @@ export type PartHit = {
   isUniversalFit: boolean;
   relevanceScore: number;
   offer?: Offer;
-  /** Só no modo "Minha oficina", que já parte do estoque; na busca do catálogo vem de `useWorkshopStock`. */
+  /** Na lista da oficina já vem com a peça; na busca do catálogo o estoque é buscado à parte (`useWorkshopStock`). */
   workshop?: WorkshopStock;
 };
 
@@ -122,7 +122,13 @@ export function formatNcm(ncm: string): string {
   return /^[0-9]{8}$/.test(ncm) ? `${ncm.slice(0, 4)}.${ncm.slice(4, 6)}.${ncm.slice(6)}` : ncm;
 }
 
-export type VehicleFilter = { id?: string; make?: string; model?: string; label: string };
+/** Veículo escolhido: sempre um veículo exato do diretório do catálogo (o mesmo id que a busca aceita). O rótulo vai junto na URL para o link abrir sem consulta. */
+export type VehicleFilter = { id: string; label: string };
+
+/** Onde procurar: o catálogo inteiro (com o que a oficina tem de cada peça), só as peças que a oficina já cadastrou, ou só as que têm saldo. */
+export type Availability = 'all' | 'mine' | 'stock';
+
+export const AVAILABILITY_LABEL: Record<Availability, string> = { all: 'Catálogo inteiro', mine: 'Na oficina', stock: 'Com saldo' };
 
 /** Estado da busca: tudo o que a URL guarda, para a busca ser compartilhável e sobreviver a recarregar. */
 export type SearchState = {
@@ -133,17 +139,14 @@ export type SearchState = {
   vehicle?: VehicleFilter;
   /** Peça aberta na gaveta. */
   sku?: string;
-  /** "Minha oficina": só as peças do catálogo que a oficina já cadastrou. */
-  mine?: boolean;
-  /** Só com saldo. Vale no modo "Minha oficina". */
-  inStock?: boolean;
+  avail: Availability;
 };
 
 export const PAGE_SIZE = 24;
 /** A plataforma só ranqueia as 300 primeiras; a tela avisa quando há mais. */
 export const RANK_WINDOW = 300;
 
-export const EMPTY_STATE: SearchState = { q: '', page: 1, brands: [], categories: [] };
+export const EMPTY_STATE: SearchState = { q: '', page: 1, brands: [], categories: [], avail: 'all' };
 
 export type QueryKind = 'empty' | 'gtin' | 'code' | 'text';
 
@@ -158,28 +161,36 @@ export function queryKind(raw: string): QueryKind {
 
 export const KIND_LABEL: Record<Exclude<QueryKind, 'empty'>, string> = { gtin: 'Código de barras', code: 'Código da peça', text: 'Texto' };
 
-/** Há algo para buscar? Texto ou veículo (a lista por veículo não precisa de texto). */
-export function isSearchable(s: Pick<SearchState, 'q' | 'vehicle' | 'mine'>): boolean {
-  return Boolean(s.mine) || s.q.trim().length >= 2 || Boolean(s.vehicle);
+/** Texto que já vale como busca (com menos de 2 letras a plataforma não busca). */
+export const searchText = (s: Pick<SearchState, 'q'>) => (s.q.trim().length >= 2 ? s.q.trim() : '');
+
+/**
+ * De onde vem a lista. Uma tela só, três fontes:
+ * - `workshop`: as peças que a oficina já cadastrou (o ponto de partida sem texto, e os filtros "Na oficina" e "Com saldo");
+ * - `vehicle`: as peças do veículo escolhido, sem texto;
+ * - `catalog`: a busca no catálogo inteiro (com o veículo como filtro rígido, se houver).
+ * O veículo vale sobre a disponibilidade: a oficina não sabe em que veículo cada peça dela serve (isso é do catálogo).
+ */
+export type Source = 'workshop' | 'vehicle' | 'catalog';
+
+export function sourceOf(s: Pick<SearchState, 'q' | 'vehicle' | 'avail'>): Source {
+  if (s.vehicle) return searchText(s) ? 'catalog' : 'vehicle';
+  if (s.avail !== 'all' || !searchText(s)) return 'workshop';
+  return 'catalog';
 }
 
 export function parseState(params: URLSearchParams): SearchState {
   const page = Number(params.get('p'));
-  const vm = params.get('vm') || undefined;
-  const vmod = params.get('vmod') || undefined;
   const vid = params.get('vid') || undefined;
-  const vl = params.get('vl') || undefined;
-  const vehicle: VehicleFilter | undefined =
-    vid || vm || vmod ? { ...(vid ? { id: vid } : {}), ...(vm ? { make: vm } : {}), ...(vmod ? { model: vmod } : {}), label: vl ?? [vm, vmod].filter(Boolean).join(' ') } : undefined;
+  const ver = params.get('ver');
   return {
     q: params.get('q') ?? '',
     page: Number.isInteger(page) && page >= 1 ? page : 1,
     brands: params.getAll('marca'),
     categories: params.getAll('cat'),
-    ...(vehicle ? { vehicle } : {}),
+    ...(vid ? { vehicle: { id: vid, label: params.get('vl') || 'Veículo escolhido' } } : {}),
     ...(params.get('sku') ? { sku: params.get('sku')! } : {}),
-    ...(params.get('m') === '1' ? { mine: true } : {}),
-    ...(params.get('m') === '1' && params.get('est') === '1' ? { inStock: true } : {}),
+    avail: ver === 'oficina' ? 'mine' : ver === 'saldo' ? 'stock' : 'all',
   };
 }
 
@@ -190,40 +201,37 @@ export function toPageParams(s: SearchState): URLSearchParams {
   if (s.page > 1) p.set('p', String(s.page));
   s.brands.forEach((b) => p.append('marca', b));
   s.categories.forEach((c) => p.append('cat', c));
-  if (s.vehicle?.id) p.set('vid', s.vehicle.id);
-  if (s.vehicle?.make) p.set('vm', s.vehicle.make);
-  if (s.vehicle?.model) p.set('vmod', s.vehicle.model);
-  if (s.vehicle) p.set('vl', s.vehicle.label);
+  if (s.vehicle) {
+    p.set('vid', s.vehicle.id);
+    p.set('vl', s.vehicle.label);
+  }
   if (s.sku) p.set('sku', s.sku);
-  if (s.mine) p.set('m', '1');
-  if (s.mine && s.inStock) p.set('est', '1');
+  if (s.avail === 'mine') p.set('ver', 'oficina');
+  if (s.avail === 'stock') p.set('ver', 'saldo');
   return p;
 }
 
-/** Rota da API do Fixer para a busca. Com veículo e sem texto vale a lista por veículo (a busca exige texto). */
+/** Rota da API do Fixer para a lista da tela, conforme a fonte (`sourceOf`). */
 export function searchUrl(s: SearchState, limit = PAGE_SIZE): string {
   const p = new URLSearchParams();
   p.set('page', String(s.page));
   p.set('limit', String(limit));
-  const text = s.q.trim();
-  if (s.mine) {
-    if (text) p.set('q', text);
-    if (s.inStock) p.set('inStock', 'true');
-    return `/api/catalog/workshop/parts?${p}`;
+  const text = searchText(s);
+  switch (sourceOf(s)) {
+    case 'workshop':
+      if (text) p.set('q', text);
+      if (s.avail === 'stock') p.set('inStock', 'true');
+      return `/api/catalog/workshop/parts?${p}`;
+    case 'vehicle':
+      p.set('vehicleId', s.vehicle!.id);
+      return `/api/catalog/vehicle-parts?${p}`;
+    case 'catalog':
+      p.set('q', text);
+      s.brands.forEach((b) => p.append('brandKey', b));
+      s.categories.forEach((c) => p.append('categoryId', c));
+      if (s.vehicle) p.set('vehicleId', s.vehicle.id);
+      return `/api/catalog/parts/search?${p}`;
   }
-  if (!text && s.vehicle) {
-    if (s.vehicle.id) p.set('vehicleId', s.vehicle.id);
-    else {
-      if (s.vehicle.make) p.set('make', s.vehicle.make);
-      if (s.vehicle.model) p.set('model', s.vehicle.model);
-    }
-    return `/api/catalog/vehicle-parts?${p}`;
-  }
-  p.set('q', text);
-  s.brands.forEach((b) => p.append('brandKey', b));
-  s.categories.forEach((c) => p.append('categoryId', c));
-  if (s.vehicle?.id) p.set('vehicleId', s.vehicle.id);
-  return `/api/catalog/parts/search?${p}`;
 }
 
 /** A lista por veículo não devolve facetas: normaliza para o mesmo formato da busca. */
@@ -239,18 +247,13 @@ export function normalizeResult(raw: Partial<SearchResult> & { data: PartHit[] }
   };
 }
 
-/** Filtros ativos como chips removíveis, com o nome legível (não a chave). */
-export type ActiveFilter = { kind: 'brand' | 'category' | 'vehicle' | 'stock'; value: string; label: string };
+/** Filtros de marca e categoria ativos como chips removíveis, com o nome legível (não a chave). Só existem na busca do catálogo. */
+export type ActiveFilter = { kind: 'brand' | 'category'; value: string; label: string };
 
 export function activeFilters(s: SearchState, facets?: Facets): ActiveFilter[] {
   const brandName = (k: string) => facets?.brands.find((b) => b.key === k)?.name ?? k;
   const catName = (id: string) => facets?.categories.find((c) => c.id === id)?.name ?? id;
-  return [
-    ...(s.mine && s.inStock ? [{ kind: 'stock' as const, value: 'inStock', label: 'Com saldo' }] : []),
-    ...(s.vehicle ? [{ kind: 'vehicle' as const, value: s.vehicle.id ?? s.vehicle.label, label: s.vehicle.label }] : []),
-    ...s.brands.map((v) => ({ kind: 'brand' as const, value: v, label: brandName(v) })),
-    ...s.categories.map((v) => ({ kind: 'category' as const, value: v, label: catName(v) })),
-  ];
+  return [...s.brands.map((v) => ({ kind: 'brand' as const, value: v, label: brandName(v) })), ...s.categories.map((v) => ({ kind: 'category' as const, value: v, label: catName(v) }))];
 }
 
 export function toggle<T>(list: T[], value: T): T[] {

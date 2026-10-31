@@ -1,29 +1,29 @@
 'use client';
 
-import { Car, LayoutGrid, List, SlidersHorizontal, X } from 'lucide-react';
+import { LayoutGrid, List, SlidersHorizontal, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { ActiveFilter } from '@/lib/part-search';
+import { AVAILABILITY_LABEL, type ActiveFilter, type Availability } from '@/lib/part-search';
 import { cn } from '@/lib/utils';
 import type { CardView } from './part-card';
 
-/** Catálogo global x peças que a oficina já cadastrou. */
-export function ModeSwitch({ mine, onChange }: { mine: boolean; onChange: (mine: boolean) => void }) {
+/**
+ * Onde procurar, num controle só: o catálogo inteiro (cada peça diz o que a oficina tem dela), só o que a oficina cadastrou, ou só o que tem saldo.
+ * Com veículo escolhido não vale (a oficina não sabe em que veículo cada peça dela serve; isso é do catálogo): fica desabilitado e diz por quê.
+ */
+export function AvailabilityFilter({ value, onChange, disabled }: { value: Availability; onChange: (v: Availability) => void; disabled?: boolean }) {
   return (
-    <div role="group" aria-label="Onde buscar" className="inline-flex rounded-lg border bg-card p-0.5 text-sm">
-      {(
-        [
-          [false, 'Catálogo'],
-          [true, 'Minha oficina'],
-        ] as const
-      ).map(([value, label]) => (
+    <div role="radiogroup" aria-label="Onde procurar" title={disabled ? 'Com veículo escolhido a lista é do catálogo; o saldo aparece em cada peça' : undefined} className={cn('inline-flex rounded-lg border bg-card p-0.5 text-sm', disabled && 'opacity-50')}>
+      {(['all', 'mine', 'stock'] as const).map((v) => (
         <button
-          key={label}
+          key={v}
           type="button"
-          aria-pressed={mine === value}
-          onClick={() => mine !== value && onChange(value)}
-          className={cn('rounded-md px-3 py-1 font-medium transition-colors', mine === value ? 'bg-brand text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}
+          role="radio"
+          aria-checked={value === v}
+          disabled={disabled}
+          onClick={() => value !== v && onChange(v)}
+          className={cn('rounded-md px-2.5 py-1 font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed', value === v ? 'bg-brand text-primary-foreground' : 'text-muted-foreground enabled:hover:text-foreground')}
         >
-          {label}
+          {AVAILABILITY_LABEL[v]}
         </button>
       ))}
     </div>
@@ -63,21 +63,6 @@ export function FiltersButton({ count, onClick }: { count: number; onClick: () =
   );
 }
 
-/** "Só com saldo": filtro do modo Minha oficina. */
-export function StockToggle({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={on}
-      onClick={() => onChange(!on)}
-      className={cn('inline-flex h-8 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors', on ? 'border-brand bg-brand-soft text-brand' : 'bg-card text-muted-foreground hover:text-foreground')}
-    >
-      <span aria-hidden className={cn('size-2 rounded-full', on ? 'bg-brand' : 'bg-muted-foreground/40')} />
-      Só com saldo
-    </button>
-  );
-}
-
 /** Filtros ativos como chips removíveis. */
 export function ActiveFilters({ filters, onRemove, onClear }: { filters: ActiveFilter[]; onRemove: (kind: ActiveFilter['kind'], value: string) => void; onClear: () => void }) {
   if (filters.length === 0) return null;
@@ -90,7 +75,6 @@ export function ActiveFilters({ filters, onRemove, onClear }: { filters: ActiveF
           onClick={() => onRemove(f.kind, f.value)}
           className="group inline-flex items-center gap-1.5 rounded-full border bg-card py-1 pr-2 pl-3 text-xs font-medium hover:border-destructive/40 hover:text-destructive"
         >
-          {f.kind === 'vehicle' && <Car aria-hidden className="size-3.5" />}
           {f.label}
           <X aria-label="Remover filtro" className="size-3.5 text-muted-foreground group-hover:text-destructive" />
         </button>

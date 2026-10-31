@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeFilters,
+  EMPTY_STATE,
   formatLocation,
-  isSearchable,
   groupApplications,
   groupCrossPairs,
   highlight,
@@ -10,6 +10,7 @@ import {
   pushRecent,
   queryKind,
   searchUrl,
+  sourceOf,
   toPageParams,
   yearRange,
   type Application,
@@ -31,42 +32,68 @@ describe('queryKind', () => {
 });
 
 describe('estado na URL', () => {
-  it('ida e volta preserva filtros, veículo e peça aberta', () => {
-    const s: SearchState = { q: 'bieleta', page: 3, brands: ['FIAT', 'NAKATA'], categories: ['c1'], vehicle: { id: 'v1', label: 'Fiat Strada' }, sku: 'abc' };
+  it('ida e volta preserva filtros, veículo, disponibilidade e peça aberta', () => {
+    const s: SearchState = { q: 'bieleta', page: 3, brands: ['FIAT', 'NAKATA'], categories: ['c1'], vehicle: { id: 'v1', label: 'Fiat Strada · 2016' }, sku: 'abc', avail: 'stock' };
     expect(parseState(toPageParams(s))).toEqual(s);
+    expect(parseState(toPageParams({ ...s, avail: 'mine' })).avail).toBe('mine');
   });
-  it('página inválida volta para 1', () => {
+  it('página inválida volta para 1; disponibilidade desconhecida é o catálogo inteiro', () => {
     expect(parseState(new URLSearchParams('q=a&p=-4')).page).toBe(1);
     expect(parseState(new URLSearchParams('p=abc')).page).toBe(1);
+    expect(parseState(new URLSearchParams('ver=tudo')).avail).toBe('all');
   });
   it('estado vazio não gera parâmetros', () => {
-    expect(toPageParams({ q: '', page: 1, brands: [], categories: [] }).toString()).toBe('');
+    expect(toPageParams(EMPTY_STATE).toString()).toBe('');
+  });
+  it('veículo sem rótulo na URL ainda abre (rótulo genérico)', () => {
+    expect(parseState(new URLSearchParams('vid=v9')).vehicle).toEqual({ id: 'v9', label: 'Veículo escolhido' });
   });
 });
 
-describe('searchUrl', () => {
-  const base: SearchState = { q: 'bieleta', page: 2, brands: ['FIAT'], categories: ['c1', 'c2'] };
-  it('usa a busca com filtros repetidos', () => {
+describe('de onde vem a lista (sourceOf) e a rota (searchUrl)', () => {
+  const base: SearchState = { ...EMPTY_STATE, q: 'bieleta', page: 2, brands: ['FIAT'], categories: ['c1', 'c2'] };
+
+  it('sem texto, abre no estoque da oficina; uma letra só não é busca', () => {
+    expect(sourceOf(EMPTY_STATE)).toBe('workshop');
+    expect(sourceOf({ ...EMPTY_STATE, q: 'b' })).toBe('workshop');
+    expect(searchUrl(EMPTY_STATE)).toBe('/api/catalog/workshop/parts?page=1&limit=24');
+  });
+
+  it('texto no catálogo inteiro: busca com filtros repetidos', () => {
+    expect(sourceOf(base)).toBe('catalog');
     const url = searchUrl(base);
     expect(url).toContain('/api/catalog/parts/search?');
     expect(url).toContain('brandKey=FIAT');
     expect(url).toContain('categoryId=c1&categoryId=c2');
     expect(url).toContain('page=2');
   });
-  it('veículo sem texto usa a lista por veículo', () => {
-    const url = searchUrl({ ...base, q: '', vehicle: { make: 'Fiat', model: 'Strada', label: 'Fiat Strada' } });
-    expect(url).toContain('/api/catalog/vehicle-parts?');
-    expect(url).toContain('make=Fiat');
-    expect(url).not.toContain('brandKey');
+
+  it('"Na oficina" e "Com saldo" vão para a lista da oficina com o texto', () => {
+    const mine = searchUrl({ ...base, q: ' biel ', avail: 'mine' });
+    expect(mine.startsWith('/api/catalog/workshop/parts?')).toBe(true);
+    expect(mine).toContain('q=biel');
+    expect(mine).not.toContain('inStock');
+    expect(searchUrl({ ...base, avail: 'stock' })).toContain('inStock=true');
   });
-  it('veículo com texto filtra a busca pelo id', () => {
-    expect(searchUrl({ ...base, vehicle: { id: 'v1', label: 'x' } })).toContain('vehicleId=v1');
+
+  it('veículo sem texto usa a lista do veículo; com texto, filtra a busca pelo id', () => {
+    const v = { id: 'v1', label: 'Fiat Strada' };
+    expect(sourceOf({ ...base, q: '', vehicle: v })).toBe('vehicle');
+    const url = searchUrl({ ...base, q: '', vehicle: v });
+    expect(url).toContain('/api/catalog/vehicle-parts?');
+    expect(url).toContain('vehicleId=v1');
+    expect(url).not.toContain('brandKey');
+    expect(searchUrl({ ...base, vehicle: v })).toContain('vehicleId=v1');
+  });
+
+  it('o veículo vale sobre a disponibilidade (a oficina não sabe em que veículo cada peça serve)', () => {
+    expect(sourceOf({ ...base, avail: 'stock', vehicle: { id: 'v1', label: 'x' } })).toBe('catalog');
   });
 });
 
 describe('activeFilters', () => {
   it('troca a chave pelo nome da faceta', () => {
-    const f = activeFilters({ q: 'a', page: 1, brands: ['FIAT'], categories: ['c1'] }, { brands: [{ key: 'FIAT', name: 'Fiat', count: 1 }], categories: [] });
+    const f = activeFilters({ ...EMPTY_STATE, q: 'a', brands: ['FIAT'], categories: ['c1'] }, { brands: [{ key: 'FIAT', name: 'Fiat', count: 1 }], categories: [] });
     expect(f.map((x) => x.label)).toEqual(['Fiat', 'c1']);
   });
 });
@@ -136,28 +163,6 @@ describe('pushRecent', () => {
     expect(pushRecent(['b', 'Bieleta', 'c'], 'bieleta')).toEqual(['bieleta', 'b', 'c']);
     expect(pushRecent(['a', 'b'], 'cc', 2)).toEqual(['cc', 'a']);
     expect(pushRecent(['a'], ' x ')).toEqual(['a']);
-  });
-});
-
-describe('modo Minha oficina', () => {
-  const base: SearchState = { q: '', page: 1, brands: [], categories: [], mine: true };
-
-  it('é pesquisável sem texto e vai para a lista da oficina', () => {
-    expect(isSearchable(base)).toBe(true);
-    const url = searchUrl({ ...base, q: ' biel ', inStock: true });
-    expect(url.startsWith('/api/catalog/workshop/parts?')).toBe(true);
-    expect(url).toContain('q=biel');
-    expect(url).toContain('inStock=true');
-  });
-
-  it('o estado sobrevive à URL e "com saldo" só vale no modo oficina', () => {
-    const s = { ...base, inStock: true };
-    expect(parseState(toPageParams(s))).toEqual(s);
-    expect(parseState(new URLSearchParams('est=1')).inStock).toBeUndefined();
-  });
-
-  it('"com saldo" aparece como chip removível', () => {
-    expect(activeFilters({ ...base, inStock: true }).map((f) => f.label)).toEqual(['Com saldo']);
   });
 });
 
