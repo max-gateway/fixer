@@ -27,8 +27,6 @@ type Props = {
   /** null = sem permissão para ver a precificação (a parte do imposto fica de fora). */
   tax: TaxSummary | null;
   hasCredential: boolean;
-  /** 'company' mostra só os dados da empresa (a parte tributária vive em /configuracoes/tributario). */
-  scope?: 'all' | 'company';
   /** O selo de confiança do imposto já aparece em outro lugar da página. */
   hideStatus?: boolean;
   /** Alíquota de ISS da tabela municipal do motor, usada quando a prefeitura não informou. */
@@ -49,8 +47,7 @@ const STATE_ICON: Record<State, { icon: typeof CircleCheck; className: string; s
  * Tudo o que o Fixer buscou sozinho a partir do certificado, de onde veio cada valor e o que ainda falta. É a resposta
  * para "por que o imposto ainda está estimado?": cada linha diz a fonte, e o que depende de alguém aparece como ação.
  */
-export function FiscalOverview({ company, fiscal, provenance, tax, hasCredential, scope = 'all', hideStatus = false, issEngine = null }: Props) {
-  const showTax = scope === 'all';
+export function FiscalOverview({ company, fiscal, provenance, tax, hasCredential, hideStatus = false, issEngine = null }: Props) {
   const router = useRouter();
   const refresh = useMutation({
     mutationFn: () => postJson<AutofillReport>('/api/fiscal/autofill', {}, 'Não foi possível atualizar os dados agora.'),
@@ -122,25 +119,21 @@ export function FiscalOverview({ company, fiscal, provenance, tax, hasCredential
     if (t) taxRows.push({ label: 'Tabelas da lei', value: t.done ? (t.basis === 'CONTADOR' ? 'Validadas pelo contador' : 'Conferidas com o texto oficial') : null, state: t.done ? 'ok' : 'missing', note: t.detail });
   }
 
-  if (showTax) {
-    taxRows.push({ label: 'ICMS-ST e PIS/COFINS monofásico', value: 'Decididos peça a peça', state: 'ok', note: 'Pelo XML da nota de compra (CST, CFOP, NCM) e pelas tabelas da lei.' });
-    if (tax?.profile) taxRows.push({ label: 'Confirmação antes de lançar nota', value: tax.profile.requireTaxConfirmation ? 'Exigida' : 'Não exigida', state: 'ok' });
-  }
+  taxRows.push({ label: 'ICMS-ST e PIS/COFINS monofásico', value: 'Decididos peça a peça', state: 'ok', note: 'Pelo XML da nota de compra (CST, CFOP, NCM) e pelas tabelas da lei.' });
+  if (tax?.profile) taxRows.push({ label: 'Confirmação antes de lançar nota', value: tax.profile.requireTaxConfirmation ? 'Exigida' : 'Não exigida', state: 'ok' });
 
   return (
     <div className="space-y-4">
-      {readiness && showTax && !hideStatus && <TaxStatus readiness={readiness} />}
+      {readiness && !hideStatus && <TaxStatus readiness={readiness} />}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Group title="Empresa" rows={companyRows} />
-        {showTax && (
-          <Group title="Impostos" rows={taxRows}>
-            {!regime && <RegimeQuestion simplesOptant={provenance.simplesOptant} />}
-          </Group>
-        )}
+        <Group title="Impostos" rows={taxRows}>
+          {!regime && <RegimeQuestion simplesOptant={provenance.simplesOptant} />}
+        </Group>
       </div>
 
-      {showTax && hasCredential && provenance.sources?.receita && <ReceitaConsent consent={provenance.taxDataConsent ?? null} />}
+      {hasCredential && provenance.sources?.receita && <ReceitaConsent consent={provenance.taxDataConsent ?? null} />}
 
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" variant="outline" size="sm" disabled={refresh.isPending} onClick={() => refresh.mutate()}>
@@ -172,7 +165,7 @@ export function FiscalOverview({ company, fiscal, provenance, tax, hasCredential
 }
 
 /** Uma frase sobre o imposto da venda e, quando falta só gente, o caminho até ela. */
-function TaxStatus({ readiness }: { readiness: TaxReadiness }) {
+export function TaxStatus({ readiness }: { readiness: TaxReadiness }) {
   const pending = readiness.steps.filter((s) => !s.done && !s.optional);
   const onlyAccountant = pending.length > 0 && pending.every((s) => s.needsAccountant);
   const tone = readiness.ready ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : 'border-amber-200 bg-amber-50 text-amber-950';
@@ -236,7 +229,7 @@ function Group({ title, rows, children }: { title: string; rows: Row[]; children
  * Pergunta guiada (fiscal-autofill.md §6.2): sem a Receita, só o Simples é identificado. Com a resposta, roda de novo o
  * preenchimento, que completa o que depende do regime (ICMS da venda no Presumido, RBT12 no Simples).
  */
-function RegimeQuestion({ simplesOptant }: { simplesOptant: boolean | null }) {
+export function RegimeQuestion({ simplesOptant }: { simplesOptant: boolean | null }) {
   const router = useRouter();
   const answer = useMutation({
     mutationFn: async (taxRegime: 'SIMPLES' | 'PRESUMIDO' | 'REAL') => {
@@ -253,7 +246,7 @@ function RegimeQuestion({ simplesOptant }: { simplesOptant: boolean | null }) {
         <HelpCircle aria-hidden className="mt-0.5 size-4 shrink-0" />
         {simplesOptant === false ? 'A Receita informa que a empresa não é do Simples Nacional. Ela é do Lucro Presumido ou do Lucro Real?' : 'Qual é o regime tributário da empresa?'}
       </p>
-      <p className="pl-6 text-sky-900">Se não souber, pergunte ao contador. Dá para mudar depois nos ajustes, no fim da página.</p>
+      <p className="pl-6 text-sky-900">Se não souber, pergunte ao contador. Dá para mudar depois nos ajustes manuais de Tributário.</p>
       <div className="flex flex-wrap gap-2 pl-6">
         {options.map((r) => (
           <Button key={r} type="button" size="sm" variant="outline" className="bg-card" disabled={answer.isPending} onClick={() => answer.mutate(r)}>
@@ -272,7 +265,7 @@ function RegimeQuestion({ simplesOptant }: { simplesOptant: boolean | null }) {
 }
 
 /** Autorização para ler os dados de imposto na Receita com o certificado (fiscal-autofill.md §7). Só leitura. */
-function ReceitaConsent({ consent }: { consent: { enabled: boolean; at: string | null } | null }) {
+export function ReceitaConsent({ consent }: { consent: { enabled: boolean; at: string | null } | null }) {
   const router = useRouter();
   const toggle = useMutation({
     mutationFn: async (enabled: boolean) => {

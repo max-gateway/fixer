@@ -17,7 +17,7 @@ const SECTIONS = [
 export function SettingsNav() {
   const path = usePathname();
   return (
-    <nav aria-label="Seções das configurações" className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+    <nav aria-label="Seções das configurações" className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:px-0">
       <ul className="flex w-max gap-1 rounded-lg bg-muted p-1 sm:w-auto">
         {SECTIONS.map(({ href, label, icon: Icon, exact }) => {
           const active = exact ? path === href : path === href || path.startsWith(`${href}/`);

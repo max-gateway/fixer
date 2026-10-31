@@ -987,6 +987,7 @@ enum ItemResolution {
   UNRESOLVED
   AUTO_MAP // casou por SupplierItemMap
   AUTO_EAN // casou por Part.ean
+  AUTO_CATALOG // casou no catálogo global (GTIN ou código do fabricante) e a peça da oficina nasceu/ficou vinculada a ele
   MANUAL // escolhido pelo usuário
   IGNORED // não é estoque (uso e consumo, brinde, frete)
 }

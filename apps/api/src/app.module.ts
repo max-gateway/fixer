@@ -28,9 +28,10 @@ import { PortalTenantMiddleware, TenantMiddleware } from './tenancy/tenant.middl
 import { TenancyModule } from './tenancy/tenancy.module.js';
 import { VehicleVariantsModule } from './vehicle-variants/vehicle-variants.module.js';
 import { WhatsappLinkModule } from './whatsapp-link/whatsapp-link.module.js';
+import { WorkforceModule } from './workforce/workforce.module.js';
 
 @Module({
-  imports: [PrismaModule, TenancyModule, OutboxModule, AuthModule, ControlPlaneModule, PlateEventsModule, PlateLookupModule, CnpjLookupModule, CustomersModule, DashboardModule, CatalogModule, CatalogPlatformModule, ServiceOrdersModule, VehicleVariantsModule, LearningModule, FiscalSettingsModule, PortalModule, PlateReadingsModule, WhatsappLinkModule, FiscalInboundModule, PayablesModule, PricingModule, CostsModule, AccessModule, FiscalAutofillModule],
+  imports: [PrismaModule, TenancyModule, OutboxModule, AuthModule, ControlPlaneModule, PlateEventsModule, PlateLookupModule, CnpjLookupModule, CustomersModule, DashboardModule, CatalogModule, CatalogPlatformModule, ServiceOrdersModule, VehicleVariantsModule, LearningModule, FiscalSettingsModule, PortalModule, PlateReadingsModule, WhatsappLinkModule, FiscalInboundModule, PayablesModule, PricingModule, CostsModule, AccessModule, FiscalAutofillModule, WorkforceModule],
   controllers: [AppController],
   providers: [AppService],
 })
@@ -38,6 +39,6 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // Rotas autenticadas: a organização vem do token. Portal público: vem do dono do token da URL.
     consumer.apply(PortalTenantMiddleware).forRoutes(PortalController);
-    consumer.apply(TenantMiddleware).exclude('portal/(.*)', 'me/(.*)').forRoutes('*');
+    consumer.apply(TenantMiddleware).exclude('portal/{*path}', 'me/{*path}').forRoutes('*');
   }
 }

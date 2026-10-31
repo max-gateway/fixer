@@ -1,0 +1,163 @@
+# Fixer em VPS com Docker Compose (ambiente de TESTE online, domínio provisório). Ver README.md desta pasta.
+#   cp .env.example .env   # preencha
+#   docker compose --env-file .env -f infra/prod/docker-compose.yml up -d --build
+# Rode da RAIZ do repositório (o contexto de build é a raiz).
+#
+# Roda na VM da plataforma (mg-platform). Nada é publicado no host: o `platform_nginx` (atrás do Envoy, dono de :443) alcança o
+# `fixer-web:3001` pela rede `platform_net`. A API fica interna: o web faz proxy server-side (apps/web/src/app/api/[...path]/route.ts),
+# então o navegador nunca fala com ela e não há CORS. Postgres e Redis ficam só na rede do projeto (não entram na platform_net).
+# `fixer-api` e `fixer-web` têm nome próprio de propósito: `api`/`web` colidiriam com aliases de outros contêineres da platform_net.
+name: fixer-prod
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  postgres:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fixer_app # dono do banco: só as migrações usam
+      POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?}
+      POSTGRES_DB: fixer
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fixer_app -d fixer"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    <<: *restart
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Migrações (dono do banco) e papéis de RLS (senhas do .env). Idempotente: roda a cada `up`, antes da API.
+  migrate:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      secrets: [npm_token]
+    image: fixer-api:test
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://fixer_app:${POSTGRES_OWNER_PASSWORD}@postgres:5432/fixer
+    # A imagem de runtime não traz o package.json da raiz (sem workspaces): roda o Prisma na pasta do pacote.
+    working_dir: /repo/packages/db
+    command: ["npx", "prisma", "migrate", "deploy"]
+    restart: "no"
+
+  db-roles:
+    image: postgres:16-alpine
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      PGHOST: postgres
+      PGUSER: fixer_app
+      PGDATABASE: fixer
+      PGPASSWORD: ${POSTGRES_OWNER_PASSWORD}
+      FIXER_RLS_PASSWORD: ${FIXER_RLS_PASSWORD:?}
+      FIXER_SYSTEM_PASSWORD: ${FIXER_SYSTEM_PASSWORD:?}
+    volumes:
+      - ./db-roles.sh:/db-roles.sh:ro
+    command: ["sh", "/db-roles.sh"]
+    restart: "no"
+
+  fixer-api:
+    <<: *restart
+    image: fixer-api:test
+    networks: [default, platform_net]
+    depends_on:
+      db-roles: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # Papel SEM bypass de RLS; o superusuário anularia o isolamento entre organizações.
+      DATABASE_URL: postgresql://fixer_rls:${FIXER_RLS_PASSWORD}@postgres:5432/fixer
+      SYSTEM_DATABASE_URL: postgresql://fixer_system:${FIXER_SYSTEM_PASSWORD}@postgres:5432/fixer
+      REDIS_URL: redis://redis:6379/0
+      # O módulo de eventos de placa só lê esta (sem ela cai em localhost e fica em ECONNREFUSED).
+      PLATE_READER_REDIS_URL: redis://redis:6379/0
+      # Identidade e catálogo da plataforma (URLs públicas: id. e catalog.maxgateway.com.br).
+      KEYCLOAK_AUTH_SERVER_URL: ${KEYCLOAK_AUTH_SERVER_URL}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      AUTH_AUDIENCE: fixer-api
+      PARTS_SEARCH_URL: ${PARTS_SEARCH_URL}
+      PARTS_SEARCH_CATALOGS: ${PARTS_SEARCH_CATALOGS}
+      TENANT_SLUG: ${TENANT_SLUG}
+      # Control plane: de onde vêm a participação em organizações e a licença. Sem as três, ninguém resolve organização.
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-}
+      CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY:-}
+      RABBITMQ_URL: ${RABBITMQ_URL:-}
+      LICENSE_REQUIRED: ${LICENSE_REQUIRED:-false}
+      # Workforce (tela Equipe): serviço da plataforma na platform_net, sem host público. Vazio = a tela responde "indisponível".
+      WORKFORCE_URL: ${WORKFORCE_URL:-}
+      # NF-e pelo gateway central (o certificado nunca vive aqui).
+      DFE_GATEWAY_URL: ${DFE_GATEWAY_URL:-}
+      DFE_GATEWAY_API_KEY: ${DFE_GATEWAY_API_KEY:-}
+      # Chave mestra que cifra o que o Fixer guarda de fiscal (JSON {"k1":"<base64 de 32 bytes>"}). Sem ela a sincronização fiscal fica indisponível.
+      FISCAL_ENC_KEYS: ${FISCAL_ENC_KEYS:-}
+      FISCAL_ACTIVE_KEY_ID: ${FISCAL_ACTIVE_KEY_ID:-k1}
+      # Serviços opcionais da plataforma: vazio = recurso desligado.
+      INTEGRA_CONTADOR_URL: ${INTEGRA_CONTADOR_URL:-}
+      INTEGRA_CONTADOR_API_KEY: ${INTEGRA_CONTADOR_API_KEY:-}
+      COST_ENGINE_URL: ${COST_ENGINE_URL:-}
+      COST_ENGINE_API_KEY: ${COST_ENGINE_API_KEY:-}
+      CNPJ_LOOKUP_SERVICE_URL: ${CNPJ_LOOKUP_SERVICE_URL:-}
+      # Com padrão (e não :-vazio): a validação de URL da API recusa a string vazia.
+      PLATE_LOOKUP_SERVICE_URL: ${PLATE_LOOKUP_SERVICE_URL:-http://plate_lookup:8081}
+      # Controle de acesso (convites): link do e-mail volta para o web público.
+      ACCESS_DIRECTORY_MODE: organization
+      ACCESS_INVITE_REDIRECT_URI: https://${FIXER_HOST}
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
+      # A API lê PORTAL_BASE_URL (links do portal do cliente); sem ela cairia em http://localhost:3001.
+      PORTAL_BASE_URL: https://${FIXER_HOST}
+
+  fixer-web:
+    <<: *restart
+    networks: [default, platform_net]
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    depends_on:
+      - fixer-api
+    environment:
+      NODE_ENV: production
+      # O standalone do Next escuta no HOSTNAME do contêiner (um IP só); com duas redes o platform_nginx não o alcançaria.
+      HOSTNAME: 0.0.0.0
+      # Lido em runtime pelo servidor Next (proxy e Server Components): rede interna, não o host público.
+      NEXT_PUBLIC_API_URL: http://fixer-api:3000
+      KEYCLOAK_AUTH_SERVER_URL: ${KEYCLOAK_AUTH_SERVER_URL}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_WEB_CLIENT_ID: fixer-web
+      KEYCLOAK_WEB_CLIENT_SECRET: ${KEYCLOAK_WEB_CLIENT_SECRET:?}
+      KEYCLOAK_ORGANIZATIONS: "true"
+      AUTH_SECRET: ${AUTH_SECRET:?}
+      # Callback do login: https://<FIXER_HOST>/api/auth/callback/keycloak (precisa estar no redirectUris do client).
+      AUTH_URL: https://${FIXER_HOST}
+      PORTAL_PUBLIC_URL: https://${FIXER_HOST}
+      # Serviço de notificações da plataforma (inbox em tempo real), alcançado pelo nome do contêiner na platform_net.
+      NOTIFICATIONS_URL: ${NOTIFICATIONS_URL:-http://notifications:3005}
+
+networks:
+  platform_net:
+    external: true # criada pelo platform-broker; é por ela que se alcança mg_control_plane, mg_rabbitmq e o platform_nginx
+
+volumes:
+  pgdata:
+  redisdata:
+
+secrets:
+  # GitHub Packages (@max-gateway/*): NODE_AUTH_TOKEN no ambiente de quem roda o build.
+  npm_token:
+    environment: NODE_AUTH_TOKEN

@@ -9,6 +9,7 @@ const issuer = () =>
 type Token = {
   accessToken?: string;
   refreshToken?: string;
+  idToken?: string; // não é mais gravado: o id_token (com claims de organização) inflava o cookie além do buffer do nginx (502 no callback)
   expiresAt?: number; // epoch em segundos
   error?: 'RefreshTokenError';
   [k: string]: unknown;

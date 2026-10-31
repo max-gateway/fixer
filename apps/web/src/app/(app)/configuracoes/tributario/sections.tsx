@@ -123,7 +123,7 @@ export function TaxHero({ overview, readiness, rbt12Note }: { overview: TaxOverv
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4 text-sm">
             <p className="max-w-2xl text-white/80">{v.detail}</p>
             {v.cta && (
-              <Link href={v.cta.href} className="inline-flex items-center gap-1.5 rounded-md bg-card px-3 py-1.5 font-medium text-brand-secondary outline-none hover:bg-white/90 focus-visible:ring-[3px] focus-visible:ring-white/50">
+              <Link href={v.cta.href} className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1.5 font-medium text-brand-secondary outline-none hover:bg-white/90 focus-visible:ring-[3px] focus-visible:ring-white/50">
                 {v.cta.label} <ArrowRight aria-hidden className="size-4" />
               </Link>
             )}

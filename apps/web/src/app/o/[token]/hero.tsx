@@ -6,7 +6,7 @@ import type { PortalOrder } from '@/lib/portal';
 export function PlateBadge({ plate }: { plate: string }) {
   const text = plate.length === 7 ? `${plate.slice(0, 3)}${plate.slice(3)}` : plate;
   return (
-    <div className="inline-flex flex-col overflow-hidden rounded-lg border-2 border-slate-800 bg-card shadow-sm" aria-label={`Placa ${plate}`}>
+    <div className="inline-flex flex-col overflow-hidden rounded-lg border-2 border-[#0f141b] bg-white shadow-sm" aria-label={`Placa ${plate}`}>
       <div className="flex items-center justify-between bg-[#003399] px-2 py-0.5 text-[8px] font-bold tracking-widest text-white">
         <span>BRASIL</span>
         <span aria-hidden="true">★</span>

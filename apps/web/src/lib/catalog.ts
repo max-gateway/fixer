@@ -6,6 +6,8 @@ export type CatalogHit = {
   name: string;
   partNumber: string;
   brand?: { key: string; name: string };
+  category?: { id: string; name: string };
+  imageUrl?: string;
 };
 
 export type CatalogSearch = { data: CatalogHit[] };

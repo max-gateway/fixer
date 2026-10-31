@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import type { DashboardOverview, HeatCell, Tone } from '@/lib/dashboard';
 import { cn } from '@/lib/utils';
 
-const mix = (pct: number) => `color-mix(in oklab, var(--brand-primary) ${pct}%, white)`;
+const mix = (pct: number) => `color-mix(in oklab, var(--brand-primary) ${pct}%, var(--card))`;
 
 /** Barra horizontal que cresce da base; a largura é o dado, o rótulo vem do backend. */
 function Bar({ pct, color = 'var(--brand-primary)', delay = 0 }: { pct: number; color?: string; delay?: number }) {

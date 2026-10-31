@@ -1,6 +1,6 @@
 # Tema de login do Keycloak (`fixer`)
 
-Tema único para todos os tenants, sobre `keycloak.v2` (PatternFly 5). Fonte Bai Jamjuree empacotada em `resources/fonts`.
+Tema único para todos os tenants, sobre `keycloak.v2` (PatternFly 5). Fontes empacotadas em `resources/fonts`: Work Sans (corpo e formulários) e Bai Jamjuree (títulos e marca).
 
 ## Cores por tenant
 
