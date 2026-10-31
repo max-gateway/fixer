@@ -12,9 +12,9 @@ export type Branding = {
   secondaryColor: string;
 };
 
-// Identidade padrão do Fixer: azul elétrico + preto profundo (Max Gateway).
-export const DEFAULT_PRIMARY = '#1F6BFF';
-export const DEFAULT_SECONDARY = '#080D17';
+// Identidade padrão do Fixer: cobalto profundo + grafite carvão (sem o azul elétrico antigo).
+export const DEFAULT_PRIMARY = '#3346C2';
+export const DEFAULT_SECONDARY = '#111216';
 
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 

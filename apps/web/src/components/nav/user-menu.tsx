@@ -5,6 +5,7 @@ import { motion, useReducedMotion } from 'motion/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useInbox } from '@/components/notifications/inbox-provider';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Kbd } from './kbd';
 import { ACCESS_LINK, NOTIFICATIONS_LINK, SETTINGS_LINK } from './nav-items';
@@ -39,7 +40,7 @@ export function UserMenu({ user, org, onOpenPalette }: Props) {
             {/* Anel cônico na cor da marca; gira devagar quando o menu está aberto ou sob o cursor. */}
             <span
               aria-hidden
-              className={`absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,var(--brand-primary),#60a5fa,var(--brand-primary))] transition-opacity group-hover:opacity-100 group-data-[state=open]:opacity-100 ${
+              className={`absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,var(--brand-primary),transparent_40%,var(--brand-primary))] transition-opacity group-hover:opacity-100 group-data-[state=open]:opacity-100 ${
                 reduce ? 'opacity-90' : 'opacity-70 group-hover:animate-[spin_3s_linear_infinite] group-data-[state=open]:animate-[spin_3s_linear_infinite]'
               }`}
             />
@@ -62,7 +63,7 @@ export function UserMenu({ user, org, onOpenPalette }: Props) {
         <div className="relative px-4 pt-4 pb-3">
           <div
             aria-hidden
-            className="absolute inset-x-0 top-0 h-16 bg-[radial-gradient(120%_140%_at_0%_0%,var(--brand-primary),transparent_70%),linear-gradient(120deg,var(--brand-secondary),color-mix(in_oklab,var(--brand-secondary)_70%,var(--brand-primary)))] opacity-95"
+            className="absolute inset-x-0 top-0 h-16 bg-brand-secondary bg-[radial-gradient(90%_160%_at_100%_0%,color-mix(in_oklab,var(--brand-primary)_45%,transparent),transparent_70%)]"
           />
           <div className="relative flex items-end gap-3 pt-5">
             <UserAvatar name={user.name} className="size-14 text-lg ring-4 ring-popover" />
@@ -122,6 +123,11 @@ export function UserMenu({ user, org, onOpenPalette }: Props) {
               <Command className="size-3" />K
             </Kbd>
           </MenuButton>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t px-4 py-2.5">
+          <span className="text-xs font-medium text-muted-foreground">Tema</span>
+          <ThemeToggle compact className="w-28" />
         </div>
 
         <form action="/logout" method="post" className="border-t p-1.5">

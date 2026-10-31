@@ -73,7 +73,7 @@ export function BarcodeScanner({ open, onOpenChange, onDetect }: { open: boolean
           <DialogTitle>Ler código de barras</DialogTitle>
           <DialogDescription>Aponte a câmera para o código da caixa. A busca começa sozinha quando ele for lido.</DialogDescription>
         </div>
-        <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-900">
+        <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-black">
           <video ref={video} playsInline muted className="size-full object-cover" />
           {state === 'scanning' && (
             <div aria-hidden className="pointer-events-none absolute inset-0 grid place-items-center">

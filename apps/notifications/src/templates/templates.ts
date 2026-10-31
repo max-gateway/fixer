@@ -10,7 +10,7 @@ const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 /** Só aceita cor hex: o valor vai para dentro de um atributo style. */
-const safeColor = (c: string) => (/^#[0-9a-f]{3,8}$/i.test(c) ? c : '#1F6BFF');
+const safeColor = (c: string) => (/^#[0-9a-f]{3,8}$/i.test(c) ? c : '#3346C2');
 
 const excerpt = (s: unknown, max = 500) => {
   const t = typeof s === 'string' ? s.trim() : '';

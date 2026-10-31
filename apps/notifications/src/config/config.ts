@@ -30,7 +30,7 @@ const EnvSchema = z.object({
   NOTIFICATIONS_CONSUMER_NAME: z.string().default(`${hostname()}-${process.pid}`),
 
   TENANT_DISPLAY_NAME: z.string().default('Fixer'),
-  BRAND_PRIMARY_COLOR: z.string().default('#1F6BFF'),
+  BRAND_PRIMARY_COLOR: z.string().default('#3346C2'),
 
   EMAIL_TRANSPORT: z.enum(['smtp', 'log']).default('log'),
   EMAIL_FROM: z.string().default('Fixer <no-reply@fixer.local>'),

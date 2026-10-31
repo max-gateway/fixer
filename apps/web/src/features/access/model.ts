@@ -20,7 +20,7 @@ export function roleHue(name: string): number {
 
 export const roleStyle = (role: Pick<Role, 'name' | 'isSystem'>) =>
   role.isSystem
-    ? { backgroundColor: 'color-mix(in oklab, var(--brand-primary) 12%, white)', color: 'var(--brand-hover)', borderColor: 'color-mix(in oklab, var(--brand-primary) 30%, white)' }
+    ? { backgroundColor: 'color-mix(in oklab, var(--brand-primary) 12%, var(--card))', color: 'var(--brand-hover)', borderColor: 'color-mix(in oklab, var(--brand-primary) 30%, var(--card))' }
     : { backgroundColor: `oklch(0.96 0.03 ${roleHue(role.name)})`, color: `oklch(0.38 0.09 ${roleHue(role.name)})`, borderColor: `oklch(0.88 0.05 ${roleHue(role.name)})` };
 
 export type MemberFilter = { q: string; status: MemberStatus | 'all'; roleId: string | 'all' };

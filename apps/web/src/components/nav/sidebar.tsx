@@ -61,11 +61,10 @@ export function SidebarContent({ brand, org, collapsed, id, mod, onToggle, onOpe
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden text-white">
-      {/* Halo da marca no topo, atrás de tudo. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[radial-gradient(80%_100%_at_0%_0%,color-mix(in_oklab,var(--brand-primary)_32%,transparent),transparent_70%)]"
-      />
+      {/* Hexágono do logo em marca d'água no rodapé: textura sem cor. */}
+      <svg aria-hidden viewBox="0 0 100 115" className="pointer-events-none absolute -right-16 -bottom-20 w-64 text-white/[0.035]">
+        <path d="M50 2 98 29.5v56L50 113 2 85.5v-56Z" fill="none" stroke="currentColor" strokeWidth="6" />
+      </svg>
 
       <div className={`relative flex h-16 shrink-0 items-center gap-2.5 ${collapsed ? 'justify-center px-2' : 'px-4'}`}>
         <Link
@@ -80,7 +79,7 @@ export function SidebarContent({ brand, org, collapsed, id, mod, onToggle, onOpe
           ) : brand.logoUrl ? (
             <img src={brand.logoUrl} alt="" className="h-8 w-auto shrink-0" />
           ) : (
-            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand text-sm font-bold shadow-[0_6px_16px_-6px_var(--brand-primary)]">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand text-sm font-bold">
               {brand.name.slice(0, 1).toUpperCase()}
             </span>
           )}
@@ -90,7 +89,7 @@ export function SidebarContent({ brand, org, collapsed, id, mod, onToggle, onOpe
 
       <div className={`relative flex flex-col gap-3 ${collapsed ? 'px-2' : 'px-3'}`}>
         {org && !collapsed && (
-          <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.06] p-2 ring-1 ring-white/10">
+          <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.04] p-2 ring-1 ring-white/[0.08]">
             <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white/10">
               <Building2 className="size-4 text-white/80" />
             </span>
@@ -152,7 +151,7 @@ export function SidebarContent({ brand, org, collapsed, id, mod, onToggle, onOpe
                     onClick={() => toggleGroup(group.id)}
                     aria-expanded={open}
                     disabled={hasActive}
-                    className="group/label flex h-7 w-full items-center gap-1 rounded-md px-2.5 text-[11px] font-semibold tracking-wider text-white/45 uppercase outline-none transition-colors hover:text-white/75 focus-visible:ring-2 focus-visible:ring-white/60 disabled:cursor-default disabled:hover:text-white/45"
+                    className="group/label flex h-7 w-full items-center gap-1 rounded-md px-2.5 text-[11px] font-semibold tracking-[0.12em] text-white/35 uppercase outline-none transition-colors hover:text-white/75 focus-visible:ring-2 focus-visible:ring-white/60 disabled:cursor-default disabled:hover:text-white/35"
                   >
                     {group.label}
                     <ChevronDown className={`ml-auto size-3.5 opacity-0 transition-[transform,opacity] group-hover/label:opacity-100 group-focus-visible/label:opacity-100 ${open ? '' : '-rotate-90 opacity-100'}`} />
@@ -250,15 +249,15 @@ function Item({
           aria-label={label}
           className={`group/item relative flex h-10 items-center rounded-xl text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-white/60 ${
             collapsed ? 'justify-center' : 'gap-3 px-2.5'
-          } ${active ? 'text-white' : 'text-white/60 hover:bg-white/[0.07] hover:text-white'}`}
+          } ${active ? 'text-white' : 'text-white/55 hover:bg-white/[0.05] hover:text-white'}`}
         >
           {active && (
             <>
-              <motion.span layoutId="side-pill" transition={spring} className="absolute inset-0 rounded-xl bg-white/[0.12] ring-1 ring-white/10" />
+              <motion.span layoutId="side-pill" transition={spring} className="absolute inset-0 rounded-xl bg-white/[0.08] ring-1 ring-white/[0.06]" />
               <motion.span
                 layoutId="side-bar"
                 transition={spring}
-                className="absolute top-2.5 bottom-2.5 left-0 w-[3px] rounded-r-full bg-brand shadow-[0_0_14px_2px_var(--brand-primary)]"
+                className="absolute top-2.5 bottom-2.5 left-0 w-[3px] rounded-r-full bg-brand"
               />
             </>
           )}

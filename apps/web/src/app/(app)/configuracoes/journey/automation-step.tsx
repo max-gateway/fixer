@@ -80,7 +80,7 @@ export function AutomationStep({ credential }: { credential: FiscalCredentialVie
           const Icon = it.icon;
           return (
             <li key={it.id} className={cn('flex items-start gap-3 p-4 transition-colors sm:gap-4 sm:p-5', checked && 'bg-brand-soft/50')}>
-              <span aria-hidden className={cn('relative grid size-10 shrink-0 place-items-center rounded-xl transition-colors', checked ? 'bg-brand text-white shadow-[0_6px_16px_-6px_var(--brand-primary)]' : 'bg-slate-100 text-slate-500')}>
+              <span aria-hidden className={cn('relative grid size-10 shrink-0 place-items-center rounded-xl transition-colors', checked ? 'bg-brand text-white shadow-sm' : 'bg-slate-100 text-slate-500')}>
                 <Icon className="size-5" />
                 <span className="font-display absolute -top-1.5 -left-1.5 grid size-5 place-items-center rounded-full border-2 border-card bg-brand-secondary text-[10px] font-bold text-white">{i + 1}</span>
               </span>

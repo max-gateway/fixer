@@ -59,7 +59,7 @@ export function SearchDialog({
               animate={{ opacity: 1, backdropFilter: 'blur(10px)' }}
               exit={reduce ? undefined : { opacity: 0, backdropFilter: 'blur(0px)' }}
               transition={{ duration: 0.22, ease: EASE }}
-              className="fixed inset-0 z-[60] bg-slate-950/40"
+              className="fixed inset-0 z-[60] bg-black/45"
             />
           </DialogPrimitive.Overlay>
           <DialogPrimitive.Content

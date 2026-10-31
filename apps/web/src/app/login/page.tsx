@@ -87,15 +87,15 @@ export default async function LoginPage({
   );
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="min-h-screen bg-background text-foreground">
       {/* Hero escuro */}
       <div className="relative isolate overflow-hidden bg-brand-secondary text-white">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 -z-10 opacity-[0.35] [background-image:linear-gradient(rgb(255_255_255/0.06)_1px,transparent_1px),linear-gradient(90deg,rgb(255_255_255/0.06)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:radial-gradient(70%_60%_at_50%_30%,black,transparent)]"
         />
-        <div aria-hidden className="pointer-events-none absolute -top-40 left-1/2 -z-10 size-[44rem] -translate-x-1/2 rounded-full bg-brand/30 blur-[120px]" />
-        <div aria-hidden className="pointer-events-none absolute -right-40 top-1/3 -z-10 size-[28rem] rounded-full bg-brand/20 blur-[110px]" />
+        <div aria-hidden className="pointer-events-none absolute -top-40 left-1/2 -z-10 size-[44rem] -translate-x-1/2 rounded-full bg-brand/15 blur-[120px]" />
+        <div aria-hidden className="pointer-events-none absolute -right-40 top-1/3 -z-10 size-[28rem] rounded-full bg-brand/10 blur-[110px]" />
 
         <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
           <Brand />
@@ -224,7 +224,7 @@ export default async function LoginPage({
           {FEATURES.map(({ icon: Icon, title, text }) => (
             <article
               key={title}
-              className="surface group rounded-2xl border border-slate-200 bg-white p-6 transition hover:-translate-y-1 hover:border-brand/40"
+              className="surface group rounded-2xl border border-slate-200 bg-card p-6 transition hover:-translate-y-1 hover:border-brand/40"
             >
               <span className="grid size-11 place-items-center rounded-xl bg-brand-soft text-brand transition group-hover:bg-brand group-hover:text-white">
                 <Icon className="size-5" />
@@ -237,7 +237,7 @@ export default async function LoginPage({
       </section>
 
       {/* Como funciona */}
-      <section id="como-funciona" className="scroll-mt-8 border-y border-slate-200 bg-white">
+      <section id="como-funciona" className="scroll-mt-8 border-y border-slate-200 bg-card">
         <div className="mx-auto max-w-6xl px-6 py-24">
           <div className="max-w-2xl">
             <p className="text-sm font-semibold uppercase tracking-wider text-brand">Como funciona</p>
@@ -258,7 +258,7 @@ export default async function LoginPage({
       {/* CTA final */}
       <section className="mx-auto max-w-6xl px-6 py-24">
         <div className="relative isolate overflow-hidden rounded-3xl bg-brand-secondary px-8 py-16 text-center text-white sm:px-16">
-          <div aria-hidden className="pointer-events-none absolute left-1/2 top-0 -z-10 size-[30rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/40 blur-[100px]" />
+          <div aria-hidden className="pointer-events-none absolute left-1/2 top-0 -z-10 size-[30rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/20 blur-[100px]" />
           <h2 className="mx-auto max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">
             Pronto para tirar a oficina do papel?
           </h2>

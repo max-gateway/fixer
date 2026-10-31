@@ -17,7 +17,7 @@ export default async function OrganizationsPage() {
   const list = await listOrganizations();
 
   return (
-    <main className="grid min-h-screen place-items-center bg-slate-50 px-6 py-12">
+    <main className="grid min-h-screen place-items-center px-6 py-12">
       <div className="w-full max-w-md">
         <div className="mb-8 flex items-center gap-3">
           {b.logoUrl && <img src={b.logoUrl} alt={b.logoHasName ? b.displayName : ''} className={b.logoHasName ? 'h-14 w-auto rounded-lg bg-brand-secondary px-3' : 'h-9 w-auto'} />}

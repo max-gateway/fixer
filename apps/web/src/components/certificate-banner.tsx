@@ -44,7 +44,7 @@ export function CertificateBanner({ alert, orgId }: { alert: CertificateAlert; o
           <button
             type="button"
             aria-label="Dispensar aviso"
-            className="-m-1 shrink-0 rounded p-1 hover:bg-black/5 focus-visible:outline-2"
+            className="-m-1 shrink-0 rounded p-1 hover:bg-foreground/5 focus-visible:outline-2"
             onClick={() => {
               try {
                 window.localStorage.setItem(key, '1');
