@@ -2,6 +2,7 @@ import { PLATFORM_ROLE_SCOPES } from '@max-gateway/auth';
 import { Global, Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { PlatformCatalogConfig } from '../catalog-platform/platform-catalog.config.js';
+import { DirectorySyncService } from './directory-sync.service.js';
 import { FixerTenantDirectory } from './fixer-tenant-directory.js';
 import { MembershipService } from './membership.service.js';
 import { MeController } from './me.controller.js';
@@ -15,12 +16,13 @@ import { TenantDirectory } from './tenant-directory.service.js';
   providers: [
     TenantDirectory,
     MembershipService,
+    DirectorySyncService,
     PlatformCatalogConfig,
     FixerTenantDirectory,
     { provide: ROLE_SCOPES, useValue: PLATFORM_ROLE_SCOPES },
     TenantMiddleware,
     PortalTenantMiddleware,
   ],
-  exports: [TenantDirectory, MembershipService, FixerTenantDirectory, ROLE_SCOPES],
+  exports: [TenantDirectory, MembershipService, DirectorySyncService, FixerTenantDirectory, ROLE_SCOPES],
 })
 export class TenancyModule {}
