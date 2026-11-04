@@ -1,19 +1,16 @@
 import { TriangleAlert } from 'lucide-react';
-import Link from 'next/link';
 import { ApiError, apiGet } from '@/lib/api';
 import type { AutofillProvenance } from '@/lib/fiscal-autofill';
 import type { FiscalStatus } from '@/lib/fiscal-import';
-import { CertificateCard } from './certificate-card';
-import { CompanyForm } from './company-form';
-import { FiscalOverview, type TaxSummary } from './fiscal-overview';
+import type { TaxSummary } from './fiscal-overview';
 import type { FiscalSettings } from './fiscal-settings-form';
-import { SyncCard } from './sync-card';
+import { SetupJourney } from './journey/setup-journey';
 
 export const metadata = { title: 'Oficina' };
 
 /**
- * Configurações da oficina. O certificado é a única coisa que a pessoa precisa dar: com ele o Fixer busca a empresa, o
- * regime, o serviço, o ISS da prefeitura e a receita, e mostra de onde veio cada valor. Digitar fica em "Ajustes manuais".
+ * Configurações da oficina como uma jornada guiada. O certificado é a única coisa que a pessoa precisa dar: com ele o Fixer
+ * busca a empresa, o regime, o serviço, o ISS da prefeitura e a receita, e as notas de compra passam a chegar sozinhas.
  */
 export default async function OficinaPage() {
   let status: FiscalStatus;
@@ -41,69 +38,6 @@ export default async function OficinaPage() {
     apiGet<AutofillProvenance>('/fiscal/autofill').catch((): AutofillProvenance => ({ fields: [], simplesOptant: null })),
     apiGet<TaxSummary>('/pricing/tax-profile').catch(() => null),
   ]);
-  const company = status.settings;
-  const cred = status.credential;
 
-  return (
-    <section className="space-y-10">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Oficina</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Os dados da empresa e o certificado digital. Com o certificado o Fixer busca a empresa, os impostos e as notas de compra na SEFAZ. Tudo de imposto fica em{' '}
-          <Link href="/configuracoes/tributario" className="underline underline-offset-2">
-            Tributário
-          </Link>
-          .
-        </p>
-      </header>
-
-      {!cred && (
-        <Block title="Comece pelo certificado digital" description="É a única coisa que você precisa enviar.">
-          <CertificateCard status={status} cnpjSaved={Boolean(company?.cnpj)} receita={{ available: Boolean(provenance.sources?.receita), enabled: Boolean(provenance.taxDataConsent?.enabled) }} />
-        </Block>
-      )}
-
-      {company?.cnpj && (
-        <Block title="Dados da empresa" description="Vieram do certificado e da consulta de CNPJ.">
-          <FiscalOverview
-            company={{ cnpj: company.cnpj, legalName: company.legalName, ufCode: company.ufCode }}
-            fiscal={fiscal}
-            provenance={provenance}
-            tax={tax}
-            hasCredential={Boolean(cred)}
-            scope="company"
-          />
-        </Block>
-      )}
-
-      {cred && (
-        <div className="grid gap-10 xl:grid-cols-2">
-          <Block title="Certificado digital">
-            <CertificateCard status={status} cnpjSaved={Boolean(company?.cnpj)} receita={{ available: Boolean(provenance.sources?.receita), enabled: Boolean(provenance.taxDataConsent?.enabled) }} />
-          </Block>
-          <Block title="Busca de notas de compra">
-            <SyncCard credential={cred} />
-          </Block>
-        </div>
-      )}
-
-      {company?.cnpj && !cred && (
-        <Block title="Ajustes manuais" description="Sem certificado, a empresa pode ser informada à mão. Regime, ISS e valor da hora ficam em Tributário.">
-          <CompanyForm key={`${company.cnpj}|${company.legalName}|${company.ufCode}`} initial={company} locked={false} />
-        </Block>
-      )}
-    </section>
-  );
-}
-
-function Block({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-3">
-      <div>
-        <h2 className="text-lg font-semibold">{title}</h2>
-        {description && <p className="max-w-2xl text-sm text-muted-foreground">{description}</p>}
-      </div>
-      {children}
-    </div>
-  );
+  return <SetupJourney status={status} fiscal={fiscal} provenance={provenance} tax={tax} />;
 }

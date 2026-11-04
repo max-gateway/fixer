@@ -262,6 +262,7 @@ describe('FiscalAutofillService.run: prefeitura e Receita', () => {
       const { service, state } = make({ profile: { rbt12: null, reviewedBy: 'C', reviewedAt: new Date() }, orders: yearOfOrders });
       const r = await service.run({ cnpj: CNPJ }, actor);
       expect(state.profile).toMatchObject({ rbt12: '18000', reviewedBy: null, reviewedAt: null });
+      expect(state.settings).not.toHaveProperty('rbt12');
       expect(state.provenance.get('rbt12')).toMatchObject({ source: 'FIXER_ESTIMATE', confidence: 'ESTIMADO', reference: expect.stringMatching(/^OS de \d{2}\/\d{4} a \d{2}\/\d{4}$/) });
       expect(r.steps.find((s) => s.step === 'RBT12')?.status).toBe('OK');
     });
@@ -285,6 +286,7 @@ describe('FiscalAutofillService.run: prefeitura e Receita', () => {
       const { service, state } = make({ credential: { taxDataConsent: true }, profile: { rbt12: '18000' }, provenance: [{ field: 'rbt12', source: 'FIXER_ESTIMATE', confidence: 'ESTIMADO' }], orders: yearOfOrders }, lookupResult(), { integra });
       await service.run({ cnpj: CNPJ }, actor);
       expect(state.profile).toMatchObject({ rbt12: '250000.00' });
+      expect(state.settings).not.toHaveProperty('rbt12');
       expect(state.provenance.get('rbt12')).toMatchObject({ source: 'INTEGRA_PGDASD', confidence: 'OFICIAL', reference: 'PGDAS-D 09/2026, declaração 123', evidence: { rbt12Real: '230000.00', proporcional: true, mesesAtividade: 11, fatos } });
     });
 

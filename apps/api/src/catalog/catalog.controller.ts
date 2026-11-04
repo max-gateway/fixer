@@ -8,13 +8,18 @@ export class CatalogController {
   constructor(private readonly catalog: CatalogService) {}
 
   @Get('parts')
-  listParts(@Query('search') search?: string) {
-    return this.catalog.listParts(search);
+  listParts(@Query('search') search?: string, @Query('catalogSku') catalogSku?: string) {
+    return this.catalog.listParts(search, catalogSku);
   }
 
   @Post('parts')
   createPart(@Body() body: unknown) {
     return this.catalog.createPart(parse(CreatePartSchema, body));
+  }
+
+  @Get('parts/:id/history')
+  partHistory(@Param('id') id: string) {
+    return this.catalog.partHistory(id);
   }
 
   @Post('parts/:id/purchases')

@@ -35,7 +35,7 @@ export function ProblemDialog({ open, onClose, onSubmit }: { open: boolean; onCl
       onClose={onClose}
       onClick={(e) => e.target === ref.current && onClose()}
       aria-labelledby="problem-title"
-      className="m-0 mt-auto w-full max-w-none rounded-t-3xl p-0 shadow-2xl backdrop:bg-slate-900/50 backdrop:backdrop-blur-sm sm:m-auto sm:max-w-lg sm:rounded-3xl"
+      className="m-0 mt-auto w-full max-w-none rounded-t-3xl bg-card p-0 text-foreground shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm sm:m-auto sm:max-w-lg sm:rounded-3xl"
     >
       <div className="max-h-[90dvh] space-y-5 overflow-y-auto p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4">

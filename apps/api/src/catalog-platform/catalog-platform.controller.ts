@@ -1,5 +1,6 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, NotFoundException, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, Param, NotFoundException, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
 import { z } from 'zod';
+import { RequirePermission } from '../auth/permissions.js';
 import { parse } from '../common/parse.js';
 import { CatalogPlatformService, type CallerContext } from './catalog-platform.service.js';
 
@@ -64,6 +65,21 @@ const SearchParams = z
   })
   .strict();
 
+const VehiclePartsParams = z
+  .object({
+    vehicleId: z.string().min(1).max(64).optional(),
+    make: z.string().trim().min(1).max(100).optional(),
+    model: z.string().trim().min(1).max(100).optional(),
+    categoryPathIn: list.optional(),
+    categoryPathNotIn: list.optional(),
+    page: int(1, 300).optional(),
+    limit: int(1, 50).optional(),
+    catalog: catalogName.optional(),
+  })
+  .strict()
+  .refine((v) => v.vehicleId || v.make || v.model, { message: 'Informe vehicleId, make ou model' });
+const SkuParam = z.string().min(1).max(64);
+const OneCatalog = z.object({ catalog: catalogName.optional() }).strict();
 const AutocompleteParams = z.object({ q: z.string().trim().min(1).max(200), limit: int(1, 50).optional(), vehicleId: z.string().min(1).max(64).optional(), catalog: catalogName.optional() }).strict();
 const SkuLookup = z.object({ skus: z.array(z.string().min(1).max(64)).min(1).max(LOOKUP_MAX), catalog: catalogName.optional() }).strict();
 const BarcodeLookup = z.object({ barcodes: z.array(z.string().regex(/^[0-9]{8,14}$/)).min(1).max(LOOKUP_MAX), catalog: catalogName.optional() }).strict();
@@ -86,6 +102,36 @@ export class CatalogPlatformController {
   async autocomplete(@Query() query: unknown, @Req() req: PlatformRequest) {
     const { catalog, ...params } = parse(AutocompleteParams, query);
     return this.platform.autocomplete(callerFrom(req), pickCatalog(req, catalog), params);
+  }
+
+  /** Peças que servem a um veículo (ou família make/model). Declarada antes de `parts/:sku` para não ser engolida por ele. */
+  @Get('vehicle-parts')
+  async vehicleParts(@Query() query: unknown, @Req() req: PlatformRequest) {
+    const { catalog, ...params } = parse(VehiclePartsParams, query);
+    return this.platform.vehicleParts(callerFrom(req), pickCatalog(req, catalog), params);
+  }
+
+  @Get('parts/:sku/fits/:vehicleId')
+  async fits(@Param('sku') sku: string, @Param('vehicleId') vehicleId: string, @Query() query: unknown, @Req() req: PlatformRequest) {
+    const { catalog } = parse(OneCatalog, query);
+    return this.platform.fits(callerFrom(req), pickCatalog(req, catalog), parse(SkuParam, sku), parse(SkuParam, vehicleId));
+  }
+
+  /**
+   * Classificação fiscal RESOLVIDA da peça para a oficina (override dela sobre o cadastro global). É dado privado da oficina, então exige `pricing.read`.
+   * Peça que o catálogo não tem volta `fiscal: null`; peça sem classificação volta com `fiscalStatus: INCOMPLETO`.
+   */
+  @Get('parts/:sku/fiscal')
+  @RequirePermission('pricing.read')
+  async fiscal(@Param('sku') sku: string, @Req() req: PlatformRequest) {
+    const { items } = await this.platform.fiscalResolve(callerFrom(req), [parse(SkuParam, sku)]);
+    return { fiscal: items[0] ?? null };
+  }
+
+  @Get('parts/:sku')
+  async part(@Param('sku') sku: string, @Query() query: unknown, @Req() req: PlatformRequest) {
+    const { catalog } = parse(OneCatalog, query);
+    return this.platform.part(callerFrom(req), pickCatalog(req, catalog), parse(SkuParam, sku));
   }
 
   @Post('parts/lookup')

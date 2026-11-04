@@ -67,7 +67,7 @@ function Workspace({ initial, initialTab }: { initial: AccessInitial; initialTab
           <div className="flex items-center gap-3">
             <SeatMeter seats={members.seats} />
             {canManage && (
-              <Button onClick={() => setInviteOpen(true)} disabled={!canInvite} title={canInvite ? undefined : 'Convites indisponíveis: veja o aviso abaixo'} className="shadow-[0_6px_16px_-6px_var(--brand-primary)]">
+              <Button onClick={() => setInviteOpen(true)} disabled={!canInvite} title={canInvite ? undefined : 'Convites indisponíveis: veja o aviso abaixo'} className="shadow-sm">
                 <MailPlus /> Convidar pessoa
               </Button>
             )}

@@ -2,7 +2,7 @@
 
 export type InvoiceStatus = 'SUMMARY' | 'MANIFESTED' | 'FULL' | 'CANCELED' | 'IGNORED';
 export type ExportStatus = 'NOT_READY' | 'PENDING_MATCH' | 'READY' | 'POSTED' | 'VOIDED';
-export type ItemResolution = 'UNRESOLVED' | 'AUTO_MAP' | 'AUTO_EAN' | 'MANUAL' | 'IGNORED';
+export type ItemResolution = 'UNRESOLVED' | 'AUTO_MAP' | 'AUTO_EAN' | 'AUTO_CATALOG' | 'MANUAL' | 'IGNORED';
 
 export const VIEWS = ['pending', 'ready', 'posted', 'summary', 'canceled', 'ignored', 'all'] as const;
 export type View = (typeof VIEWS)[number];
