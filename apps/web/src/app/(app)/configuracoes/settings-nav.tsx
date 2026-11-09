@@ -1,6 +1,6 @@
 'use client';
 
-import { Building2, KeyRound, Landmark, Library, Tags } from 'lucide-react';
+import { Building2, KeyRound, Landmark, Library, Store, Tags } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -10,6 +10,7 @@ const SECTIONS = [
   { href: '/configuracoes/tributario', label: 'Tributário', icon: Landmark, exact: false },
   { href: '/configuracoes/precificacao', label: 'Precificação', icon: Tags, exact: false },
   { href: '/configuracoes/catalogo', label: 'Catálogo', icon: Library, exact: false },
+  { href: '/configuracoes/marketplaces', label: 'Marketplaces', icon: Store, exact: false },
   { href: '/configuracoes/acessos', label: 'Acessos', icon: KeyRound, exact: false },
 ] as const;
 

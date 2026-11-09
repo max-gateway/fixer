@@ -15,6 +15,7 @@ import { FiscalInboundModule } from './fiscal-inbound/fiscal-inbound.module.js';
 import { CnpjLookupModule } from './cnpj-lookup/cnpj-lookup.module.js';
 import { ControlPlaneModule } from './control-plane/control-plane.module.js';
 import { CustomersModule } from './customers/customers.module.js';
+import { MarketplaceModule } from './marketplace/marketplace.module.js';
 import { LearningModule } from './learning/learning.module.js';
 import { OutboxModule } from './outbox/outbox.module.js';
 import { PlateEventsModule } from './plate-events/plate-events.module.js';
@@ -31,7 +32,7 @@ import { WhatsappLinkModule } from './whatsapp-link/whatsapp-link.module.js';
 import { WorkforceModule } from './workforce/workforce.module.js';
 
 @Module({
-  imports: [PrismaModule, TenancyModule, OutboxModule, AuthModule, ControlPlaneModule, PlateEventsModule, PlateLookupModule, CnpjLookupModule, CustomersModule, DashboardModule, CatalogModule, CatalogPlatformModule, ServiceOrdersModule, VehicleVariantsModule, LearningModule, FiscalSettingsModule, PortalModule, PlateReadingsModule, WhatsappLinkModule, FiscalInboundModule, PayablesModule, PricingModule, CostsModule, AccessModule, FiscalAutofillModule, WorkforceModule],
+  imports: [PrismaModule, TenancyModule, OutboxModule, AuthModule, ControlPlaneModule, PlateEventsModule, PlateLookupModule, CnpjLookupModule, CustomersModule, DashboardModule, CatalogModule, CatalogPlatformModule, ServiceOrdersModule, VehicleVariantsModule, LearningModule, FiscalSettingsModule, PortalModule, PlateReadingsModule, WhatsappLinkModule, FiscalInboundModule, PayablesModule, PricingModule, CostsModule, AccessModule, FiscalAutofillModule, WorkforceModule, MarketplaceModule],
   controllers: [AppController],
   providers: [AppService],
 })

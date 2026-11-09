@@ -10,7 +10,7 @@ export interface PermissionDef {
   risk?: 'high';
 }
 
-export type PermissionGroup = 'fiscal' | 'invoices' | 'pricing' | 'payables' | 'learning' | 'access' | 'catalog' | 'workforce';
+export type PermissionGroup = 'fiscal' | 'invoices' | 'pricing' | 'payables' | 'learning' | 'access' | 'catalog' | 'workforce' | 'marketplace';
 
 /** Ordem e nome dos grupos na tela. */
 export const PERMISSION_GROUPS: readonly { key: PermissionGroup; label: string; description: string }[] = [
@@ -21,6 +21,7 @@ export const PERMISSION_GROUPS: readonly { key: PermissionGroup; label: string; 
   { key: 'payables', label: 'Contas a pagar', description: 'Parcelas, lançamentos e pagamentos' },
   { key: 'learning', label: 'Aprendizado', description: 'Tempos de serviço aprendidos com as OS' },
   { key: 'catalog', label: 'Catálogo de peças', description: 'Vínculo das peças da oficina com o catálogo da plataforma' },
+  { key: 'marketplace', label: 'Marketplaces', description: 'Contas do Mercado Livre da oficina' },
   { key: 'workforce', label: 'Equipe', description: 'Cadastro de pessoas, vínculos e funções da oficina' },
 ];
 
@@ -38,6 +39,8 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   { key: 'payables.pay', label: 'Registrar pagamento de contas a pagar', group: 'payables', risk: 'high' },
   { key: 'learning.manage', label: 'Gerenciar o aprendizado de tempos', group: 'learning' },
   { key: 'catalog.link', label: 'Vincular e desvincular peças do catálogo da plataforma', group: 'catalog' },
+  { key: 'marketplace.read', label: 'Ver as contas de marketplace', group: 'marketplace' },
+  { key: 'marketplace.manage', label: 'Conectar, pausar e desconectar contas de marketplace', group: 'marketplace', risk: 'high' },
   { key: 'workforce.read', label: 'Ver a equipe (pessoas, vínculos e funções)', group: 'workforce' },
   { key: 'workforce.manage', label: 'Cadastrar pessoas, admitir, mudar de função e desligar', group: 'workforce', risk: 'high' },
 ];
