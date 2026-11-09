@@ -14,7 +14,18 @@ const orgOf = (req: MarketplaceRequest): string => {
   return id;
 };
 
-const Connect = z.object({ label: z.string().trim().min(1, 'Dê um nome à conta').max(80, 'O nome da conta é grande demais') }).strict();
+const App = z
+  .object({ clientId: z.string().trim().min(1, 'Informe o Client ID').max(256), clientSecret: z.string().trim().min(1, 'Informe o Client Secret').max(1024) })
+  .strict();
+/** Nome da conta e, na primeira vez (ou para trocar as credenciais), o app da oficina no Mercado Livre: tudo o mais o backend monta. */
+const Connect = z
+  .object({
+    label: z.string().trim().min(1, 'Dê um nome à conta').max(80, 'O nome da conta é grande demais'),
+    clientId: App.shape.clientId.optional(),
+    clientSecret: App.shape.clientSecret.optional(),
+  })
+  .strict()
+  .refine((v) => (v.clientId === undefined) === (v.clientSecret === undefined), { message: 'Informe o Client ID e o Client Secret juntos' });
 
 /** Contas de marketplace da oficina (Configurações → Marketplaces). A organização vem do Principal, nunca do corpo. */
 @Controller('marketplace')
@@ -28,11 +39,20 @@ export class MarketplaceController {
     return this.marketplace.overview(orgOf(req));
   }
 
+  @Post('app')
+  @HttpCode(204)
+  @RequirePermission('marketplace.manage')
+  async registerApp(@Body() body: unknown, @Req() req: MarketplaceRequest): Promise<void> {
+    const { clientId, clientSecret } = parse(App, body);
+    await this.marketplace.registerApp(orgOf(req), clientId, clientSecret);
+  }
+
   @Post('accounts')
   @HttpCode(200)
   @RequirePermission('marketplace.manage')
   connect(@Body() body: unknown, @Req() req: MarketplaceRequest) {
-    return this.marketplace.connect(orgOf(req), parse(Connect, body).label);
+    const { label, clientId, clientSecret } = parse(Connect, body);
+    return this.marketplace.connect(orgOf(req), label, clientId && clientSecret ? { clientId, clientSecret } : undefined);
   }
 
   @Post('accounts/:id/reauthorize')

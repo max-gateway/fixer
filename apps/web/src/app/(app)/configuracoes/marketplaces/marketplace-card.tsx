@@ -5,10 +5,10 @@ import { CircleCheck, Loader2, Pause, Play, Plug, RefreshCw, Store, TriangleAler
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { deleteJson, getJson, postJson } from '@/lib/client-api';
 import { accountStatus, type AuthorizationStarted, MARKETPLACE_URL, type MarketplaceAccount, type MarketplaceOverview, returnOutcome } from '@/lib/marketplace';
 import { cn } from '@/lib/utils';
+import { ConnectDialog, type ConnectInput } from './connect-dialog';
 
 const KEY = ['marketplace'] as const;
 const TONE = {
@@ -27,7 +27,8 @@ export function MarketplaceCard() {
   const router = useRouter();
   const path = usePathname();
   const params = useSearchParams();
-  const [label, setLabel] = useState('');
+  const [connecting, setConnecting] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
@@ -42,7 +43,7 @@ export function MarketplaceCard() {
   const authorize = useMutation({
     mutationFn: (v: { url: string; body?: unknown }) => postJson<AuthorizationStarted>(v.url, v.body ?? {}, 'Não foi possível iniciar a autorização.'),
     onSuccess: (r) => window.location.assign(r.authorizeUrl),
-    onError: fail,
+    onError: (e) => (connecting ? setDialogError(e.message) : fail(e)),
   });
   const act = useMutation({
     mutationFn: (v: { url: string; method?: 'POST' | 'DELETE' }) => (v.method === 'DELETE' ? deleteJson(v.url, 'Não foi possível desconectar a conta.') : postJson(v.url, {}, 'Não foi possível concluir a ação.')),
@@ -131,26 +132,33 @@ export function MarketplaceCard() {
             </ul>
           )}
 
-          {data.canConnect ? (
-            <form
-              className="flex flex-wrap items-end gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
+          <div>
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() => {
                 setError(null);
                 setNotice(null);
-                authorize.mutate({ url: `${MARKETPLACE_URL}/accounts`, body: { label: label.trim() } });
+                setDialogError(null);
+                setConnecting(true);
               }}
             >
-              <label className="grid gap-1 text-sm font-medium">
-                Nome da conta
-                <Input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={80} placeholder="Ex.: Loja principal" className="w-64" />
-              </label>
-              <Button type="submit" disabled={busy || label.trim() === ''}>
-                {authorize.isPending ? <Loader2 aria-hidden className="animate-spin" /> : <Plug aria-hidden />} Conectar Mercado Livre
-              </Button>
-            </form>
-          ) : (
-            <p className="text-sm text-muted-foreground">Sua oficina ainda não tem o Mercado Livre liberado. Fale com o suporte para ativar.</p>
+              <Plug aria-hidden /> {data.accounts.length === 0 ? 'Conectar Mercado Livre' : 'Conectar outra conta'}
+            </Button>
+          </div>
+          {connecting && (
+            <ConnectDialog
+              open
+              onOpenChange={setConnecting}
+              redirectUri={data.redirectUri}
+              hasApp={data.canConnect}
+              busy={authorize.isPending}
+              error={dialogError}
+              onSubmit={(input: ConnectInput) => {
+                setDialogError(null);
+                authorize.mutate({ url: `${MARKETPLACE_URL}/accounts`, body: input });
+              }}
+            />
           )}
         </>
       )}

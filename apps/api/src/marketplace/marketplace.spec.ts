@@ -9,7 +9,7 @@ import { MarketplaceService } from './marketplace.service.js';
 
 const ORG = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ACC = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const cfg: MarketplaceSettings = { enabled: true, baseUrl: 'https://mk.test', tokenUrl: 'https://kc.test/token', clientId: 'fixer-marketplace', clientSecret: 's3', returnUrl: 'https://app.test/configuracoes/marketplaces', timeoutMs: 1000 };
+const cfg: MarketplaceSettings = { enabled: true, baseUrl: 'https://mk.test', tokenUrl: 'https://kc.test/token', clientId: 'fixer-marketplace', clientSecret: 's3', returnUrl: 'https://app.test/configuracoes/marketplaces', redirectUri: 'https://mk.test/v1/oauth/mercadolivre/callback', timeoutMs: 1000 };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 describe('MarketplaceClient', () => {
@@ -66,16 +66,50 @@ describe('MarketplaceService', () => {
     );
     const view = await service().overview(ORG);
     expect(view.canConnect).toBe(true);
+    expect(view.redirectUri).toBe(cfg.redirectUri);
     expect(view.accounts).toEqual([{ id: ACC, label: 'Loja', state: 'active', displayName: 'MAX', connection: { id: 'c1', state: 'active' } }]);
   });
 
   it('conectar usa o app ativo do provider e a returnUrl configurada', async () => {
-    request.mockResolvedValueOnce({ items: [{ id: 'app-1', provider: 'mercadolivre', status: 'active' }] }).mockResolvedValueOnce({ accountId: ACC, authorizeUrl: 'https://ml/auth' });
+    request
+      .mockResolvedValueOnce({ items: [{ id: 'app-1', provider: 'mercadolivre', status: 'active' }] })
+      .mockResolvedValueOnce({ document: { oauth: { allowedReturnUrls: [cfg.returnUrl] } }, version: 3 })
+      .mockResolvedValueOnce({ accountId: ACC, authorizeUrl: 'https://ml/auth' });
     expect(await service().connect(ORG, 'Loja')).toEqual({ accountId: ACC, authorizeUrl: 'https://ml/auth' });
     expect(request).toHaveBeenLastCalledWith(ORG, 'POST', '/v1/accounts', { provider: 'mercadolivre', appId: 'app-1', label: 'Loja', returnUrl: cfg.returnUrl });
   });
 
-  it('sem app liberado: 409 com mensagem clara e nenhuma conta criada', async () => {
+  it('cadastra a returnUrl da oficina sozinho (uma vez), preservando o resto da configuração e usando If-Match', async () => {
+    request
+      .mockResolvedValueOnce({ items: [{ id: 'app-1', provider: 'mercadolivre', status: 'active' }] })
+      .mockResolvedValueOnce({ document: { quota: { accountsMax: 2 }, oauth: { allowedReturnUrls: ['https://outra.test/x'] } }, version: 3 })
+      .mockResolvedValue({ accountId: ACC, authorizeUrl: 'https://ml/auth' });
+    await service().connect(ORG, 'Loja');
+    expect(request).toHaveBeenCalledWith(ORG, 'PUT', '/v1/settings', { quota: { accountsMax: 2 }, oauth: { allowedReturnUrls: ['https://outra.test/x', cfg.returnUrl] } }, { 'if-match': '"3"' });
+  });
+
+  it('conectar com as credenciais monta tudo na ordem: app, returnUrl, autorização', async () => {
+    request
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ items: [{ id: 'app-9', provider: 'mercadolivre', status: 'active' }] })
+      .mockResolvedValueOnce({ document: {}, version: 0 })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ accountId: ACC, authorizeUrl: 'https://ml/auth' });
+    await service().connect(ORG, 'Loja', { clientId: 'cid', clientSecret: 'cs' });
+    expect(request.mock.calls.map((c) => `${c[1]} ${c[2]}`)).toEqual(['GET /v1/apps', 'POST /v1/apps', 'GET /v1/apps', 'GET /v1/settings', 'PUT /v1/settings', 'POST /v1/accounts']);
+  });
+
+  it('cadastrar o app: cria quando não há ativo; troca o segredo quando já há; o segredo só vai ao serviço', async () => {
+    request.mockResolvedValueOnce({ items: [] }).mockResolvedValue({});
+    await service().registerApp(ORG, 'cid', 'csecret');
+    expect(request).toHaveBeenLastCalledWith(ORG, 'POST', '/v1/apps', { provider: 'mercadolivre', label: expect.stringMatching(/^ml-/), secrets: { clientId: 'cid', clientSecret: 'csecret' } });
+    request.mockReset().mockResolvedValueOnce({ items: [{ id: 'app-1', provider: 'mercadolivre', status: 'active' }] }).mockResolvedValue({});
+    await service().registerApp(ORG, 'cid2', 'csecret2');
+    expect(request).toHaveBeenLastCalledWith(ORG, 'PUT', '/v1/apps/app-1/secrets', { secrets: { clientId: 'cid2', clientSecret: 'csecret2' } });
+  });
+
+  it('sem app cadastrado: 409 com mensagem clara e nenhuma conta criada', async () => {
     request.mockResolvedValueOnce({ items: [] });
     await expect(service().connect(ORG, 'Loja')).rejects.toMatchObject({ status: 409 });
     expect(request).toHaveBeenCalledTimes(1);
@@ -99,16 +133,26 @@ describe('MarketplaceService', () => {
 });
 
 describe('MarketplaceController', () => {
-  const service = { overview: vi.fn(), connect: vi.fn(), reauthorize: vi.fn(), link: vi.fn(), revoke: vi.fn(), setConnectionState: vi.fn() };
+  const service = { overview: vi.fn(), connect: vi.fn(), registerApp: vi.fn(), reauthorize: vi.fn(), link: vi.fn(), revoke: vi.fn(), setConnectionState: vi.fn() };
   const controller = new MarketplaceController(service as never);
   const req = { principal: { tenantId: ORG } };
   beforeEach(() => Object.values(service).forEach((f) => f.mockReset().mockResolvedValue({})));
 
   it('a organização vem do Principal; o nome da conta é validado', async () => {
     await controller.connect({ label: '  Loja  ' }, req);
-    expect(service.connect).toHaveBeenCalledWith(ORG, 'Loja');
+    expect(service.connect).toHaveBeenCalledWith(ORG, 'Loja', undefined);
+    await controller.connect({ label: 'Loja', clientId: '1', clientSecret: 's' }, req);
+    expect(service.connect).toHaveBeenLastCalledWith(ORG, 'Loja', { clientId: '1', clientSecret: 's' });
+    expect(() => controller.connect({ label: 'Loja', clientId: '1' }, req)).toThrow(/juntos/);
     expect(() => controller.connect({ label: '' }, req)).toThrow(/nome/i);
     expect(() => controller.connect({ label: 'x', orgId: 'outra' }, req)).toThrow();
+  });
+
+  it('o app: Client ID e Secret são obrigatórios, nada volta na resposta e campo extra é recusado', async () => {
+    expect(await controller.registerApp({ clientId: ' 123 ', clientSecret: 'abc' }, req)).toBeUndefined();
+    expect(service.registerApp).toHaveBeenCalledWith(ORG, '123', 'abc');
+    await expect(controller.registerApp({ clientId: '', clientSecret: 'abc' }, req)).rejects.toThrow(/Client ID/);
+    await expect(controller.registerApp({ clientId: '1', clientSecret: 'a', extra: 1 }, req)).rejects.toThrow();
   });
 
   it('toda rota exige permissão que existe no catálogo; ler é uma, mudar é outra', () => {
@@ -117,6 +161,6 @@ describe('MarketplaceController', () => {
     const required = Object.getOwnPropertyNames(proto).filter((n) => n !== 'constructor').map((n) => Reflect.getMetadata(REQUIRED_PERMISSION, proto[n]!));
     expect(required.every((k) => keys.has(k))).toBe(true);
     expect(required.filter((k) => k === 'marketplace.read')).toHaveLength(1);
-    expect(required.filter((k) => k === 'marketplace.manage')).toHaveLength(6);
+    expect(required.filter((k) => k === 'marketplace.manage')).toHaveLength(7);
   });
 });

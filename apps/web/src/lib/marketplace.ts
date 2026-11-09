@@ -12,7 +12,10 @@ export type MarketplaceAccount = {
 export type MarketplaceOverview = {
   enabled: boolean;
   provider: string;
+  /** A oficina já cadastrou o app dela no Mercado Livre. */
   canConnect: boolean;
+  /** Endereço de retorno que a oficina cadastra no app do Mercado Livre. */
+  redirectUri: string;
   accounts: MarketplaceAccount[];
 };
 

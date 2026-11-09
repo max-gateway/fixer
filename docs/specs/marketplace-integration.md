@@ -9,15 +9,18 @@ Configurações → Marketplaces conecta a conta de vendedor do Mercado Livre da
 - Direito do plano: `marketplace.provider.mercadolivre` (control plane). O serviço o confere e o Fixer também (`@RequireFeature`, chave ausente = liberada, `false` = 402).
 - Permissões: `marketplace.read` (ver) e `marketplace.manage` (conectar, vincular, pausar, desconectar), dadas ao papel Admin pelo catálogo de permissões.
 
-## Fluxo
-1. `POST /marketplace/accounts {label}` → o serviço devolve `authorizeUrl`; o navegador vai ao Mercado Livre.
-2. O serviço recebe o callback e redireciona para `MARKETPLACE_RETURN_URL?status=&accountId=&reason=`.
-3. A tela vincula a conta autorizada (`POST /marketplace/accounts/:id/link`) e limpa a URL.
+## Autoatendimento da oficina
+A oficina cadastra o próprio ambiente pela tela, sem ajuda da equipe. O assistente (`connect-dialog.tsx`) explica, em linguagem simples, como criar o app no painel do Mercado Livre (com o endereço de retorno para copiar) e pede o ID e a chave secreta. O backend monta o resto a partir disso (`MarketplaceService.connect`), em ordem:
+1. cadastra o app da oficina no cofre do serviço (ou troca o segredo, se já houver um ativo); o segredo nunca volta;
+2. registra a `MARKETPLACE_RETURN_URL` em `oauth.allowedReturnUrls` da oficina (preserva o resto da configuração, usa `If-Match`; idempotente);
+3. inicia a autorização e devolve a `authorizeUrl`.
+Na volta, a tela vincula a conta à oficina (`POST /marketplace/accounts/:id/link`) e limpa a URL.
+
+Fora do alcance da oficina (decisão comercial no control plane): o direito `marketplace.provider.mercadolivre` e a flag `marketplace.byo_app` da assinatura. Sem eles o serviço recusa com mensagem clara, mostrada na janela.
 
 ## Configuração (apps/api/.env.example)
-`MARKETPLACE_URL`, `MARKETPLACE_TOKEN_URL`, `MARKETPLACE_CLIENT_SECRET`, `MARKETPLACE_RETURN_URL` (as quatro ligam a integração; sem elas a tela diz "não disponível").
+`MARKETPLACE_URL`, `MARKETPLACE_TOKEN_URL`, `MARKETPLACE_CLIENT_SECRET` e `MARKETPLACE_RETURN_URL` ligam a integração (sem elas a tela diz "não disponível"). `MARKETPLACE_REDIRECT_URI` é só o texto mostrado no assistente.
 
-## Para ativar em produção (ações fora deste repositório)
-- Segredo do client `fixer-marketplace` no ambiente da API do Fixer.
-- No serviço, `oauth.allowedReturnUrls` da organização com a `MARKETPLACE_RETURN_URL` exata.
-- Aplicativo OAuth (`app_credential`) ativo do Mercado Livre para a organização, e o direito do provider concedido à assinatura.
+## Operação (uma vez por ambiente)
+- Segredo do client `fixer-marketplace` no ambiente da API do Fixer (`KC_SECRET_FIXER_MARKETPLACE` do Keycloak da plataforma).
+- Direito do provider e `byo_app` concedidos às assinaturas do Fixer (`grant-marketplace.sh`).

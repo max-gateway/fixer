@@ -9,6 +9,8 @@ export interface MarketplaceSettings {
   clientSecret: string;
   /** Para onde o navegador volta depois de autorizar. Precisa estar em `oauth.allowedReturnUrls` da organização, igual, sem curinga. */
   returnUrl: string;
+  /** Endereço de retorno do OAuth que a oficina cadastra no app dela no Mercado Livre (host público do serviço). Só para mostrar na tela. */
+  redirectUri: string;
   timeoutMs: number;
 }
 
@@ -24,6 +26,7 @@ export class MarketplaceConfig implements MarketplaceSettings {
   readonly clientId = process.env.MARKETPLACE_CLIENT_ID ?? 'fixer-marketplace';
   readonly clientSecret = process.env.MARKETPLACE_CLIENT_SECRET ?? '';
   readonly returnUrl = process.env.MARKETPLACE_RETURN_URL ?? '';
+  readonly redirectUri = process.env.MARKETPLACE_REDIRECT_URI ?? '';
   readonly timeoutMs = Number(process.env.MARKETPLACE_TIMEOUT_MS ?? 5000);
 
   get enabled(): boolean {

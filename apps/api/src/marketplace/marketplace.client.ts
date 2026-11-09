@@ -38,18 +38,18 @@ export class MarketplaceClient {
     return this.cfg.enabled;
   }
 
-  async request<T>(orgId: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
-    const res = await this.send(orgId, method, path, body, await this.accessToken());
+  async request<T>(orgId: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
+    const res = await this.send(orgId, method, path, body, await this.accessToken(), extraHeaders);
     if (res.status !== 401) return this.read<T>(res);
     // Token revogado ou chave rotacionada antes de vencer: descarta e tenta uma vez com outro.
     this.token = undefined;
-    return this.read<T>(await this.send(orgId, method, path, body, await this.accessToken()));
+    return this.read<T>(await this.send(orgId, method, path, body, await this.accessToken(), extraHeaders));
   }
 
-  private send(orgId: string, method: string, path: string, body: unknown, token: string): Promise<Response> {
+  private send(orgId: string, method: string, path: string, body: unknown, token: string, extraHeaders: Record<string, string>): Promise<Response> {
     return this.http(`${this.cfg.baseUrl}${path}`, {
       method,
-      headers: { authorization: `Bearer ${token}`, 'x-org-id': orgId, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      headers: { ...extraHeaders, authorization: `Bearer ${token}`, 'x-org-id': orgId, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(this.cfg.timeoutMs),
     });

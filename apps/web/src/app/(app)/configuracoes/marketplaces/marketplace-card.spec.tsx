@@ -13,7 +13,7 @@ vi.mock('next/navigation', () => ({ useSearchParams: () => nav.params, usePathna
 import { MarketplaceCard } from './marketplace-card';
 
 const ACC = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const overview = (over: Partial<MarketplaceOverview> = {}): MarketplaceOverview => ({ enabled: true, provider: 'mercadolivre', canConnect: true, accounts: [], ...over });
+const overview = (over: Partial<MarketplaceOverview> = {}): MarketplaceOverview => ({ enabled: true, provider: 'mercadolivre', canConnect: true, redirectUri: 'https://mk.test/cb', accounts: [], ...over });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -38,25 +38,60 @@ describe('MarketplaceCard', () => {
     expect(screen.queryByRole('button', { name: /conectar/i })).toBeNull();
   });
 
-  it('sem aplicativo liberado: explica em vez de mostrar um botão que falharia', async () => {
-    api.getJson.mockResolvedValue(overview({ canConnect: false }));
-    setup();
-    expect(await screen.findByText(/não tem o Mercado Livre liberado/i)).toBeTruthy();
+  it('primeira vez: o assistente explica a criação do app, mostra o endereço de retorno e só então pede os dados', async () => {
+    api.getJson.mockResolvedValue(overview({ canConnect: false, redirectUri: 'https://mk.test/v1/oauth/mercadolivre/callback' }));
+    const user = setup();
+    await user.click(await screen.findByRole('button', { name: /conectar mercado livre/i }));
+    expect(await screen.findByText(/criar nova aplicação/i)).toBeTruthy();
+    expect(screen.getByText('https://mk.test/v1/oauth/mercadolivre/callback')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /abrir o painel do mercado livre/i }).getAttribute('href')).toMatch(/developers\.mercadolivre/);
+    expect(screen.queryByLabelText(/chave secreta/i)).toBeNull();
+    await user.click(screen.getByRole('button', { name: /já criei, continuar/i }));
+    expect(screen.getByLabelText(/id do aplicativo/i)).toBeTruthy();
+    expect(screen.getByLabelText(/chave secreta/i)).toBeTruthy();
   });
 
-  it('conectar manda o nome da conta e leva o navegador à autorização', async () => {
-    api.getJson.mockResolvedValue(overview());
+  it('manda ID, chave e nome numa chamada só e leva o navegador à autorização; o botão espera tudo preenchido', async () => {
+    api.getJson.mockResolvedValue(overview({ canConnect: false }));
     api.postJson.mockResolvedValue({ accountId: ACC, authorizeUrl: 'https://auth.mercadolivre.com.br/x' });
     const assign = vi.fn();
     vi.stubGlobal('location', { ...window.location, assign });
     const user = setup();
-    const button = await screen.findByRole('button', { name: /conectar mercado livre/i });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-    await user.type(screen.getByLabelText(/nome da conta/i), '  Loja principal ');
-    await user.click(button);
+    await user.click(await screen.findByRole('button', { name: /conectar mercado livre/i }));
+    await user.click(screen.getByRole('button', { name: /já criei, continuar/i }));
+    const go = screen.getByRole('button', { name: /autorizar no mercado livre/i }) as HTMLButtonElement;
+    expect(go.disabled).toBe(true);
+    await user.type(screen.getByLabelText(/id do aplicativo/i), ' 123 ');
+    await user.type(screen.getByLabelText(/chave secreta/i), 'segredo');
+    await user.type(screen.getByLabelText(/nome desta conta/i), '  Loja principal ');
+    await user.click(go);
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://auth.mercadolivre.com.br/x'));
-    expect(api.postJson).toHaveBeenCalledWith('/api/marketplace/accounts', { label: 'Loja principal' }, expect.any(String));
+    expect(api.postJson).toHaveBeenCalledWith('/api/marketplace/accounts', { label: 'Loja principal', clientId: '123', clientSecret: 'segredo' }, expect.any(String));
     vi.unstubAllGlobals();
+  });
+
+  it('app já cadastrado: só pede o nome da conta (sem credenciais)', async () => {
+    api.getJson.mockResolvedValue(overview());
+    api.postJson.mockResolvedValue({ accountId: ACC, authorizeUrl: 'https://auth/x' });
+    vi.stubGlobal('location', { ...window.location, assign: vi.fn() });
+    const user = setup();
+    await user.click(await screen.findByRole('button', { name: /conectar mercado livre/i }));
+    expect(screen.queryByLabelText(/chave secreta/i)).toBeNull();
+    await user.type(screen.getByLabelText(/nome desta conta/i), 'Loja');
+    await user.click(screen.getByRole('button', { name: /autorizar no mercado livre/i }));
+    await waitFor(() => expect(api.postJson).toHaveBeenCalledWith('/api/marketplace/accounts', { label: 'Loja' }, expect.any(String)));
+    vi.unstubAllGlobals();
+  });
+
+  it('erro do serviço aparece dentro da janela, em palavras, e a janela continua aberta', async () => {
+    api.getJson.mockResolvedValue(overview());
+    api.postJson.mockRejectedValue(new Error('o plano não inclui app próprio'));
+    const user = setup();
+    await user.click(await screen.findByRole('button', { name: /conectar mercado livre/i }));
+    await user.type(screen.getByLabelText(/nome desta conta/i), 'Loja');
+    await user.click(screen.getByRole('button', { name: /autorizar no mercado livre/i }));
+    expect(await screen.findByText(/o plano não inclui app próprio/i)).toBeTruthy();
+    expect(screen.getByLabelText(/nome desta conta/i)).toBeTruthy();
   });
 
   it('mostra o estado de cada conta; desconectar pede confirmação antes de chamar a API', async () => {
