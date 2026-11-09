@@ -1,11 +1,9 @@
-import { ConflictException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { MarketplaceClient, toHttpException } from './marketplace.client.js';
 import { MarketplaceConfig, type MarketplaceSettings } from './marketplace.config.js';
 
-/** Único marketplace ligado hoje. */
-export const PROVIDER = 'mercadolivre';
-/** Direito do plano (control plane) que libera o provider; o serviço `marketplace` confere o mesmo direito e fecha por padrão. */
-export const PROVIDER_FEATURE = `marketplace.provider.${PROVIDER}`;
+/** Direito do plano (control plane) que libera um marketplace; o serviço `marketplace` confere o mesmo direito e fecha por padrão. */
+export const providerFeature = (slug: string): string => `marketplace.provider.${slug}`;
 
 export interface MarketplaceAccount {
   id: string;
@@ -16,17 +14,39 @@ export interface MarketplaceAccount {
   connection: { id: string; state: string } | null;
 }
 
-export interface MarketplaceOverview {
-  /** Falso quando o Fixer não está configurado para falar com o serviço. */
-  enabled: boolean;
-  provider: string;
-  /** A oficina já cadastrou o app dela do Mercado Livre (necessário para autorizar contas). */
-  canConnect: boolean;
-  /** Endereço de retorno que a oficina precisa cadastrar no app do Mercado Livre. */
+/** Um marketplace que o serviço opera, o que a oficina pode fazer com ele e as contas dela. Nada daqui é específico de um marketplace. */
+export interface MarketplaceProvider {
+  slug: string;
+  name: string;
+  /** A oficina tem o direito a este marketplace. */
+  entitled: boolean;
+  /** Dá para autorizar uma conta já: há app compartilhado da plataforma ou a oficina já cadastrou o dela. */
+  ready: boolean;
+  /** A oficina pode cadastrar o app dela (assistente na tela). Sem app compartilhado, é o único caminho. */
+  canUseOwnApp: boolean;
+  /** Endereço de retorno que a oficina cadastra no app dela no marketplace. */
   redirectUri: string;
   accounts: MarketplaceAccount[];
 }
 
+export interface MarketplaceOverview {
+  /** Falso quando o Fixer não está configurado para falar com o serviço. */
+  enabled: boolean;
+  providers: MarketplaceProvider[];
+}
+
+interface RawProvider {
+  slug: string;
+  name: string;
+  entitled: boolean;
+  appSources: { platform: boolean; own: boolean };
+}
+interface RawApp {
+  id: string;
+  provider: string;
+  status: string;
+  source: 'tenant' | 'platform';
+}
 interface RawAccount {
   id: string;
   provider: string;
@@ -35,16 +55,13 @@ interface RawAccount {
   displayName: string | null;
   connection: { id: string; storeId: string | null; state: string } | null;
 }
-interface RawApp {
-  id: string;
-  provider: string;
-  status: string;
-}
 type Started = { accountId: string; authorizeUrl: string };
 
+const activeApp = (apps: RawApp[], provider: string, source: RawApp['source']) => apps.find((a) => a.provider === provider && a.status === 'active' && a.source === source);
+
 /**
- * Contas do Mercado Livre da oficina. O Fixer não tem lojas: a conexão usa o id da organização como loja. Token e segredo nunca passam por aqui;
- * o serviço só devolve estado, perfil e a conexão. Todo erro do serviço sai por `toHttpException`.
+ * Contas de marketplace da oficina, para qualquer marketplace que o serviço opere (a lista vem do serviço, não daqui). O Fixer não tem lojas: a conexão
+ * usa o id da organização como loja. Token e segredo nunca passam por aqui; o serviço só devolve estado, perfil e a conexão. Todo erro sai por `toHttpException`.
  */
 @Injectable()
 export class MarketplaceService {
@@ -54,34 +71,48 @@ export class MarketplaceService {
   ) {}
 
   async overview(orgId: string): Promise<MarketplaceOverview> {
-    if (!this.client.enabled) return { enabled: false, provider: PROVIDER, canConnect: false, redirectUri: '', accounts: [] };
+    if (!this.client.enabled) return { enabled: false, providers: [] };
     return this.call(async () => {
-      const [accounts, apps] = await Promise.all([
-        this.client.request<{ items: RawAccount[] }>(orgId, 'GET', '/v1/accounts'),
+      const [providers, apps, accounts] = await Promise.all([
+        this.client.request<{ items: RawProvider[] }>(orgId, 'GET', '/v1/providers'),
         this.client.request<{ items: RawApp[] }>(orgId, 'GET', '/v1/apps'),
+        this.client.request<{ items: RawAccount[] }>(orgId, 'GET', '/v1/accounts'),
       ]);
       return {
         enabled: true,
-        provider: PROVIDER,
-        canConnect: apps.items.some((a) => a.provider === PROVIDER && a.status === 'active'),
-        redirectUri: this.cfg.redirectUri,
-        accounts: accounts.items
-          .filter((a) => a.provider === PROVIDER && a.state !== 'revoked')
-          .map((a) => ({ id: a.id, label: a.label, state: a.state, displayName: a.displayName, connection: a.connection ? { id: a.connection.id, state: a.connection.state } : null })),
+        providers: providers.items.map((p) => ({
+          slug: p.slug,
+          name: p.name,
+          entitled: p.entitled,
+          ready: p.entitled && Boolean(activeApp(apps.items, p.slug, 'tenant') ?? (p.appSources.platform ? activeApp(apps.items, p.slug, 'platform') : undefined)),
+          canUseOwnApp: p.entitled && p.appSources.own,
+          redirectUri: this.redirectUri(p.slug),
+          accounts: accounts.items
+            .filter((a) => a.provider === p.slug && a.state !== 'revoked')
+            .map((a) => ({ id: a.id, label: a.label, state: a.state, displayName: a.displayName, connection: a.connection ? { id: a.connection.id, state: a.connection.state } : null })),
+        })),
       };
     });
   }
 
-  /** Inicia a autorização; o navegador vai a `authorizeUrl` e volta para a tela de Marketplaces. */
-  connect(orgId: string, label: string, creds?: { clientId: string; clientSecret: string }): Promise<Started> {
+  /**
+   * Inicia a autorização de uma conta. Se a oficina mandou as credenciais do app dela, cadastra (ou troca o segredo d)o app antes. Sem credenciais usa o app
+   * que já houver: o dela, se cadastrou um, senão o compartilhado da plataforma. O endereço de retorno é registrado sozinho na lista permitida da oficina.
+   */
+  connect(orgId: string, provider: string, label: string, creds?: { clientId: string; clientSecret: string }): Promise<Started> {
     return this.call(async () => {
-      if (creds) await this.upsertApp(orgId, creds.clientId, creds.clientSecret);
-      const apps = await this.client.request<{ items: RawApp[] }>(orgId, 'GET', '/v1/apps');
-      const app = apps.items.find((a) => a.provider === PROVIDER && a.status === 'active');
-      if (!app) throw new ConflictException('Cadastre primeiro o aplicativo da sua oficina no Mercado Livre.');
+      if (creds) await this.upsertOwnApp(orgId, provider, creds.clientId, creds.clientSecret);
+      const apps = (await this.client.request<{ items: RawApp[] }>(orgId, 'GET', '/v1/apps')).items;
+      const app = activeApp(apps, provider, 'tenant') ?? activeApp(apps, provider, 'platform');
+      if (!app) throw new ConflictException('Este marketplace ainda não está liberado para a sua oficina. Cadastre o aplicativo da sua oficina para conectar.');
       await this.ensureReturnUrl(orgId);
-      return this.client.request<Started>(orgId, 'POST', '/v1/accounts', { provider: PROVIDER, appId: app.id, label, returnUrl: this.cfg.returnUrl });
+      return this.client.request<Started>(orgId, 'POST', '/v1/accounts', { provider, appId: app.id, label, returnUrl: this.cfg.returnUrl });
     });
+  }
+
+  /** Cadastra ou troca as credenciais do app da própria oficina, sem iniciar autorização. */
+  registerApp(orgId: string, provider: string, clientId: string, clientSecret: string): Promise<void> {
+    return this.call(() => this.upsertOwnApp(orgId, provider, clientId, clientSecret));
   }
 
   reauthorize(orgId: string, accountId: string): Promise<Started> {
@@ -91,25 +122,13 @@ export class MarketplaceService {
     });
   }
 
-  /**
-   * Cadastra (ou troca) o app OAuth da oficina no Mercado Livre. O segredo vai direto ao cofre do serviço e nunca volta; nada dele é guardado ou logado aqui.
-   * Se já existe um app ativo, troca o segredo dele: as contas ligadas continuam e a próxima renovação já usa o novo.
-   */
-  registerApp(orgId: string, clientId: string, clientSecret: string): Promise<void> {
-    return this.call(() => this.upsertApp(orgId, clientId, clientSecret));
-  }
-
-  private async upsertApp(orgId: string, clientId: string, clientSecret: string): Promise<void> {
-    const secrets = { clientId, clientSecret };
-    const apps = await this.client.request<{ items: RawApp[] }>(orgId, 'GET', '/v1/apps');
-    const current = apps.items.find((a) => a.provider === PROVIDER && a.status === 'active');
-    if (current) await this.client.request(orgId, 'PUT', `/v1/apps/${current.id}/secrets`, { secrets });
-    else await this.client.request(orgId, 'POST', '/v1/apps', { provider: PROVIDER, label: `ml-${Date.now().toString(36)}`, secrets });
-  }
-
-  /** Liga a conta autorizada à oficina (conexão loja → conta). */
+  /** Liga a conta autorizada à oficina (conexão loja → conta). O marketplace da conta vem do serviço, nunca do pedido. */
   link(orgId: string, accountId: string): Promise<unknown> {
-    return this.call(() => this.client.request(orgId, 'PUT', `/v1/connections/${orgId}/${PROVIDER}`, { accountId }));
+    return this.call(async () => {
+      const account = await this.client.request<RawAccount>(orgId, 'GET', `/v1/accounts/${accountId}`);
+      if (!account?.provider) throw new NotFoundException('Não encontrado.');
+      return this.client.request(orgId, 'PUT', `/v1/connections/${orgId}/${account.provider}`, { accountId });
+    });
   }
 
   revoke(orgId: string, accountId: string): Promise<unknown> {
@@ -118,6 +137,18 @@ export class MarketplaceService {
 
   setConnectionState(orgId: string, connectionId: string, action: 'pause' | 'resume'): Promise<unknown> {
     return this.call(() => this.client.request(orgId, 'POST', `/v1/connections/${connectionId}/${action}`, {}));
+  }
+
+  private redirectUri(provider: string): string {
+    return this.cfg.publicUrl ? `${this.cfg.publicUrl}/v1/oauth/${provider}/callback` : '';
+  }
+
+  private async upsertOwnApp(orgId: string, provider: string, clientId: string, clientSecret: string): Promise<void> {
+    const secrets = { clientId, clientSecret };
+    const apps = await this.client.request<{ items: RawApp[] }>(orgId, 'GET', '/v1/apps');
+    const current = activeApp(apps.items, provider, 'tenant');
+    if (current) await this.client.request(orgId, 'PUT', `/v1/apps/${current.id}/secrets`, { secrets });
+    else await this.client.request(orgId, 'POST', '/v1/apps', { provider, label: `${provider}-${Date.now().toString(36)}`, secrets });
   }
 
   /**

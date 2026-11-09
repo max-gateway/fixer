@@ -2,8 +2,8 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Re
 import { z } from 'zod';
 import { RequirePermission } from '../auth/permissions.js';
 import { parse } from '../common/parse.js';
-import { RequireFeature } from '../control-plane/feature.guard.js';
-import { MarketplaceService, PROVIDER_FEATURE } from './marketplace.service.js';
+import { PlanLimits } from '../control-plane/plan-limits.service.js';
+import { MarketplaceService, providerFeature } from './marketplace.service.js';
 
 interface MarketplaceRequest {
   principal?: { tenantId?: string };
@@ -14,10 +14,11 @@ const orgOf = (req: MarketplaceRequest): string => {
   return id;
 };
 
+const Slug = z.string().regex(/^[a-z][a-z0-9]{1,31}$/, 'Marketplace inválido');
 const App = z
   .object({ clientId: z.string().trim().min(1, 'Informe o Client ID').max(256), clientSecret: z.string().trim().min(1, 'Informe o Client Secret').max(1024) })
   .strict();
-/** Nome da conta e, na primeira vez (ou para trocar as credenciais), o app da oficina no Mercado Livre: tudo o mais o backend monta. */
+/** Nome da conta e, quando a oficina usa o app dela (primeira vez ou troca), as credenciais: tudo o mais o backend monta. */
 const Connect = z
   .object({
     label: z.string().trim().min(1, 'Dê um nome à conta').max(80, 'O nome da conta é grande demais'),
@@ -27,11 +28,16 @@ const Connect = z
   .strict()
   .refine((v) => (v.clientId === undefined) === (v.clientSecret === undefined), { message: 'Informe o Client ID e o Client Secret juntos' });
 
-/** Contas de marketplace da oficina (Configurações → Marketplaces). A organização vem do Principal, nunca do corpo. */
+/**
+ * Contas de marketplace da oficina (Configurações → Marketplaces), para qualquer marketplace que o serviço da plataforma opere. A organização vem do
+ * Principal, nunca do corpo. O direito do plano (`marketplace.provider.<marketplace>`) é conferido por marketplace; o serviço confere o mesmo.
+ */
 @Controller('marketplace')
-@RequireFeature(PROVIDER_FEATURE)
 export class MarketplaceController {
-  constructor(private readonly marketplace: MarketplaceService) {}
+  constructor(
+    private readonly marketplace: MarketplaceService,
+    private readonly limits: PlanLimits,
+  ) {}
 
   @Get()
   @RequirePermission('marketplace.read')
@@ -39,20 +45,24 @@ export class MarketplaceController {
     return this.marketplace.overview(orgOf(req));
   }
 
-  @Post('app')
+  @Post('providers/:provider/app')
   @HttpCode(204)
   @RequirePermission('marketplace.manage')
-  async registerApp(@Body() body: unknown, @Req() req: MarketplaceRequest): Promise<void> {
+  async registerApp(@Param('provider') provider: string, @Body() body: unknown, @Req() req: MarketplaceRequest): Promise<void> {
+    const slug = parse(Slug, provider);
     const { clientId, clientSecret } = parse(App, body);
-    await this.marketplace.registerApp(orgOf(req), clientId, clientSecret);
+    await this.limits.assertFeature(providerFeature(slug));
+    await this.marketplace.registerApp(orgOf(req), slug, clientId, clientSecret);
   }
 
-  @Post('accounts')
+  @Post('providers/:provider/accounts')
   @HttpCode(200)
   @RequirePermission('marketplace.manage')
-  connect(@Body() body: unknown, @Req() req: MarketplaceRequest) {
+  async connect(@Param('provider') provider: string, @Body() body: unknown, @Req() req: MarketplaceRequest) {
+    const slug = parse(Slug, provider);
     const { label, clientId, clientSecret } = parse(Connect, body);
-    return this.marketplace.connect(orgOf(req), label, clientId && clientSecret ? { clientId, clientSecret } : undefined);
+    await this.limits.assertFeature(providerFeature(slug));
+    return this.marketplace.connect(orgOf(req), slug, label, clientId && clientSecret ? { clientId, clientSecret } : undefined);
   }
 
   @Post('accounts/:id/reauthorize')

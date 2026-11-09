@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { deleteJson, getJson, postJson } from '@/lib/client-api';
-import { accountStatus, type AuthorizationStarted, MARKETPLACE_URL, type MarketplaceAccount, type MarketplaceOverview, returnOutcome } from '@/lib/marketplace';
+import { accountStatus, type AuthorizationStarted, connectUrl, MARKETPLACE_URL, type MarketplaceAccount, type MarketplaceOverview, type MarketplaceProvider, providerMode, returnOutcome } from '@/lib/marketplace';
 import { cn } from '@/lib/utils';
 import { ConnectDialog, type ConnectInput } from './connect-dialog';
 
@@ -19,15 +19,16 @@ const TONE = {
 } as const;
 
 /**
- * Contas do Mercado Livre da oficina. Conectar leva a pessoa ao Mercado Livre e ela volta para esta tela com o resultado na URL; ao voltar
- * autorizada, a conta é vinculada à oficina sozinha (uma vez). Desconectar pede confirmação. Quem não pode ver ou mudar recebe a mensagem da API.
+ * Contas de marketplace da oficina, uma seção por marketplace (a lista vem da API). Conectar leva a pessoa ao marketplace e ela volta para esta tela com o
+ * resultado na URL; ao voltar autorizada, a conta é vinculada à oficina sozinha (uma vez). Desconectar pede confirmação. Quem não pode ver ou mudar recebe
+ * a mensagem da API.
  */
 export function MarketplaceCard() {
   const qc = useQueryClient();
   const router = useRouter();
   const path = usePathname();
   const params = useSearchParams();
-  const [connecting, setConnecting] = useState(false);
+  const [connecting, setConnecting] = useState<string | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -68,24 +69,10 @@ export function MarketplaceCard() {
   }, [params]);
 
   const busy = authorize.isPending || act.isPending;
-  const data = overview.data;
+  const data: MarketplaceOverview | undefined = overview.data;
 
   return (
-    <section aria-labelledby="marketplaces-title" className="space-y-4 rounded-2xl border bg-card p-5 shadow-xs">
-      <div className="flex items-start gap-3">
-        <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
-          <Store className="size-5" />
-        </span>
-        <div className="min-w-0">
-          <h2 id="marketplaces-title" className="text-base font-semibold">
-            Mercado Livre
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Conecte a conta de vendedor da oficina. A autorização acontece no site do Mercado Livre; o Fixer nunca vê a sua senha e guarda o acesso cifrado na plataforma.
-          </p>
-        </div>
-      </div>
-
+    <div className="space-y-4">
       {error && (
         <p role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-900">
           <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" /> {error}
@@ -104,63 +91,121 @@ export function MarketplaceCard() {
         </p>
       )}
       {data && !data.enabled && <p className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">Marketplaces ainda não está disponível neste ambiente.</p>}
+      {data?.enabled && data.providers.length === 0 && <p className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">Nenhum marketplace está disponível para a sua oficina.</p>}
 
-      {data?.enabled && (
-        <>
-          {data.accounts.length === 0 ? (
-            <p className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">Nenhuma conta conectada ainda.</p>
-          ) : (
-            <ul className="divide-y rounded-lg border">
-              {data.accounts.map((a) => (
-                <AccountRow
-                  key={a.id}
-                  account={a}
-                  busy={busy}
-                  confirming={revoking === a.id}
-                  onConfirm={(on) => setRevoking(on ? a.id : null)}
-                  onAction={(url, method) => {
-                    setError(null);
-                    setNotice(null);
-                    act.mutate({ url, method });
-                  }}
-                  onReauthorize={() => {
-                    setError(null);
-                    authorize.mutate({ url: `${MARKETPLACE_URL}/accounts/${a.id}/reauthorize` });
-                  }}
-                />
-              ))}
-            </ul>
-          )}
+      {data?.enabled &&
+        data.providers.map((p) => (
+          <ProviderSection
+            key={p.slug}
+            provider={p}
+            busy={busy}
+            revoking={revoking}
+            setRevoking={setRevoking}
+            onAction={(url, method) => {
+              setError(null);
+              setNotice(null);
+              act.mutate({ url, method });
+            }}
+            onReauthorize={(accountId) => {
+              setError(null);
+              authorize.mutate({ url: `${MARKETPLACE_URL}/accounts/${accountId}/reauthorize` });
+            }}
+            onConnect={() => {
+              setError(null);
+              setNotice(null);
+              setDialogError(null);
+              setConnecting(p.slug);
+            }}
+          />
+        ))}
 
-          <div>
-            <Button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setError(null);
-                setNotice(null);
-                setDialogError(null);
-                setConnecting(true);
-              }}
-            >
-              <Plug aria-hidden /> {data.accounts.length === 0 ? 'Conectar Mercado Livre' : 'Conectar outra conta'}
-            </Button>
-          </div>
-          {connecting && (
+      {data?.enabled &&
+        data.providers
+          .filter((p) => p.slug === connecting)
+          .map((p) => (
             <ConnectDialog
+              key={p.slug}
               open
-              onOpenChange={setConnecting}
-              redirectUri={data.redirectUri}
-              hasApp={data.canConnect}
+              onOpenChange={(o) => !o && setConnecting(null)}
+              provider={p}
+              redirectUri={p.redirectUri}
+              hasApp={p.ready}
               busy={authorize.isPending}
               error={dialogError}
               onSubmit={(input: ConnectInput) => {
                 setDialogError(null);
-                authorize.mutate({ url: `${MARKETPLACE_URL}/accounts`, body: input });
+                authorize.mutate({ url: connectUrl(p.slug), body: input });
               }}
             />
-          )}
-        </>
+          ))}
+    </div>
+  );
+}
+
+function ProviderSection({
+  provider: p,
+  busy,
+  revoking,
+  setRevoking,
+  onAction,
+  onReauthorize,
+  onConnect,
+}: {
+  provider: MarketplaceProvider;
+  busy: boolean;
+  revoking: string | null;
+  setRevoking: (id: string | null) => void;
+  onAction: (url: string, method?: 'POST' | 'DELETE') => void;
+  onReauthorize: (accountId: string) => void;
+  onConnect: () => void;
+}) {
+  const mode = providerMode(p);
+  const titleId = `marketplace-${p.slug}`;
+  return (
+    <section aria-labelledby={titleId} className="space-y-4 rounded-2xl border bg-card p-5 shadow-xs">
+      <div className="flex items-start gap-3">
+        <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
+          <Store className="size-5" />
+        </span>
+        <div className="min-w-0">
+          <h2 id={titleId} className="text-base font-semibold">
+            {p.name}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Conecte a conta de vendedor da oficina. A autorização acontece no site do {p.name}; o Fixer nunca vê a sua senha e guarda o acesso cifrado na plataforma.
+          </p>
+        </div>
+      </div>
+
+      {p.accounts.length === 0 ? (
+        <p className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">Nenhuma conta conectada ainda.</p>
+      ) : (
+        <ul className="divide-y rounded-lg border">
+          {p.accounts.map((a) => (
+            <AccountRow
+              key={a.id}
+              account={a}
+              providerName={p.name}
+              busy={busy}
+              confirming={revoking === a.id}
+              onConfirm={(on) => setRevoking(on ? a.id : null)}
+              onAction={onAction}
+              onReauthorize={() => onReauthorize(a.id)}
+            />
+          ))}
+        </ul>
+      )}
+
+      {mode === 'unavailable' ? (
+        <p className="text-sm text-muted-foreground">
+          {p.entitled ? `A conexão com o ${p.name} ainda não está liberada para a sua oficina. Fale com o suporte.` : `O ${p.name} não está incluído no plano da sua oficina.`}
+        </p>
+      ) : (
+        <div>
+          <Button type="button" disabled={busy} onClick={onConnect}>
+            <Plug aria-hidden /> {p.accounts.length === 0 ? `Conectar ${p.name}` : 'Conectar outra conta'}
+          </Button>
+        </div>
       )}
     </section>
   );
@@ -168,6 +213,7 @@ export function MarketplaceCard() {
 
 function AccountRow({
   account: a,
+  providerName,
   busy,
   confirming,
   onConfirm,
@@ -175,6 +221,7 @@ function AccountRow({
   onReauthorize,
 }: {
   account: MarketplaceAccount;
+  providerName: string;
   busy: boolean;
   confirming: boolean;
   onConfirm: (on: boolean) => void;
@@ -196,7 +243,7 @@ function AccountRow({
 
       {confirming ? (
         <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-          <p className="font-medium">Desconectar “{a.label}”? O Fixer perde o acesso a essa conta; para voltar, será preciso autorizar de novo.</p>
+          <p className="font-medium">Desconectar “{a.label}”? O Fixer perde o acesso a essa conta do {providerName}; para voltar, será preciso autorizar de novo.</p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="destructive" disabled={busy} onClick={() => onAction(`${base}/accounts/${a.id}`, 'DELETE')}>
               Desconectar

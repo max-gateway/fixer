@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MarketplaceOverview } from '@/lib/marketplace';
+import type { MarketplaceOverview, MarketplaceProvider } from '@/lib/marketplace';
 
 const api = vi.hoisted(() => ({ getJson: vi.fn(), postJson: vi.fn(), deleteJson: vi.fn() }));
 vi.mock('@/lib/client-api', async (orig) => ({ ...(await orig<typeof import('@/lib/client-api')>()), ...api }));
@@ -13,7 +13,17 @@ vi.mock('next/navigation', () => ({ useSearchParams: () => nav.params, usePathna
 import { MarketplaceCard } from './marketplace-card';
 
 const ACC = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const overview = (over: Partial<MarketplaceOverview> = {}): MarketplaceOverview => ({ enabled: true, provider: 'mercadolivre', canConnect: true, redirectUri: 'https://mk.test/cb', accounts: [], ...over });
+const provider = (over: Partial<MarketplaceProvider> = {}): MarketplaceProvider => ({
+  slug: 'mercadolivre',
+  name: 'Mercado Livre',
+  entitled: true,
+  ready: true,
+  canUseOwnApp: true,
+  redirectUri: 'https://mk.test/v1/oauth/mercadolivre/callback',
+  accounts: [],
+  ...over,
+});
+const overview = (...providers: MarketplaceProvider[]): MarketplaceOverview => ({ enabled: true, providers: providers.length ? providers : [provider()] });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -32,14 +42,33 @@ function setup() {
 
 describe('MarketplaceCard', () => {
   it('ambiente sem a integração: avisa e não oferece conectar', async () => {
-    api.getJson.mockResolvedValue(overview({ enabled: false, canConnect: false }));
+    api.getJson.mockResolvedValue({ enabled: false, providers: [] });
     setup();
     expect(await screen.findByText(/ainda não está disponível/i)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /conectar/i })).toBeNull();
   });
 
-  it('primeira vez: o assistente explica a criação do app, mostra o endereço de retorno e só então pede os dados', async () => {
-    api.getJson.mockResolvedValue(overview({ canConnect: false, redirectUri: 'https://mk.test/v1/oauth/mercadolivre/callback' }));
+  it('uma seção por marketplace que a API devolve, qualquer que seja, cada uma com o seu botão', async () => {
+    api.getJson.mockResolvedValue(overview(provider(), provider({ slug: 'shopee', name: 'Shopee', accounts: [{ id: ACC, label: 'Loja', state: 'active', displayName: null, connection: { id: 'c1', state: 'active' } }] })));
+    setup();
+    expect(await screen.findByRole('heading', { name: 'Mercado Livre' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Shopee' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Conectar Mercado Livre' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Conectar outra conta' })).toBeTruthy();
+  });
+
+  it('marketplace fora do plano ou sem caminho de conexão: explica, sem botão que falharia', async () => {
+    api.getJson.mockResolvedValue(
+      overview(provider({ entitled: false, ready: false, canUseOwnApp: false }), provider({ slug: 'shopee', name: 'Shopee', ready: false, canUseOwnApp: false })),
+    );
+    setup();
+    expect(await screen.findByText(/não está incluído no plano da sua oficina/i)).toBeTruthy();
+    expect(screen.getByText(/ainda não está liberada para a sua oficina/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /conectar/i })).toBeNull();
+  });
+
+  it('sem app compartilhado nem próprio: o assistente explica a criação do app, mostra o endereço de retorno e só então pede os dados', async () => {
+    api.getJson.mockResolvedValue(overview(provider({ ready: false })));
     const user = setup();
     await user.click(await screen.findByRole('button', { name: /conectar mercado livre/i }));
     expect(await screen.findByText(/criar nova aplicação/i)).toBeTruthy();
@@ -51,8 +80,17 @@ describe('MarketplaceCard', () => {
     expect(screen.getByLabelText(/chave secreta/i)).toBeTruthy();
   });
 
-  it('manda ID, chave e nome numa chamada só e leva o navegador à autorização; o botão espera tudo preenchido', async () => {
-    api.getJson.mockResolvedValue(overview({ canConnect: false }));
+  it('marketplace sem guia específico usa o texto genérico, com o nome dele e sem link inventado', async () => {
+    api.getJson.mockResolvedValue(overview(provider({ slug: 'novomk', name: 'Novo Marketplace', ready: false, redirectUri: 'https://mk.test/v1/oauth/novomk/callback' })));
+    const user = setup();
+    await user.click(await screen.findByRole('button', { name: 'Conectar Novo Marketplace' }));
+    expect(await screen.findByText(/o painel de desenvolvedores do marketplace/i)).toBeTruthy();
+    expect(screen.getByText('https://mk.test/v1/oauth/novomk/callback')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /abrir o painel/i })).toBeNull();
+  });
+
+  it('manda ID, chave e nome numa chamada só, para o marketplace certo, e leva o navegador à autorização', async () => {
+    api.getJson.mockResolvedValue(overview(provider({ ready: false })));
     api.postJson.mockResolvedValue({ accountId: ACC, authorizeUrl: 'https://auth.mercadolivre.com.br/x' });
     const assign = vi.fn();
     vi.stubGlobal('location', { ...window.location, assign });
@@ -66,20 +104,20 @@ describe('MarketplaceCard', () => {
     await user.type(screen.getByLabelText(/nome desta conta/i), '  Loja principal ');
     await user.click(go);
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://auth.mercadolivre.com.br/x'));
-    expect(api.postJson).toHaveBeenCalledWith('/api/marketplace/accounts', { label: 'Loja principal', clientId: '123', clientSecret: 'segredo' }, expect.any(String));
+    expect(api.postJson).toHaveBeenCalledWith('/api/marketplace/providers/mercadolivre/accounts', { label: 'Loja principal', clientId: '123', clientSecret: 'segredo' }, expect.any(String));
     vi.unstubAllGlobals();
   });
 
-  it('app já cadastrado: só pede o nome da conta (sem credenciais)', async () => {
-    api.getJson.mockResolvedValue(overview());
+  it('já dá para autorizar (app compartilhado da plataforma): só pede o nome da conta, sem credenciais', async () => {
+    api.getJson.mockResolvedValue(overview(provider({ slug: 'shopee', name: 'Shopee' })));
     api.postJson.mockResolvedValue({ accountId: ACC, authorizeUrl: 'https://auth/x' });
     vi.stubGlobal('location', { ...window.location, assign: vi.fn() });
     const user = setup();
-    await user.click(await screen.findByRole('button', { name: /conectar mercado livre/i }));
+    await user.click(await screen.findByRole('button', { name: /conectar shopee/i }));
     expect(screen.queryByLabelText(/chave secreta/i)).toBeNull();
     await user.type(screen.getByLabelText(/nome desta conta/i), 'Loja');
-    await user.click(screen.getByRole('button', { name: /autorizar no mercado livre/i }));
-    await waitFor(() => expect(api.postJson).toHaveBeenCalledWith('/api/marketplace/accounts', { label: 'Loja' }, expect.any(String)));
+    await user.click(screen.getByRole('button', { name: /autorizar no shopee/i }));
+    await waitFor(() => expect(api.postJson).toHaveBeenCalledWith('/api/marketplace/providers/shopee/accounts', { label: 'Loja' }, expect.any(String)));
     vi.unstubAllGlobals();
   });
 
@@ -95,7 +133,7 @@ describe('MarketplaceCard', () => {
   });
 
   it('mostra o estado de cada conta; desconectar pede confirmação antes de chamar a API', async () => {
-    api.getJson.mockResolvedValue(overview({ accounts: [{ id: ACC, label: 'Loja', state: 'active', displayName: 'MAX ESHOP', connection: { id: 'c1', state: 'active' } }] }));
+    api.getJson.mockResolvedValue(overview(provider({ accounts: [{ id: ACC, label: 'Loja', state: 'active', displayName: 'MAX ESHOP', connection: { id: 'c1', state: 'active' } }] })));
     api.deleteJson.mockResolvedValue({});
     const user = setup();
     expect(await screen.findByText('Conectada')).toBeTruthy();
@@ -106,7 +144,7 @@ describe('MarketplaceCard', () => {
   });
 
   it('conta que precisa de nova autorização oferece reconectar', async () => {
-    api.getJson.mockResolvedValue(overview({ accounts: [{ id: ACC, label: 'Loja', state: 'reauth_required', displayName: null, connection: null }] }));
+    api.getJson.mockResolvedValue(overview(provider({ accounts: [{ id: ACC, label: 'Loja', state: 'reauth_required', displayName: null, connection: null }] })));
     api.postJson.mockResolvedValue({ accountId: ACC, authorizeUrl: 'https://auth/x' });
     vi.stubGlobal('location', { ...window.location, assign: vi.fn() });
     const user = setup();
@@ -115,7 +153,7 @@ describe('MarketplaceCard', () => {
     vi.unstubAllGlobals();
   });
 
-  it('volta autorizada do Mercado Livre: vincula a conta uma vez e limpa a URL', async () => {
+  it('volta autorizada do marketplace: vincula a conta uma vez e limpa a URL', async () => {
     nav.params = new URLSearchParams({ status: 'active', accountId: ACC });
     api.getJson.mockResolvedValue(overview());
     api.postJson.mockResolvedValue({});

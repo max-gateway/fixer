@@ -5,18 +5,19 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { guideFor } from '@/lib/marketplace';
 import { cn } from '@/lib/utils';
-
-export const DEVELOPERS_URL = 'https://developers.mercadolivre.com.br/devcenter';
 
 export type ConnectInput = { label: string; clientId?: string; clientSecret?: string };
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Endereço que a oficina cadastra no app do Mercado Livre. */
+  /** Marketplace sendo conectado (a lista vem da API). */
+  provider: { slug: string; name: string };
+  /** Endereço que a oficina cadastra no app dela no marketplace. */
   redirectUri: string;
-  /** A oficina já cadastrou o app dela antes: só falta dar um nome e autorizar. */
+  /** Já dá para autorizar (app compartilhado da plataforma ou app já cadastrado pela oficina): só falta dar um nome e autorizar. */
   hasApp: boolean;
   busy: boolean;
   error: string | null;
@@ -63,10 +64,11 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 }
 
 /**
- * Assistente para conectar o Mercado Livre, escrito para quem nunca mexeu com isso. Primeira vez: 1) criar o aplicativo no Mercado Livre (passo a passo, com o endereço
- * de retorno para copiar), 2) colar o ID e a chave secreta que o Mercado Livre mostra, 3) dar um nome e autorizar. Quem já tem o aplicativo cadastrado só dá um nome.
+ * Assistente para conectar um marketplace (qualquer um da lista da API), escrito para quem nunca mexeu com isso. Primeira vez: 1) criar o aplicativo no marketplace (passo a passo, com o endereço
+ * de retorno para copiar), 2) colar o ID e a chave secreta que o marketplace mostra, 3) dar um nome e autorizar. Quem já pode autorizar (app compartilhado da plataforma ou o dela já cadastrado) só dá um nome.
  */
-export function ConnectDialog({ open, onOpenChange, redirectUri, hasApp, busy, error, onSubmit }: Props) {
+export function ConnectDialog({ open, onOpenChange, provider, redirectUri, hasApp, busy, error, onSubmit }: Props) {
+  const guide = guideFor(provider.slug);
   const [step, setStep] = useState<1 | 2>(hasApp ? 2 : 1);
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
@@ -78,11 +80,11 @@ export function ConnectDialog({ open, onOpenChange, redirectUri, hasApp, busy, e
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
       <DialogContent className="sm:max-w-lg">
-        <DialogTitle className="text-lg font-semibold">Conectar o Mercado Livre</DialogTitle>
+        <DialogTitle className="text-lg font-semibold">Conectar {provider.name}</DialogTitle>
         <DialogDescription className="text-sm text-muted-foreground">
           {needsCredentials
             ? 'Em poucos minutos você libera o Fixer para acompanhar a sua loja. Você só faz isso uma vez.'
-            : 'O aplicativo da sua oficina já está cadastrado. Falta dar um nome à conta e autorizar no Mercado Livre.'}
+            : `Falta só dar um nome à conta e autorizar no ${provider.name}.`}
         </DialogDescription>
 
         {needsCredentials && (
@@ -98,24 +100,26 @@ export function ConnectDialog({ open, onOpenChange, redirectUri, hasApp, busy, e
         {step === 1 && needsCredentials && (
           <div className="mt-4 space-y-4">
             <p className="text-sm text-muted-foreground">
-              O Mercado Livre pede que cada loja crie o seu próprio “aplicativo”. É só um cadastro gratuito que gera dois códigos; você não precisa saber programar.
+              O {provider.name} pede que cada loja crie o seu próprio “aplicativo”. É só um cadastro que gera dois códigos; você não precisa saber programar.
             </p>
             <ol className="space-y-4">
-              <Step n={1} title="Entre no painel de desenvolvedores do Mercado Livre">
+              <Step n={1} title={`Entre em ${guide.portalName}`}>
                 <p className="text-muted-foreground">Use o mesmo e-mail e senha da conta de vendedor da sua loja.</p>
-                <a href={DEVELOPERS_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-brand underline-offset-4 hover:underline">
-                  Abrir o painel do Mercado Livre <ExternalLink aria-hidden className="size-3.5" />
-                </a>
+                {guide.portalUrl && (
+                  <a href={guide.portalUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-brand underline-offset-4 hover:underline">
+                    Abrir o painel do {provider.name} <ExternalLink aria-hidden className="size-3.5" />
+                  </a>
+                )}
               </Step>
               <Step n={2} title="Crie um novo aplicativo">
-                <p className="text-muted-foreground">Clique em “Criar nova aplicação”. No nome, pode usar o nome da sua oficina. Os outros campos de texto você pode preencher como achar melhor.</p>
+                <p className="text-muted-foreground">{guide.createStep}</p>
               </Step>
               <Step n={3} title="Cole este endereço no campo de retorno (URI de redirect)">
-                <p className="text-muted-foreground">É para onde o Mercado Livre devolve você depois de autorizar. Precisa ser exatamente este, sem espaços.</p>
+                <p className="text-muted-foreground">É para onde o {provider.name} devolve você depois de autorizar. Precisa ser exatamente este, sem espaços.</p>
                 <CopyField label="Endereço de retorno" value={redirectUri} />
               </Step>
               <Step n={4} title="Deixe as permissões de leitura e de escrita marcadas e salve">
-                <p className="text-muted-foreground">Assim o Fixer consegue ver e atualizar seus anúncios e pedidos. Ao salvar, o Mercado Livre mostra o ID do aplicativo e a chave secreta.</p>
+                <p className="text-muted-foreground">{guide.permissions} Ao salvar, o {provider.name} mostra o ID do aplicativo e a chave secreta.</p>
               </Step>
             </ol>
             <div className="flex justify-end gap-2">
@@ -141,13 +145,13 @@ export function ConnectDialog({ open, onOpenChange, redirectUri, hasApp, busy, e
               <>
                 <label className="grid gap-1 text-sm font-medium">
                   ID do aplicativo
-                  <Input value={clientId} onChange={(e) => setClientId(e.target.value)} inputMode="numeric" autoComplete="off" spellCheck={false} placeholder="Ex.: 1234567890123456" />
-                  <span className="text-xs font-normal text-muted-foreground">No painel do Mercado Livre aparece como “App ID” ou “Client ID”: um número grande.</span>
+                  <Input value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" spellCheck={false} placeholder="Cole aqui o ID do aplicativo" />
+                  <span className="text-xs font-normal text-muted-foreground">{guide.idHint}</span>
                 </label>
                 <label className="grid gap-1 text-sm font-medium">
                   Chave secreta
                   <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} autoComplete="off" spellCheck={false} placeholder="Cole aqui a chave secreta" />
-                  <span className="text-xs font-normal text-muted-foreground">Aparece como “Secret Key” ou “Client Secret”: um código com letras e números.</span>
+                  <span className="text-xs font-normal text-muted-foreground">{guide.secretHint}</span>
                 </label>
                 <p className="flex items-start gap-2 rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
                   <LockKeyhole aria-hidden className="mt-0.5 size-4 shrink-0" /> A chave secreta é guardada cifrada e nunca mais aparece na tela, nem para a nossa equipe.
@@ -159,7 +163,7 @@ export function ConnectDialog({ open, onOpenChange, redirectUri, hasApp, busy, e
               <Input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={80} placeholder="Ex.: Loja principal" />
               <span className="text-xs font-normal text-muted-foreground">Só para você reconhecer a conta aqui no Fixer.</span>
             </label>
-            <p className="text-xs text-muted-foreground">Ao continuar, abrimos o site do Mercado Livre para você confirmar o acesso. Depois você volta para cá automaticamente.</p>
+            <p className="text-xs text-muted-foreground">Ao continuar, abrimos o site do {provider.name} para você confirmar o acesso. Depois você volta para cá automaticamente.</p>
 
             {error && (
               <p role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-900">
@@ -174,7 +178,7 @@ export function ConnectDialog({ open, onOpenChange, redirectUri, hasApp, busy, e
                 </Button>
               )}
               <Button type="submit" disabled={busy || !ready}>
-                {busy ? <Loader2 aria-hidden className="animate-spin" /> : <Plug aria-hidden />} Autorizar no Mercado Livre
+                {busy ? <Loader2 aria-hidden className="animate-spin" /> : <Plug aria-hidden />} Autorizar no {provider.name}
               </Button>
             </div>
           </form>
