@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { guideFor } from '@/lib/marketplace';
+import type { MarketplaceProvider } from '@/lib/marketplace';
 import { cn } from '@/lib/utils';
 
 export type ConnectInput = { label: string; clientId?: string; clientSecret?: string };
@@ -13,10 +13,8 @@ export type ConnectInput = { label: string; clientId?: string; clientSecret?: st
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Marketplace sendo conectado (a lista vem da API). */
-  provider: { slug: string; name: string };
-  /** Endereço que a oficina cadastra no app dela no marketplace. */
-  redirectUri: string;
+  /** Marketplace sendo conectado, com o passo a passo e o endereço de retorno que o serviço entrega. */
+  provider: Pick<MarketplaceProvider, 'name' | 'credentials' | 'redirectUri'>;
   /** Já dá para autorizar (app compartilhado da plataforma ou app já cadastrado pela oficina): só falta dar um nome e autorizar. */
   hasApp: boolean;
   busy: boolean;
@@ -67,8 +65,9 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
  * Assistente para conectar um marketplace (qualquer um da lista da API), escrito para quem nunca mexeu com isso. Primeira vez: 1) criar o aplicativo no marketplace (passo a passo, com o endereço
  * de retorno para copiar), 2) colar o ID e a chave secreta que o marketplace mostra, 3) dar um nome e autorizar. Quem já pode autorizar (app compartilhado da plataforma ou o dela já cadastrado) só dá um nome.
  */
-export function ConnectDialog({ open, onOpenChange, provider, redirectUri, hasApp, busy, error, onSubmit }: Props) {
-  const guide = guideFor(provider.slug);
+export function ConnectDialog({ open, onOpenChange, provider, hasApp, busy, error, onSubmit }: Props) {
+  const guide = provider.credentials;
+  const redirectUri = provider.redirectUri;
   const [step, setStep] = useState<1 | 2>(hasApp ? 2 : 1);
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
@@ -116,7 +115,11 @@ export function ConnectDialog({ open, onOpenChange, provider, redirectUri, hasAp
               </Step>
               <Step n={3} title="Cole este endereço no campo de retorno (URI de redirect)">
                 <p className="text-muted-foreground">É para onde o {provider.name} devolve você depois de autorizar. Precisa ser exatamente este, sem espaços.</p>
-                <CopyField label="Endereço de retorno" value={redirectUri} />
+                {redirectUri ? (
+                  <CopyField label="Endereço de retorno" value={redirectUri} />
+                ) : (
+                  <p className="text-xs font-medium text-red-900">O endereço de retorno ainda não está configurado na plataforma. Fale com o suporte antes de continuar.</p>
+                )}
               </Step>
               <Step n={4} title="Deixe as permissões de leitura e de escrita marcadas e salve">
                 <p className="text-muted-foreground">{guide.permissions} Ao salvar, o {provider.name} mostra o ID do aplicativo e a chave secreta.</p>
@@ -144,13 +147,13 @@ export function ConnectDialog({ open, onOpenChange, provider, redirectUri, hasAp
             {needsCredentials && (
               <>
                 <label className="grid gap-1 text-sm font-medium">
-                  ID do aplicativo
-                  <Input value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" spellCheck={false} placeholder="Cole aqui o ID do aplicativo" />
+                  {guide.idLabel}
+                  <Input value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" spellCheck={false} placeholder={`Cole aqui: ${guide.idLabel}`} />
                   <span className="text-xs font-normal text-muted-foreground">{guide.idHint}</span>
                 </label>
                 <label className="grid gap-1 text-sm font-medium">
-                  Chave secreta
-                  <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} autoComplete="off" spellCheck={false} placeholder="Cole aqui a chave secreta" />
+                  {guide.secretLabel}
+                  <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} autoComplete="off" spellCheck={false} placeholder={`Cole aqui: ${guide.secretLabel}`} />
                   <span className="text-xs font-normal text-muted-foreground">{guide.secretHint}</span>
                 </label>
                 <p className="flex items-start gap-2 rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">

@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { deleteJson, getJson, postJson } from '@/lib/client-api';
-import { accountStatus, type AuthorizationStarted, connectUrl, MARKETPLACE_URL, type MarketplaceAccount, type MarketplaceOverview, type MarketplaceProvider, providerMode, returnOutcome } from '@/lib/marketplace';
+import { type AuthorizationStarted, connectUrl, MARKETPLACE_URL, type MarketplaceAccount, type MarketplaceOverview, type MarketplaceProvider, providerMode, returnOutcome } from '@/lib/marketplace';
 import { cn } from '@/lib/utils';
 import { ConnectDialog, type ConnectInput } from './connect-dialog';
 
@@ -56,17 +56,19 @@ export function MarketplaceCard() {
     onError: fail,
   });
 
-  // Volta do Mercado Livre: mostra o resultado, vincula a conta autorizada (uma vez) e limpa a URL para um F5 não repetir nada.
+  // Volta do marketplace: mostra o resultado (o texto vem do serviço), vincula a conta autorizada (uma vez) e limpa a URL para um F5 não repetir nada.
   const handled = useRef(false);
+  const outcomes = overview.data?.authorizationOutcomes;
   useEffect(() => {
-    const outcome = returnOutcome(params);
-    if (!outcome || handled.current) return;
+    if (!outcomes || handled.current) return;
+    const outcome = returnOutcome(params, outcomes);
+    if (!outcome) return;
     handled.current = true;
     router.replace(path);
     if (outcome.kind === 'error') return setError(outcome.message);
     setNotice(outcome.message);
     if (outcome.linkAccountId) act.mutate({ url: `${MARKETPLACE_URL}/accounts/${outcome.linkAccountId}/link` });
-  }, [params]);
+  }, [params, outcomes]);
 
   const busy = authorize.isPending || act.isPending;
   const data: MarketplaceOverview | undefined = overview.data;
@@ -128,7 +130,6 @@ export function MarketplaceCard() {
               open
               onOpenChange={(o) => !o && setConnecting(null)}
               provider={p}
-              redirectUri={p.redirectUri}
               hasApp={p.ready}
               busy={authorize.isPending}
               error={dialogError}
@@ -228,7 +229,7 @@ function AccountRow({
   onAction: (url: string, method?: 'POST' | 'DELETE') => void;
   onReauthorize: () => void;
 }) {
-  const status = accountStatus(a);
+  const status = a.status;
   const base = MARKETPLACE_URL;
   return (
     <li className="space-y-2 p-3">
