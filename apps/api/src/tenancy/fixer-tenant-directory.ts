@@ -1,5 +1,5 @@
 import type { Membership, TenantDirectory } from '@max-gateway/auth';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PlatformCatalogConfig } from '../catalog-platform/platform-catalog.config.js';
 import { platformRolesFor } from '../catalog-platform/platform-roles.js';
 import { SystemPrismaService } from '../prisma/system-prisma.service.js';
@@ -24,7 +24,8 @@ export class FixerTenantDirectory implements TenantDirectory {
     private readonly system: SystemPrismaService,
     private readonly membership: MembershipService,
     private readonly config: PlatformCatalogConfig,
-    private readonly now: () => number = Date.now,
+    // Relógio injetável só nos testes; para o Nest é opcional (sem isso ele tenta resolver `Function` como provider).
+    @Optional() private readonly now: () => number = Date.now,
   ) {}
 
   async membershipsOf(userId: string): Promise<Membership[]> {

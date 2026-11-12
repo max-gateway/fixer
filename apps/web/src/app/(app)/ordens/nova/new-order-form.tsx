@@ -142,7 +142,7 @@ export function NewOrderForm({ portalOrigin }: { portalOrigin: string }) {
                   transition={{ delay: 0.25, type: 'spring', stiffness: 260, damping: 24 }}
                   whileHover={reduce ? undefined : { scale: 1.015 }}
                   whileTap={reduce ? undefined : { scale: 0.975 }}
-                  className="group relative flex h-14 min-w-0 flex-1 items-center justify-between gap-3 overflow-hidden rounded-2xl bg-brand px-6 text-base font-semibold text-white shadow-lg shadow-brand/25 transition-colors hover:bg-brand-hover focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-70"
+                  className="group relative flex h-14 min-w-0 flex-1 items-center justify-between gap-3 overflow-hidden rounded-2xl bg-brand px-6 text-base font-semibold text-white shadow-lg shadow-black/10 transition-colors hover:bg-brand-hover focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-70"
                 >
                   {!reduce && (
                     <motion.span

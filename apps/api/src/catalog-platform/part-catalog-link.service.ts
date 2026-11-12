@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { makerCodeCandidates, partNumberKey } from '../fiscal-inbound/matching/maker-code.js';
 import { classifyBarcodeLinks, type LinkVerdict } from './catalog-link.js';
 import { CatalogPlatformService, type CallerContext } from './catalog-platform.service.js';
 
@@ -9,6 +10,14 @@ const REPORT_ITEMS_LIMIT = 200;
 /** Máximo de GTIN por consulta à plataforma (o contrato dela). */
 const LOOKUP_CHUNK = 100;
 const CATALOG_TAKEN = 'Esta peça do catálogo já está no estoque da oficina';
+/** Itens por chamada que vão à busca por código do fabricante (uma consulta por item); o resto fica para a próxima abertura da nota. */
+const MAKER_SEARCH_LIMIT = 40;
+
+/** A peça do catálogo que um item da nota é, e como se chegou a ela. */
+export interface CatalogCandidate {
+  catalogSku: string;
+  via: 'GTIN' | 'PART_NUMBER';
+}
 
 export interface CreateFromCatalogInput {
   catalogSku: string;
@@ -57,6 +66,17 @@ export class PartCatalogLinkService {
     if (!item) throw new NotFoundException('Peça não encontrada no catálogo');
     if (item.retired || !item.active) throw new UnprocessableEntityException('Peça retirada ou inativa no catálogo');
     return item;
+  }
+
+  /** Peças VIVAS (ativas e não retiradas) do catálogo, por sku; o que não existe ou foi retirado simplesmente não volta. */
+  async lookupLive(caller: CallerContext, catalog: string, skus: string[]): Promise<{ items: Map<string, { sku: string; name: string; partNumber: string }> }> {
+    const items = new Map<string, { sku: string; name: string; partNumber: string }>();
+    for (const group of chunk(skus, LOOKUP_CHUNK)) {
+      for (const i of (await this.platform.lookupParts(caller, catalog, group)).items) {
+        if (!i.retired && i.active) items.set(i.sku, { sku: i.sku, name: i.name, partNumber: i.partNumber });
+      }
+    }
+    return { items };
   }
 
   private isUnique(err: unknown): boolean {
@@ -193,6 +213,35 @@ export class PartCatalogLinkService {
       },
       items: verdicts.slice(0, REPORT_ITEMS_LIMIT),
     };
+  }
+
+  /**
+   * A peça do catálogo de cada item da nota, quando é INEQUÍVOCA: primeiro pelo GTIN (um único sku ativo), depois pelo código do fabricante que o fornecedor
+   * escreve na descrição (um único sku com aquele número de peça, comparado pela chave normalizada). Ambíguo ou ausente não entra: quem decide é a pessoa.
+   */
+  async candidatesForItems(caller: CallerContext, catalog: string, items: { id: string; ean: string | null; description: string }[]): Promise<Map<string, CatalogCandidate>> {
+    const out = new Map<string, CatalogCandidate>();
+    const withEan = items.filter((i) => i.ean);
+    if (withEan.length > 0) {
+      const matches = await this.barcodeMatches(caller, catalog, withEan.map((i) => i.ean!));
+      const skuByEan = new Map(matches.filter((m) => m.skus.length === 1).map((m) => [m.barcode, m.skus[0]!]));
+      for (const i of withEan) {
+        const catalogSku = skuByEan.get(i.ean!);
+        if (catalogSku) out.set(i.id, { catalogSku, via: 'GTIN' });
+      }
+    }
+    for (const item of items.filter((i) => !out.has(i.id)).slice(0, MAKER_SEARCH_LIMIT)) {
+      for (const code of makerCodeCandidates(item.description)) {
+        const key = partNumberKey(code);
+        const { data } = await this.platform.search(caller, catalog, { q: code, limit: 10 });
+        const exact = [...new Set(data.filter((h) => partNumberKey(h.partNumber) === key).map((h) => h.sku))];
+        if (exact.length === 1) {
+          out.set(item.id, { catalogSku: exact[0]!, via: 'PART_NUMBER' });
+          break;
+        }
+      }
+    }
+    return out;
   }
 
   /**

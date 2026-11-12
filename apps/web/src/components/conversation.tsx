@@ -76,7 +76,7 @@ export function Conversation({
           {groups.map(([day, items]) => (
             <Fragment key={day}>
               <div className="sticky top-0 z-10 flex justify-center py-2">
-                <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-slate-500 shadow-sm ring-1 ring-slate-200 backdrop-blur">
+                <span className="rounded-full bg-card/90 px-3 py-1 text-xs font-medium text-slate-500 shadow-sm ring-1 ring-slate-200 backdrop-blur">
                   {day}
                 </span>
               </div>
@@ -92,7 +92,7 @@ export function Conversation({
               toBottom();
               setUnseen(0);
             }}
-            className="animate-pop absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg"
+            className="animate-pop absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background shadow-lg"
           >
             <Icon name="down" className="size-4" />
             {unseen === 1 ? 'Nova mensagem' : `${unseen} novas mensagens`}
@@ -288,7 +288,7 @@ function StatusMilestone({ ev }: { ev: OrderEvent }) {
   const cancelled = to === 'CANCELLED';
   return (
     <div className="animate-rise flex justify-center py-3">
-      <div className={`flex max-w-[92%] items-start gap-3 rounded-2xl px-4 py-3 text-sm shadow-sm ring-1 ${cancelled ? 'bg-red-50 text-red-900 ring-red-200' : 'bg-slate-900 text-white ring-slate-900'}`}>
+      <div className={`flex max-w-[92%] items-start gap-3 rounded-2xl px-4 py-3 text-sm shadow-sm ring-1 ${cancelled ? 'bg-red-50 text-red-900 ring-red-200' : 'bg-foreground text-background ring-foreground'}`}>
         <span className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full ${cancelled ? 'bg-red-200' : 'bg-white/15'}`}>
           <Icon name={cancelled ? 'x' : 'check'} className="size-3.5" />
         </span>

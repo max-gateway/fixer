@@ -3,46 +3,112 @@
 @import '@fontsource/bai-jamjuree/500.css';
 @import '@fontsource/bai-jamjuree/600.css';
 @import '@fontsource/bai-jamjuree/700.css';
+@import '@fontsource/work-sans/400.css';
+@import '@fontsource/work-sans/500.css';
+@import '@fontsource/work-sans/600.css';
+@import '@fontsource/work-sans/700.css';
+
+/* Tema escuro por classe no <html> (definida antes da pintura por lib/theme.ts), não pela mídia. */
+@custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Identidade Max Gateway: conteúdo claro e arejado, com header/login/hero em preto profundo e azul elétrico.
+ * Identidade Fixer: grafite neutro + cobalto profundo, inspirada no logo (letras largas e retas,
+ * hexágono, um único traço de cor). A cor aparece pouco e com intenção; o resto é tinta e papel.
+ *
  * Camadas de tema:
- *  - marca (por tenant): --brand-primary / --brand-secondary, injetados no <html> pelo layout
+ *  - tenant: --tenant-primary / --tenant-secondary, injetados no <html> pelo layout
  *    (lib/branding.ts garante contraste mínimo com branco);
- *  - derivadas: calculadas aqui a partir da marca, sem build por tenant;
+ *  - marca: --brand-* derivadas aqui da cor do tenant, ajustadas para cada tema;
  *  - estrutura e semânticas: fixas para todos os tenants (status de OS significa a mesma coisa em qualquer cliente).
  */
 :root {
-  --brand-primary: #1f6bff;
-  --brand-secondary: #080d17;
-  --brand-hover: color-mix(in oklab, var(--brand-primary) 85%, black);
-  --brand-soft: color-mix(in oklab, var(--brand-primary) 9%, white);
+  color-scheme: light;
+  --tenant-primary: #3346c2;
+  --tenant-secondary: #111216;
+
+  --brand-primary: var(--tenant-primary);
+  --brand-secondary: var(--tenant-secondary);
+  --brand-hover: color-mix(in oklab, var(--brand-primary) 86%, black);
+  --brand-soft: color-mix(in oklab, var(--brand-primary) 8%, white);
+
+  /* shadcn/ui: --primary segue o tenant (white-label); o resto é o grafite neutro do Fixer. */
+  --radius: 0.75rem;
+  --background: #f6f6f7;
+  --foreground: #101114;
+  --card: #ffffff;
+  --card-foreground: #101114;
+  --popover: #ffffff;
+  --popover-foreground: #101114;
+  --primary: var(--brand-primary);
+  --primary-foreground: #ffffff;
+  --secondary: #efeff1;
+  --secondary-foreground: #101114;
+  --muted: #efeff1;
+  --muted-foreground: #62646d;
+  --accent: #f0f0f2;
+  --accent-foreground: #101114;
+  --destructive: #d92d2d;
+  --border: #e5e5e9;
+  --input: #d8d9df;
+  --ring: var(--brand-primary);
+
+  /*
+   * Bases das escalas derivadas (ver @theme inline abaixo): tinta e papel geram o cinza,
+   * tint/shade geram os tons claros e escuros das cores de status. Trocar estas quatro inverte tudo.
+   */
+  --ink: #101114;
+  --paper: #ffffff;
+  --tint: #ffffff;
+  --shade: #000000;
+
+  --shadow-color: 220 3% 15%;
+  --surface-highlight: rgb(255 255 255 / 0.9);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* No escuro a cor do tenant clareia para manter contraste com o fundo (e com o texto branco dos botões). */
+  --brand-primary: color-mix(in oklab, var(--tenant-primary) 80%, white);
+  --brand-secondary: color-mix(in oklab, var(--tenant-secondary) 50%, #1b1b20);
+  --brand-hover: color-mix(in oklab, var(--brand-primary) 88%, white);
+  --brand-soft: color-mix(in oklab, var(--brand-primary) 16%, #121215);
+
+  --background: #0b0b0d;
+  --foreground: #ececef;
+  --card: #131316;
+  --card-foreground: #ececef;
+  --popover: #18181c;
+  --popover-foreground: #ececef;
+  --secondary: #1d1d22;
+  --secondary-foreground: #ececef;
+  --muted: #1d1d22;
+  --muted-foreground: #9b9ca6;
+  --accent: #202026;
+  --accent-foreground: #ececef;
+  --destructive: #ef5a5a;
+  --border: #26262c;
+  --input: #34343c;
+
+  --ink: #ececef;
+  --paper: #0b0b0d;
+  --tint: #131316;
+  --shade: #ffffff;
+
+  --shadow-color: 0 0% 0%;
+  --surface-highlight: rgb(255 255 255 / 0.04);
 }
 
 /*
- * Tokens do shadcn/ui ligados à identidade: --primary segue a cor do tenant (white-label),
- * o resto é o branco-gelo e a tinta azulada fixos do Fixer.
+ * Superfícies de tinta (menu lateral, heróis em bg-brand-secondary, câmera): o conteúdo foi desenhado
+ * para fundo escuro com a paleta clara (text-emerald-300, text-slate-300...). Aqui as bases voltam ao
+ * claro para esses tons continuarem legíveis também no tema escuro.
  */
-:root {
-  --radius: 0.5rem;
-  --background: #f3f6fb;
-  --foreground: #0b1220;
-  --card: #ffffff;
-  --card-foreground: #0b1220;
-  --popover: #ffffff;
-  --popover-foreground: #0b1220;
-  --primary: var(--brand-primary);
-  --primary-foreground: #ffffff;
-  --secondary: #eaf0f8;
-  --secondary-foreground: #0b1220;
-  --muted: #eaf0f8;
-  --muted-foreground: #5a6a82;
-  --accent: #e3edff;
-  --accent-foreground: #0b1220;
-  --destructive: #dc2626;
-  --border: #dde5f0;
-  --input: #cfd9e8;
-  --ring: var(--brand-primary);
+:where([class*='bg-brand-secondary'], .bg-black, .ink) {
+  --ink: #101114;
+  --paper: #ffffff;
+  --tint: #ffffff;
+  --shade: #000000;
 }
 
 @theme inline {
@@ -69,32 +135,101 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --font-sans: 'Bai Jamjuree', ui-sans-serif, system-ui, sans-serif;
+  /* Work Sans: corpo e interface (texto corrido, formulários, tabelas, botões, rótulos). */
+  --font-sans: 'Work Sans', ui-sans-serif, system-ui, sans-serif;
+  /* Bai Jamjuree: voz da marca, a mesma geometria larga do logo (títulos h1–h4, hero, números em destaque). Uso: `font-display`. */
+  --font-display: 'Bai Jamjuree', ui-sans-serif, system-ui, sans-serif;
 
   --color-brand: var(--brand-primary);
   --color-brand-hover: var(--brand-hover);
   --color-brand-soft: var(--brand-soft);
   --color-brand-secondary: var(--brand-secondary);
-}
 
-/*
- * As telas usam a escala slate do Tailwind; aqui ela vira o cinza-azulado da identidade Max Gateway
- * (fundo, bordas, texto suave e tinta) sem precisar reescrever cada classe.
- */
-@theme {
-  --color-slate-50: #f3f6fb;
-  --color-slate-100: #eaf0f8;
-  --color-slate-200: #dde5f0;
-  --color-slate-300: #c5d1e3;
-  --color-slate-400: #8b9bb3;
-  --color-slate-500: #5a6a82;
-  --color-slate-600: #46566e;
-  --color-slate-700: #334258;
-  --color-slate-800: #1c2a40;
-  --color-slate-900: #0b1220;
+  /*
+   * As telas usam a escala slate do Tailwind; aqui ela vira grafite neutro derivado de tinta/papel,
+   * então inverte sozinha no tema escuro sem reescrever cada classe. `inline` é obrigatório:
+   * o var() precisa ser resolvido no elemento (para as superfícies de tinta acima), não no :root.
+   */
+  --color-slate-50: color-mix(in oklab, var(--ink) 3.5%, var(--paper));
+  --color-slate-100: color-mix(in oklab, var(--ink) 6%, var(--paper));
+  --color-slate-200: color-mix(in oklab, var(--ink) 10.5%, var(--paper));
+  --color-slate-300: color-mix(in oklab, var(--ink) 20%, var(--paper));
+  --color-slate-400: color-mix(in oklab, var(--ink) 42%, var(--paper));
+  --color-slate-500: color-mix(in oklab, var(--ink) 58%, var(--paper));
+  --color-slate-600: color-mix(in oklab, var(--ink) 68%, var(--paper));
+  --color-slate-700: color-mix(in oklab, var(--ink) 78%, var(--paper));
+  --color-slate-800: color-mix(in oklab, var(--ink) 89%, var(--paper));
+  --color-slate-900: var(--ink);
+  --color-slate-950: color-mix(in oklab, var(--ink) 92%, var(--shade));
+
+  /*
+   * Cores de status: 400/500/600 fixos (funcionam nos dois temas e sob texto branco); os tons
+   * claros saem do 500 misturado ao fundo (--tint) e os escuros do 500 misturado a --shade,
+   * que no tema escuro é branco: `bg-emerald-50 text-emerald-800` vira fundo verde-escuro com texto verde-claro.
+   */
+  --color-emerald-50: color-mix(in oklab, oklch(69.6% 0.17 162.48) 8%, var(--tint));
+  --color-emerald-100: color-mix(in oklab, oklch(69.6% 0.17 162.48) 15%, var(--tint));
+  --color-emerald-200: color-mix(in oklab, oklch(69.6% 0.17 162.48) 28%, var(--tint));
+  --color-emerald-300: color-mix(in oklab, oklch(69.6% 0.17 162.48) 50%, var(--tint));
+  --color-emerald-700: color-mix(in oklab, oklch(69.6% 0.17 162.48) 74%, var(--shade));
+  --color-emerald-800: color-mix(in oklab, oklch(69.6% 0.17 162.48) 60%, var(--shade));
+  --color-emerald-900: color-mix(in oklab, oklch(69.6% 0.17 162.48) 50%, var(--shade));
+  --color-emerald-950: color-mix(in oklab, oklch(69.6% 0.17 162.48) 34%, var(--shade));
+
+  --color-green-50: color-mix(in oklab, oklch(72.3% 0.219 149.579) 8%, var(--tint));
+  --color-green-100: color-mix(in oklab, oklch(72.3% 0.219 149.579) 15%, var(--tint));
+  --color-green-200: color-mix(in oklab, oklch(72.3% 0.219 149.579) 28%, var(--tint));
+  --color-green-300: color-mix(in oklab, oklch(72.3% 0.219 149.579) 50%, var(--tint));
+  --color-green-700: color-mix(in oklab, oklch(72.3% 0.219 149.579) 74%, var(--shade));
+  --color-green-800: color-mix(in oklab, oklch(72.3% 0.219 149.579) 60%, var(--shade));
+  --color-green-900: color-mix(in oklab, oklch(72.3% 0.219 149.579) 50%, var(--shade));
+
+  --color-red-50: color-mix(in oklab, oklch(63.7% 0.237 25.331) 7%, var(--tint));
+  --color-red-100: color-mix(in oklab, oklch(63.7% 0.237 25.331) 13%, var(--tint));
+  --color-red-200: color-mix(in oklab, oklch(63.7% 0.237 25.331) 25%, var(--tint));
+  --color-red-300: color-mix(in oklab, oklch(63.7% 0.237 25.331) 45%, var(--tint));
+  --color-red-700: color-mix(in oklab, oklch(63.7% 0.237 25.331) 80%, var(--shade));
+  --color-red-800: color-mix(in oklab, oklch(63.7% 0.237 25.331) 66%, var(--shade));
+  --color-red-900: color-mix(in oklab, oklch(63.7% 0.237 25.331) 56%, var(--shade));
+  --color-red-950: color-mix(in oklab, oklch(63.7% 0.237 25.331) 38%, var(--shade));
+
+  --color-amber-50: color-mix(in oklab, oklch(76.9% 0.188 70.08) 9%, var(--tint));
+  --color-amber-100: color-mix(in oklab, oklch(76.9% 0.188 70.08) 17%, var(--tint));
+  --color-amber-200: color-mix(in oklab, oklch(76.9% 0.188 70.08) 32%, var(--tint));
+  --color-amber-300: color-mix(in oklab, oklch(76.9% 0.188 70.08) 55%, var(--tint));
+  --color-amber-700: color-mix(in oklab, oklch(76.9% 0.188 70.08) 66%, var(--shade));
+  --color-amber-800: color-mix(in oklab, oklch(76.9% 0.188 70.08) 56%, var(--shade));
+  --color-amber-900: color-mix(in oklab, oklch(76.9% 0.188 70.08) 47%, var(--shade));
+  --color-amber-950: color-mix(in oklab, oklch(76.9% 0.188 70.08) 32%, var(--shade));
+
+  --color-sky-50: color-mix(in oklab, oklch(68.5% 0.169 237.323) 8%, var(--tint));
+  --color-sky-100: color-mix(in oklab, oklch(68.5% 0.169 237.323) 15%, var(--tint));
+  --color-sky-200: color-mix(in oklab, oklch(68.5% 0.169 237.323) 28%, var(--tint));
+  --color-sky-300: color-mix(in oklab, oklch(68.5% 0.169 237.323) 50%, var(--tint));
+  --color-sky-700: color-mix(in oklab, oklch(68.5% 0.169 237.323) 74%, var(--shade));
+  --color-sky-800: color-mix(in oklab, oklch(68.5% 0.169 237.323) 60%, var(--shade));
+  --color-sky-900: color-mix(in oklab, oklch(68.5% 0.169 237.323) 50%, var(--shade));
+  --color-sky-950: color-mix(in oklab, oklch(68.5% 0.169 237.323) 34%, var(--shade));
+
+  --color-blue-200: color-mix(in oklab, oklch(62.3% 0.214 259.815) 28%, var(--tint));
+  --color-blue-300: color-mix(in oklab, oklch(62.3% 0.214 259.815) 50%, var(--tint));
+
+  --color-violet-100: color-mix(in oklab, oklch(60.6% 0.25 292.717) 14%, var(--tint));
+  --color-violet-800: color-mix(in oklab, oklch(60.6% 0.25 292.717) 64%, var(--shade));
 }
 
 @layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
   button:not(:disabled),
   [role='button']:not([aria-disabled='true']) {
     cursor: pointer;
@@ -104,29 +239,52 @@
     outline-offset: 2px;
   }
   ::selection {
-    background: color-mix(in oklab, var(--brand-primary) 45%, transparent);
+    background: color-mix(in oklab, var(--brand-primary) 35%, transparent);
   }
 }
 
-/* Atmosfera da marca: halo azul suave no topo, atrás do conteúdo. */
+/* Troca de tema sem transições pela metade (lib/theme.ts liga esta classe por um quadro). */
+.theme-switching,
+.theme-switching * {
+  transition: none !important;
+}
+
+/*
+ * Textura de fundo: grade de pontos discreta no topo, que se apaga ao descer.
+ * Substitui o antigo halo azul: dá profundidade sem cor.
+ */
+@utility bg-app-texture {
+  background-image: radial-gradient(color-mix(in oklab, var(--ink) 9%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(to bottom, black, transparent 26rem);
+}
+
+/* Mantido para telas que ainda pedem atmosfera: agora uma luz neutra, sem azul. */
 @utility bg-brand-glow {
-  background-image:
-    radial-gradient(60rem 22rem at 50% -8rem, color-mix(in oklab, var(--brand-primary) 13%, transparent), transparent 70%);
+  background-image: radial-gradient(60rem 20rem at 50% -8rem, color-mix(in oklab, var(--brand-primary) 6%, transparent), transparent 70%);
   background-repeat: no-repeat;
 }
 
-/* Superfície elevada: branco com realce de 1px no topo e sombra azulada difusa. */
+/* Superfície elevada: realce de 1px no topo e sombra neutra curta (sem tom azulado). */
 @utility surface {
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9), 0 1px 2px rgb(11 18 32 / 0.04), 0 12px 28px -16px rgb(31 80 160 / 0.28);
+  box-shadow:
+    inset 0 1px 0 var(--surface-highlight),
+    0 1px 2px hsl(var(--shadow-color) / 0.05),
+    0 8px 24px -14px hsl(var(--shadow-color) / 0.16);
 }
 
-/* Botão primário: degradê + brilho azul. */
+/* Botão primário: cor chapada com realce interno sutil, sem brilho. */
 @utility btn-glow {
-  background-image: linear-gradient(180deg, color-mix(in oklab, var(--primary) 82%, white), var(--primary));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), 0 8px 20px -8px var(--primary);
+  background-color: var(--primary);
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.1), transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 1px 2px hsl(var(--shadow-color) / 0.2);
 }
 
-html { scrollbar-color: #c5d1e3 transparent; }
+html {
+  scrollbar-color: color-mix(in oklab, var(--ink) 22%, transparent) transparent;
+}
 
 /* Números alinhados em colunas (placas, valores, nº de OS). */
 @utility tabular {
@@ -153,7 +311,7 @@ html { scrollbar-color: #c5d1e3 transparent; }
 @utility animate-pop { animation: pop 0.2s ease-out both; }
 @utility animate-tick { stroke-dasharray: 24; animation: tick 0.35s ease-out 0.05s both; }
 @utility skeleton {
-  background: linear-gradient(90deg, #eaf0f8 25%, #dde5f0 50%, #eaf0f8 75%) 0 0 / 200% 100%;
+  background: linear-gradient(90deg, var(--muted) 25%, color-mix(in oklab, var(--ink) 11%, var(--paper)) 50%, var(--muted) 75%) 0 0 / 200% 100%;
   animation: shimmer 1.4s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {

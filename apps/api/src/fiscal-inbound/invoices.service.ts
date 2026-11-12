@@ -49,7 +49,8 @@ export const ItemActionSchema = z.discriminatedUnion('action', [
 export const CreatePartSchema = z.object({
   sku: z.string().trim().min(1).max(60).optional(),
   name: z.string().trim().min(1).max(200).optional(),
-  sellPrice: z.number({ required_error: 'Informe o preço de venda', invalid_type_error: 'Preço inválido' }).nonnegative('Preço não pode ser negativo'),
+  /** Opcional: o preço de venda sai da precificação da nota; a peça nasce com 0 (sem preço) até lá. */
+  sellPrice: z.number({ invalid_type_error: 'Preço inválido' }).nonnegative('Preço não pode ser negativo').default(0),
   unitFactor: z.number().positive().max(1_000_000).default(1),
   saveMapping: z.boolean().default(true),
   /** Peça do catálogo global que a nova peça da oficina passa a representar (a API a resolve antes; nome e GTIN nunca vêm do corpo). */
@@ -191,7 +192,13 @@ export class InvoicesService {
    * Cadastra a peça a partir do item da nota (NCM, CEST, origem, GTIN, unidade e custo vêm do XML) e já a
    * vincula. É o caminho de cadastro por XML do service-catalog §4.3.1.
    */
-  async createPartFromItem(invoiceId: string, itemNumber: number, input: Omit<z.infer<typeof CreatePartSchema>, 'catalog'>, catalogPart?: CatalogPartRef) {
+  async createPartFromItem(
+    invoiceId: string,
+    itemNumber: number,
+    input: Omit<z.infer<typeof CreatePartSchema>, 'catalog'>,
+    catalogPart?: CatalogPartRef,
+    resolution: 'MANUAL' | 'AUTO_CATALOG' = 'MANUAL',
+  ) {
     // A plataforma é consultada FORA da transação (é uma chamada de rede), por quem tem o token do usuário; aqui só se confere que veio o que foi pedido.
     if ((input.catalogSku === undefined) !== (catalogPart === undefined) || (catalogPart && catalogPart.sku !== input.catalogSku)) {
       throw new BadRequestException('A peça do catálogo precisa ser resolvida antes do cadastro');
@@ -221,7 +228,7 @@ export class InvoicesService {
         });
         await tx.purchaseInvoiceItem.update({
           where: { id: item.id },
-          data: { resolution: 'MANUAL', partId: part.id, unitFactor: String(input.unitFactor) },
+          data: { resolution, partId: part.id, unitFactor: String(input.unitFactor) },
         });
         if (input.saveMapping) await this.learn(tx, invoice, item.supplierCode, part.id, input.unitFactor);
         await recomputeExportStatus(tx, invoiceId);
@@ -235,6 +242,20 @@ export class InvoicesService {
       throw err;
     }
     return this.get(invoiceId);
+  }
+
+  /**
+   * Liga o item a uma peça da oficina que já representa a peça do catálogo (casamento automático). O fator é 1: quem chama só usa isto quando a unidade da nota
+   * é a do estoque. Aprende o vínculo do fornecedor, então as próximas notas dele já entram ligadas.
+   */
+  async linkItemFromCatalog(invoiceId: string, itemNumber: number, partId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const { invoice, item } = await this.editableItem(tx, invoiceId, itemNumber);
+      if (item.resolution !== 'UNRESOLVED') return; // decisão humana (ou anterior) nunca é sobrescrita
+      await tx.purchaseInvoiceItem.update({ where: { id: item.id }, data: { resolution: 'AUTO_CATALOG', partId, unitFactor: '1' } });
+      await this.learn(tx, invoice, item.supplierCode, partId, 1);
+      await recomputeExportStatus(tx, invoiceId);
+    });
   }
 
   /** Confirma a entrada no estoque de uma nota READY (docs/specs/nfe-import.md §8.3). */

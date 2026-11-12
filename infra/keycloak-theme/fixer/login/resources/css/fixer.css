@@ -7,17 +7,23 @@
 @font-face { font-family: 'Bai Jamjuree'; font-weight: 500; font-style: normal; font-display: swap; src: url('../fonts/bai-jamjuree-latin-500-normal.woff2') format('woff2'); }
 @font-face { font-family: 'Bai Jamjuree'; font-weight: 600; font-style: normal; font-display: swap; src: url('../fonts/bai-jamjuree-latin-600-normal.woff2') format('woff2'); }
 @font-face { font-family: 'Bai Jamjuree'; font-weight: 700; font-style: normal; font-display: swap; src: url('../fonts/bai-jamjuree-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Work Sans'; font-weight: 400; font-style: normal; font-display: swap; src: url('../fonts/work-sans-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Work Sans'; font-weight: 500; font-style: normal; font-display: swap; src: url('../fonts/work-sans-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Work Sans'; font-weight: 600; font-style: normal; font-display: swap; src: url('../fonts/work-sans-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Work Sans'; font-weight: 700; font-style: normal; font-display: swap; src: url('../fonts/work-sans-latin-700-normal.woff2') format('woff2'); }
 
 :root {
   --fx-primary: #c2410c;
   --fx-ink: #1c2430;
   --fx-primary-hover: color-mix(in oklab, var(--fx-primary) 85%, black);
 
-  --fx-font: 'Bai Jamjuree', ui-sans-serif, system-ui, sans-serif;
+  /* Work Sans: corpo e formulários. Bai Jamjuree: títulos e marca. */
+  --fx-font: 'Work Sans', ui-sans-serif, system-ui, sans-serif;
+  --fx-font-display: 'Bai Jamjuree', ui-sans-serif, system-ui, sans-serif;
 
   /* Aponta as variáveis do PatternFly para a marca. */
   --pf-v5-global--FontFamily--text: var(--fx-font);
-  --pf-v5-global--FontFamily--heading: var(--fx-font);
+  --pf-v5-global--FontFamily--heading: var(--fx-font-display);
   --pf-v5-global--FontFamily--sans-serif: var(--fx-font);
   --pf-v5-global--primary-color--100: var(--fx-primary);
   --pf-v5-global--primary-color--200: var(--fx-primary-hover);
