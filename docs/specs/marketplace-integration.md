@@ -29,7 +29,7 @@ Na volta, a tela vincula a conta (`POST /marketplace/accounts/:id/link`; o marke
 Fora do alcance da oficina (decisão comercial no control plane): o direito `marketplace.provider.<marketplace>` e a flag `marketplace.byo_app` da assinatura. Sem eles o serviço recusa com mensagem clara, mostrada na janela.
 
 ## Configuração (apps/api/.env.example)
-`MARKETPLACE_URL`, `MARKETPLACE_TOKEN_URL`, `MARKETPLACE_CLIENT_SECRET` e `MARKETPLACE_RETURN_URL` ligam a integração (sem elas a tela diz "não disponível"). `MARKETPLACE_PUBLIC_URL` só serve para mostrar o endereço de retorno no assistente.
+`MARKETPLACE_URL`, `MARKETPLACE_TOKEN_URL`, `MARKETPLACE_CLIENT_SECRET` e `MARKETPLACE_RETURN_URL` ligam a integração (sem elas a tela diz "não disponível"). A lista de marketplaces, o endereço de retorno do OAuth, o passo a passo de criação do app, o estado de cada conta e o texto da volta do OAuth vêm do serviço (`GET /v1/providers` e `GET /v1/accounts`): o Fixer não guarda nada por marketplace, então um marketplace novo no serviço aparece aqui sem deploy do Fixer.
 
 ## Operação (uma vez por ambiente)
 - Segredo do client `fixer-marketplace` no ambiente da API do Fixer (`KC_SECRET_FIXER_MARKETPLACE` do Keycloak da plataforma).

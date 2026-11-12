@@ -5,14 +5,47 @@ import { MarketplaceConfig, type MarketplaceSettings } from './marketplace.confi
 /** Direito do plano (control plane) que libera um marketplace; o serviço `marketplace` confere o mesmo direito e fecha por padrão. */
 export const providerFeature = (slug: string): string => `marketplace.provider.${slug}`;
 
+/** O estado da conta em palavras, como o SERVIÇO o diz (o mesmo texto em todos os produtos). */
+export interface AccountStatus {
+  label: string;
+  tone: 'ok' | 'warn' | 'bad' | 'muted';
+  hint?: string;
+}
+
 export interface MarketplaceAccount {
   id: string;
   label: string;
   /** `active`, `pending_profile`, `reauth_required` ou `pending`. */
   state: string;
   displayName: string | null;
+  status: AccountStatus;
   connection: { id: string; state: string } | null;
 }
+
+/** Passo a passo para criar o app do marketplace, entregue pelo serviço (o Fixer não guarda texto por marketplace). */
+export interface CredentialsGuide {
+  portalName: string;
+  portalUrl?: string;
+  createStep: string;
+  idLabel: string;
+  idHint: string;
+  secretLabel: string;
+  secretHint: string;
+  permissions: string;
+}
+
+/** Particularidade da conta que o serviço declara (a tela mostra ou pede). */
+export interface OptionField {
+  key: string;
+  label: string;
+  hint?: string;
+  kind: 'text' | 'uuid' | 'boolean';
+  editable: boolean;
+  required: boolean;
+}
+
+/** Texto de cada resultado da volta do OAuth (`?status=&reason=`), entregue pelo serviço. */
+export type AuthorizationOutcomes = Record<string, { kind: 'ok' | 'error'; message: string }>;
 
 /** Um marketplace que o serviço opera, o que a oficina pode fazer com ele e as contas dela. Nada daqui é específico de um marketplace. */
 export interface MarketplaceProvider {
@@ -24,8 +57,11 @@ export interface MarketplaceProvider {
   ready: boolean;
   /** A oficina pode cadastrar o app dela (assistente na tela). Sem app compartilhado, é o único caminho. */
   canUseOwnApp: boolean;
-  /** Endereço de retorno que a oficina cadastra no app dela no marketplace. */
-  redirectUri: string;
+  /** Endereço de retorno que a oficina cadastra no app dela no marketplace. `null` = o serviço não tem endereço público configurado. */
+  redirectUri: string | null;
+  capabilities: string[];
+  credentials: CredentialsGuide;
+  options: OptionField[];
   accounts: MarketplaceAccount[];
 }
 
@@ -33,6 +69,7 @@ export interface MarketplaceOverview {
   /** Falso quando o Fixer não está configurado para falar com o serviço. */
   enabled: boolean;
   providers: MarketplaceProvider[];
+  authorizationOutcomes: AuthorizationOutcomes;
 }
 
 interface RawProvider {
@@ -40,6 +77,10 @@ interface RawProvider {
   name: string;
   entitled: boolean;
   appSources: { platform: boolean; own: boolean };
+  capabilities: string[];
+  redirectUri: string | null;
+  credentials: CredentialsGuide;
+  options: OptionField[];
 }
 interface RawApp {
   id: string;
@@ -53,6 +94,7 @@ interface RawAccount {
   label: string;
   state: string;
   displayName: string | null;
+  status: AccountStatus;
   connection: { id: string; storeId: string | null; state: string } | null;
 }
 type Started = { accountId: string; authorizeUrl: string };
@@ -71,25 +113,29 @@ export class MarketplaceService {
   ) {}
 
   async overview(orgId: string): Promise<MarketplaceOverview> {
-    if (!this.client.enabled) return { enabled: false, providers: [] };
+    if (!this.client.enabled) return { enabled: false, providers: [], authorizationOutcomes: {} };
     return this.call(async () => {
       const [providers, apps, accounts] = await Promise.all([
-        this.client.request<{ items: RawProvider[] }>(orgId, 'GET', '/v1/providers'),
+        this.client.request<{ items: RawProvider[]; authorizationOutcomes: AuthorizationOutcomes }>(orgId, 'GET', '/v1/providers'),
         this.client.request<{ items: RawApp[] }>(orgId, 'GET', '/v1/apps'),
         this.client.request<{ items: RawAccount[] }>(orgId, 'GET', '/v1/accounts'),
       ]);
       return {
         enabled: true,
+        authorizationOutcomes: providers.authorizationOutcomes ?? {},
         providers: providers.items.map((p) => ({
           slug: p.slug,
           name: p.name,
           entitled: p.entitled,
           ready: p.entitled && Boolean(activeApp(apps.items, p.slug, 'tenant') ?? (p.appSources.platform ? activeApp(apps.items, p.slug, 'platform') : undefined)),
           canUseOwnApp: p.entitled && p.appSources.own,
-          redirectUri: this.redirectUri(p.slug),
+          redirectUri: p.redirectUri,
+          capabilities: p.capabilities,
+          credentials: p.credentials,
+          options: p.options,
           accounts: accounts.items
             .filter((a) => a.provider === p.slug && a.state !== 'revoked')
-            .map((a) => ({ id: a.id, label: a.label, state: a.state, displayName: a.displayName, connection: a.connection ? { id: a.connection.id, state: a.connection.state } : null })),
+            .map((a) => ({ id: a.id, label: a.label, state: a.state, displayName: a.displayName, status: a.status, connection: a.connection ? { id: a.connection.id, state: a.connection.state } : null })),
         })),
       };
     });
@@ -137,10 +183,6 @@ export class MarketplaceService {
 
   setConnectionState(orgId: string, connectionId: string, action: 'pause' | 'resume'): Promise<unknown> {
     return this.call(() => this.client.request(orgId, 'POST', `/v1/connections/${connectionId}/${action}`, {}));
-  }
-
-  private redirectUri(provider: string): string {
-    return this.cfg.publicUrl ? `${this.cfg.publicUrl}/v1/oauth/${provider}/callback` : '';
   }
 
   private async upsertOwnApp(orgId: string, provider: string, clientId: string, clientSecret: string): Promise<void> {

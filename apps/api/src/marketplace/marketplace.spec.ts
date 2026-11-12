@@ -9,7 +9,7 @@ import { MarketplaceService } from './marketplace.service.js';
 
 const ORG = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ACC = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const cfg: MarketplaceSettings = { enabled: true, baseUrl: 'https://mk.test', tokenUrl: 'https://kc.test/token', clientId: 'fixer-marketplace', clientSecret: 's3', returnUrl: 'https://app.test/configuracoes/marketplaces', publicUrl: 'https://mk.test', timeoutMs: 1000 };
+const cfg: MarketplaceSettings = { enabled: true, baseUrl: 'https://mk.test', tokenUrl: 'https://kc.test/token', clientId: 'fixer-marketplace', clientSecret: 's3', returnUrl: 'https://app.test/configuracoes/marketplaces', timeoutMs: 1000 };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 describe('MarketplaceClient', () => {
@@ -55,17 +55,24 @@ describe('MarketplaceService', () => {
 
   const ML = { slug: 'mercadolivre', name: 'Mercado Livre' };
   const SHOPEE = { slug: 'shopee', name: 'Shopee' };
+  const guide = { portalName: 'o portal', createStep: 'Crie.', idLabel: 'ID', idHint: 'a', secretLabel: 'Segredo', secretHint: 'b', permissions: 'c' };
+  // O serviço entrega a apresentação pronta: o Fixer só repassa.
   const provider = (p: { slug: string; name: string }, over: { entitled?: boolean; platform?: boolean; own?: boolean } = {}) => ({
     ...p,
     entitled: over.entitled ?? true,
     appSources: { platform: over.platform ?? false, own: over.own ?? true },
+    capabilities: ['auth', 'listings'],
+    redirectUri: `https://mk.test/v1/oauth/${p.slug}/callback`,
+    credentials: guide,
+    options: [],
   });
+  const status = { label: 'Conectada', tone: 'ok' };
   const app = (id: string, prov: string, source: 'tenant' | 'platform', status = 'active') => ({ id, provider: prov, status, source });
-  const acc = (id: string, prov: string, state = 'active', connection: unknown = null) => ({ id, provider: prov, label: 'Loja', state, displayName: 'MAX', token: 'segredo', connection });
+  const acc = (id: string, prov: string, state = 'active', connection: unknown = null) => ({ id, provider: prov, label: 'Loja', state, displayName: 'MAX', status, token: 'segredo', connection });
 
   function serve(map: { providers?: unknown[]; apps?: unknown[]; accounts?: unknown[]; settings?: unknown }) {
     request.mockImplementation(async (_o: string, method: string, path: string) => {
-      if (method === 'GET' && path === '/v1/providers') return { items: map.providers ?? [] };
+      if (method === 'GET' && path === '/v1/providers') return { items: map.providers ?? [], authorizationOutcomes: { active: { kind: 'ok', message: 'Conta autorizada.' } } };
       if (method === 'GET' && path === '/v1/apps') return { items: map.apps ?? [] };
       if (method === 'GET' && path === '/v1/accounts') return { items: map.accounts ?? [] };
       if (method === 'GET' && path === '/v1/settings') return map.settings ?? { document: {}, version: 0 };
@@ -77,7 +84,7 @@ describe('MarketplaceService', () => {
 
   it('desligado: a visão diz "desligado", nada é chamado e as ações recusam com 503', async () => {
     const off = new MarketplaceService({ enabled: false, request } as never, cfg);
-    expect(await off.overview(ORG)).toEqual({ enabled: false, providers: [] });
+    expect(await off.overview(ORG)).toEqual({ enabled: false, providers: [], authorizationOutcomes: {} });
     await expect(off.connect(ORG, 'mercadolivre', 'Loja')).rejects.toMatchObject({ status: 503 });
     expect(request).not.toHaveBeenCalled();
   });
@@ -93,7 +100,10 @@ describe('MarketplaceService', () => {
       ['mercadolivre', true, true, 'https://mk.test/v1/oauth/mercadolivre/callback'],
       ['shopee', false, false, 'https://mk.test/v1/oauth/shopee/callback'],
     ]);
-    expect(view.providers[0]!.accounts).toEqual([{ id: ACC, label: 'Loja', state: 'active', displayName: 'MAX', connection: { id: 'c1', state: 'active' } }]);
+    expect(view.providers[0]!.accounts).toEqual([{ id: ACC, label: 'Loja', state: 'active', displayName: 'MAX', status, connection: { id: 'c1', state: 'active' } }]);
+    // apresentação, endereço de retorno e textos do OAuth: do serviço, sem tradução no Fixer
+    expect(view.providers[0]).toMatchObject({ credentials: guide, capabilities: ['auth', 'listings'], options: [] });
+    expect(view.authorizationOutcomes.active!.message).toBe('Conta autorizada.');
     expect(view.providers[1]!.accounts.map((a) => a.state)).toEqual(['reauth_required']);
     expect(JSON.stringify(view)).not.toContain('segredo');
   });
