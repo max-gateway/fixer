@@ -54,13 +54,10 @@ export class MembershipService {
     this.cache.delete(m.keycloakId); // a próxima requisição enxerga a organização nova na hora
   }
 
-  /** Garante a participação sem mexer no papel já gravado (convite feito pela tela de acessos). */
-  async ensure(m: { keycloakId: string; email: string }): Promise<void> {
-    await this.prisma.orgMembership.createMany({ data: [{ keycloakId: m.keycloakId, email: m.email.toLowerCase() }], skipDuplicates: true });
-    this.cache.delete(m.keycloakId);
-  }
-
-  /** Remove a participação na organização do contexto (pessoa removida pela tela de acessos). */
+  /**
+   * Remove a participação na organização do contexto (pessoa removida pela tela de acessos), depois de o control plane já ter sido avisado. Sem isto o vínculo
+   * ficaria até a próxima rodada do sync do diretório.
+   */
   async remove(keycloakId: string): Promise<void> {
     await this.prisma.orgMembership.deleteMany({ where: { keycloakId } });
     this.cache.delete(keycloakId);

@@ -3,6 +3,7 @@ import type { Prisma } from '@fixer/db';
 import type { AuthUser } from '../auth/auth.decorators.js';
 import { PERMISSION_GROUPS, PERMISSIONS } from '../auth/permissions.catalog.js';
 import { PlanLimits } from '../control-plane/plan-limits.service.js';
+import { PendingInviteService } from '../control-plane/pending-invite.service.js';
 import { PlatformRolesPublisher } from '../control-plane/platform-roles.publisher.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { MembershipService } from '../tenancy/membership.service.js';
@@ -15,8 +16,10 @@ import { AccessRuleViolation, assertAllowed, assertRoleName, managers, memberSta
 type Tx = Prisma.TransactionClient;
 
 export interface MemberView {
-  /** `sub` do Keycloak: identifica a pessoa nas rotas (existe mesmo para quem ainda não tem usuário no Fixer). */
+  /** `sub` do Keycloak: identifica a pessoa nas rotas (existe mesmo para quem ainda não tem usuário no Fixer). Convite que aguarda a identidade usa `invite:<id>`. */
   sub: string;
+  /** Preenchido só no convite que ainda aguarda a identidade no control plane: a única ação possível sobre ele é cancelar. */
+  inviteId: string | null;
   userId: string | null;
   name: string;
   email: string;
@@ -85,6 +88,7 @@ export class AccessService {
     private readonly limits: PlanLimits,
     private readonly membership: MembershipService,
     private readonly platformRoles: PlatformRolesPublisher,
+    private readonly invites: PendingInviteService,
     @Inject(MEMBER_DIRECTORY) private readonly directory: MemberDirectory,
   ) {}
 
@@ -139,12 +143,13 @@ export class AccessService {
 
   /** Pessoas da oficina: quem já tem usuário no Fixer + quem está no diretório da organização e ainda não tem acesso. */
   async members(actor: AuthUser): Promise<{ members: MemberView[]; directory: DirectoryState; seats: { max: number | null; used: number } }> {
-    const [users, snapshot, seats] = await Promise.all([
+    const [users, snapshot, seats, pendingInvites] = await Promise.all([
       this.prisma.user.findMany({
         select: { id: true, keycloakId: true, name: true, email: true, active: true, lastSeenAt: true, createdAt: true, roles: { select: { roleId: true } } },
       }),
       this.snapshot(this.prisma),
       this.limits.userSeats(),
+      this.invites.list(),
     ]);
 
     const { list, state } = await this.directoryMembers();
@@ -156,6 +161,7 @@ export class AccessService {
       byId.delete(u.keycloakId);
       return {
         sub: u.keycloakId,
+        inviteId: null,
         userId: u.id,
         name: u.name,
         email: u.email,
@@ -169,7 +175,23 @@ export class AccessService {
       };
     });
     for (const d of byId.values()) {
-      members.push({ sub: d.id, userId: null, name: d.name, email: d.email, status: 'unlinked', roleIds: [], lastSeenAt: null, createdAt: d.createdAt, isSelf: false, isManager: false });
+      members.push({ sub: d.id, inviteId: null, userId: null, name: d.name, email: d.email, status: 'unlinked', roleIds: [], lastSeenAt: null, createdAt: d.createdAt, isSelf: false, isManager: false });
+    }
+    // Convites que aguardam a identidade no control plane: aparecem como "Convidado" (ainda não entrou), com os papéis que valerão quando ela ficar pronta.
+    for (const p of pendingInvites) {
+      members.push({
+        sub: `invite:${p.id}`,
+        inviteId: p.id,
+        userId: null,
+        name: p.name ?? p.email,
+        email: p.email,
+        status: 'invited',
+        roleIds: p.roleIds,
+        lastSeenAt: null,
+        createdAt: p.createdAt,
+        isSelf: false,
+        isManager: false,
+      });
     }
     members.sort((a, b) => Number(b.isSelf) - Number(a.isSelf) || a.name.localeCompare(b.name, 'pt-BR'));
     return { members, directory: state, seats };
@@ -189,6 +211,16 @@ export class AccessService {
       await this.limits.assertActiveUserSlot();
 
       const result = await this.directory.invite(TenantContext.require(), { email: input.email, name: input.name });
+      if (result.state === 'pending') {
+        // O control plane aceitou e vai criar a conta (fila assíncrona): o `sub` e o e-mail de senha chegam em `identity.member_ready`. Guardamos só a intenção do
+        // Fixer, os papéis da oficina, e o usuário nasce com eles nesse evento.
+        const invite = await this.invites.upsert({ email: input.email, name: input.name, roleIds: input.roleIds, invitedById: actor.id });
+        await this.audit.record(
+          actor,
+          { action: 'member.invited', target: { type: 'member', id: input.email, label: input.email }, detail: { roles: await this.roleNames(this.prisma, input.roleIds), pending: true } },
+        );
+        return { sub: `invite:${invite.id}`, inviteId: invite.id, userId: null, pending: true, emailSent: null, accountCreated: true };
+      }
       const m = result.member;
       const name = input.name?.trim() || (m.name !== m.email ? m.name : input.email);
 
@@ -206,9 +238,8 @@ export class AccessService {
         );
         return u;
       });
-      await this.membership.ensure({ keycloakId: m.id, email: input.email });
       this.republishPlatformRoles();
-      return { sub: m.id, userId: user.id, emailSent: result.emailSent, accountCreated: result.created };
+      return { sub: m.id, inviteId: null, userId: user.id, pending: false, emailSent: result.emailSent, accountCreated: result.created };
     } catch (err) {
       translate(err);
     }
@@ -224,7 +255,6 @@ export class AccessService {
         if (roleIds.length === 0) return { sub, userId: null };
         await this.limits.assertActiveUserSlot();
         user = await this.prisma.user.create({ data: { keycloakId: d.id, email: d.email, name: d.name, active: true }, select: { id: true } });
-        await this.membership.ensure({ keycloakId: d.id, email: d.email });
         linked = true;
       }
       const userId = user.id;
@@ -295,13 +325,18 @@ export class AccessService {
     }
   }
 
+  /** Cancela um convite que ainda aguarda a identidade no control plane. */
+  async cancelInvite(inviteId: string, actor: AuthUser) {
+    return this.invites.cancel(inviteId, actor);
+  }
+
   /** Reenvia o convite (quem nunca entrou) ou o e-mail de redefinição de senha. */
   async sendSetupEmail(sub: string, actor: AuthUser) {
     try {
       const user = await this.requireUser(sub);
       const pendingInvite = !user.lastSeenAt;
-      const sent = await this.directory.sendSetupEmail(sub, { pendingInvite });
-      if (!sent) throw httpError(HttpStatus.BAD_GATEWAY, 'email_not_sent', 'O Keycloak não conseguiu enviar o e-mail (verifique o SMTP do realm)');
+      const sent = await this.directory.sendSetupEmail(sub);
+      if (!sent) throw httpError(HttpStatus.BAD_GATEWAY, 'email_not_sent', 'O control plane não conseguiu enviar o e-mail (verifique o SMTP do realm)');
       await this.audit.record(actor, { action: 'member.setup_email', target: { type: 'member', id: sub, label: user.email }, detail: { kind: pendingInvite ? 'invite' : 'password_reset' } });
       return { sent: true, kind: pendingInvite ? 'invite' : 'password_reset' };
     } catch (err) {
@@ -430,7 +465,7 @@ export class AccessService {
     if (found !== new Set(ids).size) throw new AccessRuleViolation('unknown_role', 'Papel não encontrado');
   }
 
-  private async roleNames(tx: Tx, ids: readonly string[]) {
+  private async roleNames(tx: Tx | PrismaService, ids: readonly string[]) {
     if (!ids.length) return [];
     return (await tx.role.findMany({ where: { id: { in: [...ids] } }, select: { name: true } })).map((r) => r.name);
   }

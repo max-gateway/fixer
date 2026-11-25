@@ -120,11 +120,6 @@ services:
       CNPJ_LOOKUP_SERVICE_URL: ${CNPJ_LOOKUP_SERVICE_URL:-}
       # Com padrão (e não :-vazio): a validação de URL da API recusa a string vazia.
       PLATE_LOOKUP_SERVICE_URL: ${PLATE_LOOKUP_SERVICE_URL:-http://plate_lookup:8081}
-      # Controle de acesso (convites): link do e-mail volta para o web público.
-      ACCESS_DIRECTORY_MODE: organization
-      ACCESS_INVITE_REDIRECT_URI: https://${FIXER_HOST}
-      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-}
-      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
       # A API lê PORTAL_BASE_URL (links do portal do cliente); sem ela cairia em http://localhost:3001.
       PORTAL_BASE_URL: https://${FIXER_HOST}
 

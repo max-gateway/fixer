@@ -41,6 +41,7 @@ export function useAccessActions() {
     deactivate: useMutation({ mutationFn: (sub: string) => api.deactivate(sub), onSettled }),
     reactivate: useMutation({ mutationFn: (sub: string) => api.reactivate(sub), onSettled }),
     remove: useMutation({ mutationFn: (sub: string) => api.remove(sub), onSettled }),
+    cancelInvite: useMutation({ mutationFn: (id: string) => api.cancelInvite(id), onSettled }),
     setupEmail: useMutation({ mutationFn: (sub: string) => api.setupEmail(sub), onSettled }),
     createRole: useMutation({ mutationFn: (b: RoleInput) => api.createRole(b), onSettled }),
     updateRole: useMutation({ mutationFn: ({ id, ...b }: Partial<RoleInput> & { id: string }) => api.updateRole(id, b), onSettled }),

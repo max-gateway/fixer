@@ -48,11 +48,13 @@ function Form({ roles, catalog, seats, onDone }: Omit<Props, 'open' | 'onOpenCha
     try {
       const res = await invite.mutateAsync({ email: email.trim(), name: name.trim() || undefined, roleIds });
       toast(
-        res.emailSent
-          ? { title: 'Convite enviado', description: `${email.trim()} vai receber o link para definir a senha.` }
-          : res.accountCreated
-            ? { title: 'Acesso criado, mas o e-mail não saiu', description: 'O login não conseguiu enviar o e-mail (verifique o SMTP do Keycloak). Use "Reenviar convite" depois.', tone: 'info', duration: 9000 }
-            : { title: 'Acesso liberado', description: `${email.trim()} já tinha conta: é só entrar com a senha de sempre.` },
+        res.pending
+          ? {
+              title: 'Convite registrado',
+              description: `A conta de ${email.trim()} está sendo criada. Quando ficar pronta, ela recebe o e-mail para definir a senha e já entra com os papéis escolhidos.`,
+              duration: 9000,
+            }
+          : { title: 'Acesso liberado', description: `${email.trim()} já tinha conta: é só entrar com a senha de sempre.` },
       );
       if (another) {
         setEmail('');

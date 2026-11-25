@@ -1261,6 +1261,22 @@ model OrgLicense {
   refreshedAt   DateTime  @default(now())
 }
 
+// Convite feito na tela de acessos que ainda aguarda a identidade da pessoa. O control plane é quem cria a conta (fila assíncrona: o `sub` só nasce depois), então
+// o Fixer guarda aqui só o que é DELE, a intenção: quais papéis da oficina ela terá. Quando chega `identity.member_ready` com o mesmo e-mail, o usuário é criado
+// com esses papéis e o convite some. Os papéis do Fixer (inclusive os personalizados da oficina) são dado do produto: o control plane não os conhece.
+model PendingInvite {
+  id          String   @id @default(cuid())
+  orgId       String   @default(dbgenerated("app_org()")) @db.Uuid
+  email       String // minúsculas
+  name        String?
+  roleIds     String[]
+  invitedById String? // User.id de quem convidou (auditoria)
+  createdAt   DateTime @default(now())
+
+  @@unique([orgId, email])
+  @@index([orgId])
+}
+
 // Quem participa de qual organização (alimentado pelos eventos de identidade do control plane). Fonte de verdade da
 // participação: o claim "organization" do Keycloak 26.0 é intermitente para quem está em várias organizações.
 model OrgMembership {
@@ -1268,8 +1284,8 @@ model OrgMembership {
   keycloakId String // sub do token
   email      String
   role       String   @default("member")
-  // Quem escreveu o vínculo: control_plane (evento member_ready ou sync do diretório) ou local (convite feito pela tela de acessos do Fixer).
-  // O sync só remove vínculos control_plane: um convidado local nunca é apagado por "o control plane não lista".
+  // Quem escreveu o vínculo: control_plane (evento member_ready ou sync do diretório). `local` é legado (convite que a tela de acessos gravava antes de os convites
+  // irem ao control plane); o sync só remove vínculos control_plane, então uma linha antiga `local` nunca é apagada por "o control plane não lista".
   source     String   @default("local")
   // Papéis de PLATAFORMA da pessoa nesta organização, como o control plane os decide (evento member_ready e sync do diretório). Só projeção: o Fixer não
   // calcula nem grava aqui por conta própria (informa ao control plane, que devolve o estado). Vazio = nenhum papel, inclusive vínculo ainda não projetado

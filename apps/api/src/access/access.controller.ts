@@ -92,6 +92,13 @@ export class AccessController {
     return this.access.sendSetupEmail(sub, user);
   }
 
+  /** Cancela um convite que ainda aguarda a identidade no control plane. */
+  @Delete('invites/:id')
+  @RequirePermission('access.manage')
+  cancelInvite(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.access.cancelInvite(id, user);
+  }
+
   @Delete('members/:sub')
   @RequirePermission('access.manage')
   remove(@Param('sub') sub: string, @CurrentUser() user: AuthUser) {

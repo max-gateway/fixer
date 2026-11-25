@@ -106,7 +106,14 @@ export function auditSentence(item: AuditItem, catalog?: Catalog): { title: stri
   const perms = (xs: unknown) => (Array.isArray(xs) && xs.length ? xs.map((k) => (catalog ? permissionLabel(catalog, String(k)) : String(k))).join('; ') : null);
   switch (item.action) {
     case 'member.invited':
-      return { title: `${who} convidou ${target}`, detail: [list(d.roles) && `Papéis: ${list(d.roles)}`, d.emailSent === false && 'E-mail não enviado'].filter(Boolean).join(' · ') || null };
+      return {
+        title: `${who} convidou ${target}`,
+        detail: [list(d.roles) && `Papéis: ${list(d.roles)}`, d.pending === true && 'Aguardando a conta ser criada', d.emailSent === false && 'E-mail não enviado'].filter(Boolean).join(' · ') || null,
+      };
+    case 'member.invite_accepted':
+      return { title: `${target} entrou na oficina pelo convite`, detail: null };
+    case 'member.invite_cancelled':
+      return { title: `${who} cancelou o convite de ${target}`, detail: null };
     case 'member.linked':
       return { title: `${who} deu acesso a ${target}`, detail: list(d.added) && `Papéis: ${list(d.added)}` };
     case 'member.roles_changed':

@@ -50,6 +50,53 @@ export class ControlPlaneClient {
     return ((await res.json()) as { members: { userId: string; email: string; role: string; status: string; platformRoles: string[] }[] }).members;
   }
 
+  /**
+   * Adiciona (ou reativa) um membro da organização. A conta no Keycloak NASCE DEPOIS, numa fila do control plane (`identity: 'pending'`): o `sub` só chega no
+   * evento `identity.member_ready`, que também manda o e-mail de definição de senha. Idempotente por e-mail. `null` quando a organização não assina este produto.
+   */
+  async addMember(orgId: string, input: { email: string; name: string; role?: 'admin' | 'member' | 'billing' }): Promise<{ userId: string; identity: string } | null> {
+    const { url, apiKey } = this.cfg;
+    if (!url || !apiKey) throw new Error('Control plane não configurado');
+    const res = await fetch(`${url}/v1/orgs/${encodeURIComponent(orgId)}/members`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ email: input.email, name: input.name, role: input.role ?? 'member' }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 404 || res.status === 403) return null;
+    if (!res.ok) throw new Error(`Control plane respondeu ${res.status} ao adicionar o membro`);
+    return (await res.json()) as { userId: string; identity: string };
+  }
+
+  /** Remove o membro da organização (o vínculo fica desativado no control plane). `false` quando a organização ou o membro não existem para este produto; lança se for o dono (422). */
+  async removeMember(orgId: string, userId: string): Promise<boolean> {
+    const { url, apiKey } = this.cfg;
+    if (!url || !apiKey) throw new Error('Control plane não configurado');
+    const res = await fetch(`${url}/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: { 'x-api-key': apiKey },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 404 || res.status === 403) return false;
+    if (res.status === 422) throw new Error('O dono da organização não pode ser removido');
+    if (!res.ok) throw new Error(`Control plane respondeu ${res.status} ao remover o membro`);
+    return true;
+  }
+
+  /** Reenvia o link de definição de senha de um membro ativo. `null` quando o membro não existe nesta organização; `false` quando o Keycloak ou o SMTP não permitiram. */
+  async resendSetupEmail(orgId: string, userId: string): Promise<boolean | null> {
+    const { url, apiKey } = this.cfg;
+    if (!url || !apiKey) throw new Error('Control plane não configurado');
+    const res = await fetch(`${url}/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}/resend-setup-email`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 404 || res.status === 403) return null;
+    if (!res.ok) throw new Error(`Control plane respondeu ${res.status} ao reenviar o e-mail`);
+    return ((await res.json()) as { sent: boolean }).sent;
+  }
+
   /** Atribui os papéis de plataforma de um membro (substitui; idempotente). `false` quando a organização ou o membro não existem para este produto. */
   async setPlatformRoles(orgId: string, userId: string, roles: string[]): Promise<boolean> {
     const { url, apiKey } = this.cfg;

@@ -29,7 +29,7 @@ type Props = { member: Member | null; roles: Role[]; catalog: Catalog; canManage
 export function MemberSheet({ member, roles, catalog, canManage, onClose }: Props) {
   return (
     <Sheet open={!!member} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="sm:max-w-[34rem]">{member && <Body key={member.sub + member.roleIds.join()} member={member} roles={roles} catalog={catalog} canManage={canManage} onClose={onClose} />}</SheetContent>
+      <SheetContent className="sm:max-w-[34rem]">{member?.inviteId && <PendingInviteBody key={member.sub} member={member} roles={roles} canManage={canManage} onClose={onClose} />}{member && !member.inviteId && <Body key={member.sub + member.roleIds.join()} member={member} roles={roles} catalog={catalog} canManage={canManage} onClose={onClose} />}</SheetContent>
     </Sheet>
   );
 }
@@ -289,5 +289,67 @@ function PersonHistory({ sub, catalog }: { sub: string; catalog: Catalog }) {
         })}
       </ol>
     </section>
+  );
+}
+
+/**
+ * Convite que ainda aguarda a conta no control plane (criada numa fila). Não há `sub`, então não há papéis para editar, ações de conta nem histórico por pessoa:
+ * os papéis escolhidos valem quando a identidade fica pronta, e a única ação é cancelar o convite.
+ */
+function PendingInviteBody({ member, roles, canManage, onClose }: { member: Member; roles: Role[]; canManage: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const actions = useAccessActions();
+  const chosen = roles.filter((r) => member.roleIds.includes(r.id));
+
+  const cancel = async () => {
+    try {
+      await actions.cancelInvite.mutateAsync(member.inviteId!);
+      toast({ title: 'Convite cancelado', description: `${member.email} não receberá os papéis escolhidos.` });
+      onClose();
+    } catch (err) {
+      toast({ title: errorText(err), tone: 'error' });
+    }
+  };
+
+  return (
+    <>
+      <div className="shrink-0 border-b px-5 pt-6 pb-5">
+        <div className="flex items-end gap-4">
+          <UserAvatar name={member.name} className="size-16 text-xl" />
+          <div className="min-w-0 pb-1">
+            <SheetTitle className="truncate">{member.name}</SheetTitle>
+            <SheetDescription className="truncate">{member.email}</SheetDescription>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <StatusPill status={member.status} />
+          <span className="inline-flex items-center gap-1">
+            <Clock aria-hidden className="size-3.5" /> Aguardando a conta ser criada
+          </span>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+        <p className="rounded-lg bg-sky-50 p-3 text-sm text-sky-950 ring-1 ring-sky-600/15">
+          O control plane está criando a conta. Quando ela ficar pronta, {member.email} recebe o e-mail para definir a senha e entra com os papéis abaixo.
+        </p>
+        <section className="space-y-2.5">
+          <SectionTitle>Papéis do convite</SectionTitle>
+          <ul className="flex flex-wrap gap-1.5">
+            {chosen.map((r) => (
+              <li key={r.id} className="rounded-md border px-2 py-1 text-xs font-medium">
+                {r.name}
+              </li>
+            ))}
+            {chosen.length === 0 && <li className="text-sm text-muted-foreground">Os papéis escolhidos não existem mais.</li>}
+          </ul>
+        </section>
+        {canManage && (
+          <Button type="button" variant="outline" onClick={cancel} disabled={actions.cancelInvite.isPending}>
+            {actions.cancelInvite.isPending ? <Loader2 className="animate-spin" /> : <UserMinus aria-hidden />} Cancelar convite
+          </Button>
+        )}
+      </div>
+    </>
   );
 }
