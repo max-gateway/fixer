@@ -3,7 +3,10 @@
 export type MemberStatus = 'active' | 'invited' | 'inactive' | 'blocked' | 'unlinked';
 
 export type Member = {
+  /** `sub` do Keycloak. Convite que ainda aguarda a identidade usa `invite:<id>`. */
   sub: string;
+  /** Só no convite que ainda aguarda a identidade no control plane: a única ação possível sobre ele é cancelar. */
+  inviteId: string | null;
   userId: string | null;
   name: string;
   email: string;
@@ -15,7 +18,7 @@ export type Member = {
   isManager: boolean;
 };
 
-export type DirectoryState = { mode: 'organization' | 'realm' | 'disabled'; status: 'ok' | 'off' | 'error'; message?: string };
+export type DirectoryState = { mode: 'control_plane' | 'disabled'; status: 'ok' | 'off' | 'error'; message?: string };
 
 export type Seats = { max: number | null; used: number };
 
@@ -51,7 +54,11 @@ export type AuditItem = {
 export type AuditPage = { items: AuditItem[]; nextCursor: string | null };
 
 export type InviteInput = { email: string; name?: string; roleIds: string[] };
-export type InviteResult = { sub: string; userId: string; emailSent: boolean; accountCreated: boolean };
+/**
+ * `pending`: o control plane aceitou e vai criar a conta (fila assíncrona); o e-mail de senha sai quando ela fica pronta, então `emailSent` é `null`.
+ * Sem `pending`, a pessoa já existia na organização e o acesso vale na hora.
+ */
+export type InviteResult = { sub: string; inviteId: string | null; userId: string | null; pending: boolean; emailSent: boolean | null; accountCreated: boolean };
 export type RoleInput = { name: string; description?: string | null; permissions: string[] };
 
 /** Tudo que a tela precisa para abrir (buscado no servidor, depois mantido pelo React Query). */

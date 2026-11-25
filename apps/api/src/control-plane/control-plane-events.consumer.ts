@@ -1,10 +1,11 @@
-import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationShutdown, OnModuleInit, Optional } from '@nestjs/common';
 import amqp, { type Channel, type ChannelModel, type ConsumeMessage } from 'amqplib';
 import { z } from 'zod';
 import { MembershipService } from '../tenancy/membership.service.js';
 import { TenantContext } from '../tenancy/tenant-context.js';
 import { ControlPlaneConfig } from './control-plane.config.js';
 import { LicenseService } from './license.service.js';
+import { PendingInviteService } from './pending-invite.service.js';
 import { ProvisioningService } from './provisioning.service.js';
 
 /** Envelope publicado pelo control plane (`mg.control-plane`, routing key `<evento>.v1`). `tenantId` é a organização. */
@@ -41,6 +42,7 @@ export class ControlPlaneEventsConsumer implements OnModuleInit, OnApplicationSh
     private readonly provisioning: ProvisioningService,
     private readonly license: LicenseService,
     private readonly membership: MembershipService,
+    @Optional() private readonly invites?: PendingInviteService,
   ) {}
 
   onModuleInit(): void {
@@ -132,6 +134,8 @@ export class ControlPlaneEventsConsumer implements OnModuleInit, OnApplicationSh
         if (!keycloakId || !email) return 'ignored';
         const platformRoles = Array.isArray(event.data.platformRoles) ? event.data.platformRoles.filter((r): r is string => typeof r === 'string') : undefined;
         await this.membership.record({ keycloakId, email, role: str(event.data.role) ?? 'member', platformRoles });
+        // Quem foi convidado pela tela de acessos ganha agora o usuário do Fixer com os papéis do convite (a conta só passa a existir neste evento).
+        await this.invites?.claim({ keycloakId, email });
         return 'member';
       }
       const ours = event.data.product === this.cfg.product;

@@ -5,6 +5,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 
 export type AccessAction =
   | 'member.invited'
+  | 'member.invite_accepted'
+  | 'member.invite_cancelled'
   | 'member.linked'
   | 'member.roles_changed'
   | 'member.deactivated'

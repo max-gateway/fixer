@@ -1,7 +1,7 @@
 import type { DirectoryStore } from '@max-gateway/directory-sync';
 import type { SystemPrismaService } from '../prisma/system-prisma.service.js';
 
-/** Origem dos vínculos que o sync administra. Convites feitos pela tela de acessos do Fixer ficam `local` e o sync nunca os remove. */
+/** Origem dos vínculos que o sync administra. O Fixer não escreve mais vínculo por conta própria (convites vão ao control plane); `local` só existiria em linha antiga, que o sync nunca remove. */
 const SOURCE = 'control_plane';
 
 /**

@@ -29,6 +29,7 @@ const roles: Role[] = [
 
 const member = (o: Partial<Member>): Member => ({
   sub: 's',
+  inviteId: null,
   userId: 'u',
   name: 'Ana Souza',
   email: 'ana@oficina.com',
@@ -84,6 +85,9 @@ describe('model', () => {
       detail: 'Papéis: Balcão · E-mail não enviado',
     });
     expect(auditSentence({ ...base, actorName: null, action: 'role.deleted', detail: { affectedMembers: 2 } }).title).toBe('Sistema excluiu o papel Balcão');
+    expect(auditSentence({ ...base, action: 'member.invited', targetType: 'member', targetLabel: 'novo@x.com', detail: { roles: ['Balcão'], pending: true } }).detail).toBe('Papéis: Balcão · Aguardando a conta ser criada');
+    expect(auditSentence({ ...base, actorName: null, action: 'member.invite_accepted', targetType: 'member', targetLabel: 'novo@x.com' }).title).toBe('novo@x.com entrou na oficina pelo convite');
+    expect(auditSentence({ ...base, action: 'member.invite_cancelled', targetType: 'member', targetLabel: 'novo@x.com' }).title).toBe('Ana cancelou o convite de novo@x.com');
   });
 });
 
@@ -97,6 +101,12 @@ describe('api', () => {
     expect(t.put).toHaveBeenCalledWith('/access/members/a%2Fb/roles', { roleIds: ['r1'] }, expect.any(String));
     expect(t.get).toHaveBeenCalledWith('/access/audit?cursor=c1&take=10', expect.any(String));
     expect(t.del).toHaveBeenCalledWith('/access/roles/r%201', expect.any(String));
+  });
+
+  it('cancela o convite pendente pelo id (nunca pelo sub)', async () => {
+    const t: Transport = { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), del: vi.fn() } as never;
+    await createAccessApi(t).cancelInvite('inv 1');
+    expect(t.del).toHaveBeenCalledWith('/access/invites/inv%201', expect.any(String));
   });
 });
 
@@ -112,7 +122,7 @@ describe('AccessWorkspace', () => {
       </QueryClientProvider>,
     );
   };
-  const initial = (permissions: string[], directory: AccessInitial['members']['directory'] = { mode: 'organization', status: 'ok' }): AccessInitial => ({
+  const initial = (permissions: string[], directory: AccessInitial['members']['directory'] = { mode: 'control_plane', status: 'ok' }): AccessInitial => ({
     me: { userId: 'u', permissions },
     catalog,
     roles,
@@ -128,6 +138,13 @@ describe('AccessWorkspace', () => {
     expect(html).toContain('Convidado');
     expect(html).toContain('Sem acesso');
     expect(html).toContain('Balcão');
+  });
+
+  it('convite que aguarda a conta no control plane aparece como "Convidado", com o e-mail, e conta em "Convites pendentes"', () => {
+    const pending = member({ sub: 'invite:i1', inviteId: 'i1', userId: null, name: 'novo@oficina.com', email: 'novo@oficina.com', roleIds: ['balcao'], status: 'invited', lastSeenAt: null });
+    const html = render({ ...initial(['access.read', 'access.manage']), members: { members: [...members, pending], directory: { mode: 'control_plane', status: 'ok' }, seats: { max: 5, used: 2 } } });
+    expect(html).toContain('novo@oficina.com');
+    expect(countByStatus([...members, pending]).invited).toBe(2); // o João e o convite pendente
   });
 
   it('quem só lê não vê o convite; diretório desligado avisa só a quem administra', () => {

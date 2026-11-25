@@ -41,6 +41,7 @@ export function createAccessApi(t: Transport = proxyTransport()) {
     deactivate: (sub: string) => t.post(`/access/members/${enc(sub)}/deactivate`, {}, 'Não foi possível desativar.'),
     reactivate: (sub: string) => t.post(`/access/members/${enc(sub)}/reactivate`, {}, 'Não foi possível reativar.'),
     remove: (sub: string) => t.del(`/access/members/${enc(sub)}`, 'Não foi possível remover.'),
+    cancelInvite: (id: string) => t.del<{ id: string; cancelled: boolean }>(`/access/invites/${enc(id)}`, 'Não foi possível cancelar o convite.'),
     setupEmail: (sub: string) => t.post<{ sent: boolean; kind: 'invite' | 'password_reset' }>(`/access/members/${enc(sub)}/setup-email`, {}, 'Não foi possível enviar o e-mail.'),
 
     createRole: (body: RoleInput) => t.post<{ id: string }>('/access/roles', body, 'Não foi possível criar o papel.'),
