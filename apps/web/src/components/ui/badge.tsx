@@ -11,7 +11,7 @@ const badgeVariants = cva(
         default: "border-transparent bg-brand-soft text-brand",
         secondary: "border-transparent bg-secondary text-secondary-foreground",
         destructive: "border-transparent bg-danger-soft text-danger",
-        outline: "border-border-strong bg-surface text-foreground",
+        outline: "border-[var(--border-strong)] bg-surface text-foreground",
         // Status colors are semantic and independent from tenant branding.
         success: "border-transparent bg-success-soft text-success",
         warning: "border-transparent bg-warning-soft text-warning",
