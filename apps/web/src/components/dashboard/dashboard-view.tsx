@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus, RefreshCw } from 'lucide-react';
+import { ArrowRight, Plus, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useTransition } from 'react';
@@ -81,9 +81,30 @@ export function DashboardView({ data }: { data: DashboardOverview }) {
 
       {/* Reload mantém o quadro: o conteúdo antigo fica esmaecido em vez de piscar um skeleton. */}
       <div aria-busy={pending} className={cn('space-y-6 transition-opacity duration-200', pending && 'pointer-events-none opacity-60')}>
+        <Card index={0}>
+          <CardHeader
+            title="Pendências prioritárias"
+            description="Ordens que precisam de uma decisão ou acompanhamento da equipe."
+            action={
+              <Button asChild variant="outline" size="sm" className="shrink-0">
+                <Link href="/ordens">
+                  Ver ordens <ArrowRight aria-hidden />
+                </Link>
+              </Button>
+            }
+          />
+          {data.attention.length > 0 ? (
+            <AttentionList items={data.attention} />
+          ) : (
+            <p className="rounded-lg bg-muted/60 px-3 py-4 text-sm text-muted-foreground">
+              Nenhuma pendência neste período.
+            </p>
+          )}
+        </Card>
+
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {data.kpis.map((k, i) => (
-            <KpiCard key={k.id} kpi={k} index={i} />
+            <KpiCard key={k.id} kpi={k} index={i + 1} />
           ))}
         </div>
 
@@ -121,11 +142,7 @@ export function DashboardView({ data }: { data: DashboardOverview }) {
             <CardHeader title="Carga da equipe" description="Ordens ativas por mecânico agora" />
             <MechanicsLoad rows={data.mechanics} />
           </Card>
-          <Card index={10}>
-            <CardHeader title="Pede atenção" />
-            <AttentionList items={data.attention} />
-          </Card>
-          <Card index={11}>
+          <Card index={10} className="lg:col-span-2">
             <CardHeader title="Atividade recente" />
             <ActivityFeed items={data.activity} />
           </Card>
