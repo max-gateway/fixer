@@ -11,6 +11,18 @@ import { parsePfx, PfxError, type ParsedPfx } from './pfx.js';
 
 export const KEY_PROVIDER = Symbol('FISCAL_KEY_PROVIDER');
 
+/**
+ * Violação de unicidade (Prisma P2002) e o que o erro diz sobre a causa. Com o cliente que aplica RLS o Prisma NÃO informa a restrição
+ * (`meta.target` vem nulo: "Unique constraint failed on the (not available)"), então `unknown` é o caso comum e não dá para decidir só pelo erro.
+ */
+function uniqueViolation(err: unknown): 'cnpj' | 'other' | 'unknown' | null {
+  const e = err as { code?: string; meta?: { target?: unknown } } | null;
+  if (e?.code !== 'P2002') return null;
+  const target = e.meta?.target;
+  if (target == null) return 'unknown';
+  return String(target).includes('cnpj') ? 'cnpj' : 'other';
+}
+
 const CTX_PFX = 'fiscal-credential:pfx';
 const CTX_PASS = 'fiscal-credential:pfx-pass';
 /** O certificado precisa valer por pelo menos isto; evita aceitar um que vence antes do primeiro ciclo. */
@@ -103,11 +115,25 @@ export class CredentialService {
         throw new ConflictException('Remova o certificado antes de trocar a raiz do CNPJ');
       }
     }
-    const saved = await this.prisma.tenantFiscalSettings.upsert({
-      where: { orgId: TenantContext.require() },
-      create: { orgId: TenantContext.require(), ...input },
-      update: input,
-      select: { cnpj: true, legalName: true, ufCode: true },
+    const write = () =>
+      this.prisma.tenantFiscalSettings.upsert({
+        where: { orgId: TenantContext.require() },
+        create: { orgId: TenantContext.require(), ...input },
+        update: input,
+        select: { cnpj: true, legalName: true, ufCode: true },
+      });
+    const taken = new ConflictException('Este CNPJ já está cadastrado em outra organização'); // não diz de quem é
+    // A restrição única do banco vale entre organizações, mesmo com RLS, e é ela que fecha a corrida de dois cadastros simultâneos.
+    const saved = await write().catch(async (err: unknown) => {
+      const kind = uniqueViolation(err);
+      if (kind === null || kind === 'other') throw err;
+      if (kind === 'cnpj') throw taken;
+      // Causa desconhecida: ou a corrida de dois envios da PRÓPRIA organização na chave dela (o segundo vira atualização e passa), ou o CNPJ de outra.
+      // Repetir uma vez separa os dois casos sem ler linha de outra organização.
+      return write().catch((again: unknown) => {
+        if (uniqueViolation(again) !== null && input.cnpj) throw taken;
+        throw again;
+      });
     });
     await this.audit(actor, 'settings.update', { cnpj: input.cnpj });
     return saved;

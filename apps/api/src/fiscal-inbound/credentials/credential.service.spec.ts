@@ -197,6 +197,46 @@ describe('CredentialService.updateSettings', () => {
     await expect(service.updateSettings(SettingsSchema.parse({ cnpj: '11222333000181' }), actor)).resolves.toBeTruthy();
   });
 
+  describe('CNPJ único entre organizações', () => {
+    const p2002 = (target: unknown) => Object.assign(new Error('Unique constraint failed'), { code: 'P2002', meta: { modelName: 'TenantFiscalSettings', target } });
+    const input = () => SettingsSchema.parse({ cnpj: '11222333000181' });
+    const message = 'Este CNPJ já está cadastrado em outra organização';
+
+    it('o banco aponta o CNPJ → 409 sem dizer de quem, sem repetir e sem auditar', async () => {
+      const { service, prisma, db } = setup({ settings: null });
+      prisma.tenantFiscalSettings.upsert.mockRejectedValueOnce(p2002(['cnpj']));
+      await expect(service.updateSettings(input(), actor)).rejects.toMatchObject({ status: 409, message });
+      expect(prisma.tenantFiscalSettings.upsert).toHaveBeenCalledTimes(1);
+      expect(db.audits).toHaveLength(0);
+    });
+
+    it('com o cliente de RLS o Prisma NÃO informa a restrição (target nulo): repete uma vez e, se persiste, é o CNPJ de outra organização → 409', async () => {
+      const { service, prisma, db } = setup({ settings: null });
+      prisma.tenantFiscalSettings.upsert.mockRejectedValue(p2002(null));
+      await expect(service.updateSettings(input(), actor)).rejects.toMatchObject({ status: 409, message });
+      expect(prisma.tenantFiscalSettings.upsert).toHaveBeenCalledTimes(2);
+      expect(db.audits).toHaveLength(0);
+    });
+
+    it('causa desconhecida que NÃO persiste (dois envios da própria organização na chave dela): a segunda tentativa passa, sem erro', async () => {
+      const { service, prisma } = setup({ settings: null });
+      prisma.tenantFiscalSettings.upsert.mockRejectedValueOnce(p2002(null));
+      await expect(service.updateSettings(input(), actor)).resolves.toBeTruthy();
+      expect(prisma.tenantFiscalSettings.upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('outra restrição única (apontada pelo banco) e erro que não é de unicidade NÃO viram o 409 do CNPJ nem repetem', async () => {
+      const { service, prisma } = setup({ settings: null });
+      const other = p2002(['orgId']);
+      prisma.tenantFiscalSettings.upsert.mockRejectedValueOnce(other);
+      await expect(service.updateSettings(input(), actor)).rejects.toBe(other);
+      const down = new Error('connection lost');
+      prisma.tenantFiscalSettings.upsert.mockRejectedValueOnce(down);
+      await expect(service.updateSettings(input(), actor)).rejects.toBe(down);
+      expect(prisma.tenantFiscalSettings.upsert).toHaveBeenCalledTimes(2); // uma por chamada, nenhuma repetição
+    });
+  });
+
   it('valida o CNPJ e normaliza a máscara', () => {
     expect(SettingsSchema.parse({ cnpj: '11.222.333/0001-81' }).cnpj).toBe('11222333000181');
     expect(() => SettingsSchema.parse({ cnpj: '11.222.333/0001-82' })).toThrow(/CNPJ inválido/);

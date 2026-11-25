@@ -778,10 +778,13 @@ model ServiceSuggestedPart {
   @@unique([serviceDefinitionId, variantKey, partCategory])
 }
 
-// Singleton por tenant (1 banco = 1 oficina).
+// Singleton por organização.
 model TenantFiscalSettings {
   orgId                String     @id @default(dbgenerated("app_org()")) @db.Uuid
-  cnpj                 String? // 14 caracteres alfanuméricos [A-Z0-9]{12}[0-9]{2}, sem máscara (nfe-import.md D12)
+  // 14 caracteres alfanuméricos [A-Z0-9]{12}[0-9]{2}, sem máscara (nfe-import.md D12). ÚNICO entre organizações: o Fixer é UM tenant no dfe-gateway (dono por
+  // CNPJ, dfe-gateway.md D1), que não distingue organizações; duas com o mesmo CNPJ dividiriam a mesma assinatura e o mesmo cursor de documentos (quem consome
+  // primeiro confirma, e a outra deixa de recebê-los) e o certificado de uma substituiria o da outra. NULL (ainda sem CNPJ) pode repetir.
+  cnpj                 String?    @unique
   legalName            String?
   ufCode               Int? // cUFAutor (código IBGE da UF)
   municipalityIbge     String?
