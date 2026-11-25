@@ -8,6 +8,7 @@ import { LicenseGuard } from './license.guard.js';
 import { LicenseService } from './license.service.js';
 import { PermissionSyncService } from './permission-sync.service.js';
 import { PlanLimits } from './plan-limits.service.js';
+import { PlatformRolesPublisher } from './platform-roles.publisher.js';
 import { ProvisioningService } from './provisioning.service.js';
 import { UsageReporter } from './usage-reporter.service.js';
 
@@ -26,10 +27,11 @@ import { UsageReporter } from './usage-reporter.service.js';
     PermissionSyncService,
     PlanLimits,
     UsageReporter,
+    PlatformRolesPublisher,
     ControlPlaneEventsConsumer,
     { provide: APP_GUARD, useClass: LicenseGuard },
     { provide: APP_GUARD, useClass: FeatureGuard },
   ],
-  exports: [ProvisioningService, LicenseService, PlanLimits],
+  exports: [ProvisioningService, LicenseService, PlanLimits, PlatformRolesPublisher],
 })
 export class ControlPlaneModule {}

@@ -149,6 +149,17 @@ describe.skipIf(!URL)('Integração com o control plane (Postgres, RLS)', () => 
       expect(await inOrg(A, () => membership.isMember('sub-1'))).toBe(true);
     });
 
+    it('projeta os papéis de plataforma do evento; evento sem o campo não apaga o que já foi projetado; lista vazia vale', async () => {
+      const { consumer, membership } = services();
+      const withRoles = (platformRoles?: string[]) => evt(A, 'identity.member_ready.v1', { keycloakSub: 'sub-r', email: 'r@x.test', role: 'member', userId: 'u', ...(platformRoles ? { platformRoles } : {}) });
+      await consumer.handle(withRoles(['price_manager', 'fiscal_editor']));
+      expect((await membership.platformRolesFor('sub-r')).get(A)).toEqual(['price_manager', 'fiscal_editor']);
+      await consumer.handle(withRoles()); // evento antigo, sem o campo
+      expect((await membership.platformRolesFor('sub-r')).get(A)).toEqual(['price_manager', 'fiscal_editor']);
+      await consumer.handle(withRoles([])); // o control plane decidiu: nenhum papel
+      expect((await membership.platformRolesFor('sub-r')).get(A)).toEqual([]);
+    });
+
     it('uma pessoa em DUAS oficinas é achada nas duas pelo sub, e cada oficina só vê as suas linhas', async () => {
       const { consumer, membership } = services();
       await consumer.handle(ready(A, 'sub-ana', 'ana@x.test'));

@@ -3,6 +3,7 @@ import type { Prisma } from '@fixer/db';
 import type { AuthUser } from '../auth/auth.decorators.js';
 import { PERMISSION_GROUPS, PERMISSIONS } from '../auth/permissions.catalog.js';
 import { PlanLimits } from '../control-plane/plan-limits.service.js';
+import { PlatformRolesPublisher } from '../control-plane/platform-roles.publisher.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { MembershipService } from '../tenancy/membership.service.js';
 import { TenantContext } from '../tenancy/tenant-context.js';
@@ -83,8 +84,17 @@ export class AccessService {
     private readonly audit: AccessAudit,
     private readonly limits: PlanLimits,
     private readonly membership: MembershipService,
+    private readonly platformRoles: PlatformRolesPublisher,
     @Inject(MEMBER_DIRECTORY) private readonly directory: MemberDirectory,
   ) {}
+
+  /**
+   * Depois de gravar (commit feito) qualquer mudança que altere as permissões de alguém, informa ao control plane os papéis de plataforma que elas
+   * implicam. Sem await e sem lançar: a mudança de acesso já valeu, e a reconciliação periódica corrige um envio que falhou.
+   */
+  private republishPlatformRoles(): void {
+    void this.platformRoles.publishOrg(TenantContext.require());
+  }
 
   // ---------------------------------------------------------------- leitura
 
@@ -197,6 +207,7 @@ export class AccessService {
         return u;
       });
       await this.membership.ensure({ keycloakId: m.id, email: input.email });
+      this.republishPlatformRoles();
       return { sub: m.id, userId: user.id, emailSent: result.emailSent, accountCreated: result.created };
     } catch (err) {
       translate(err);
@@ -233,6 +244,7 @@ export class AccessService {
           tx,
         );
       });
+      this.republishPlatformRoles();
       return { sub, userId };
     } catch (err) {
       translate(err);
@@ -250,6 +262,7 @@ export class AccessService {
         await tx.user.update({ where: { id: user.id }, data: { active } });
         await this.audit.record(actor, { action: active ? 'member.reactivated' : 'member.deactivated', target: { type: 'member', id: sub, label: user.email } }, tx);
       });
+      if (active) this.republishPlatformRoles();
       return { sub, active };
     } catch (err) {
       translate(err);
@@ -321,7 +334,7 @@ export class AccessService {
         this.assertCatalog(input.permissions);
         await this.ensureCatalog();
       }
-      return await this.locked(async (tx) => {
+      const updated = await this.locked(async (tx) => {
         const snapshot = await this.snapshot(tx);
         const role = snapshot.roles.find((r) => r.id === id);
         if (!role) throw new AccessRuleViolation('unknown_role', 'Papel não encontrado');
@@ -341,6 +354,8 @@ export class AccessService {
         await this.audit.record(actor, { action: 'role.updated', target: { type: 'role', id, label: name }, detail }, tx);
         return { id };
       });
+      if (input.permissions) this.republishPlatformRoles();
+      return updated;
     } catch (err) {
       translate(err);
     }
@@ -348,7 +363,7 @@ export class AccessService {
 
   async deleteRole(id: string, actor: AuthUser) {
     try {
-      return await this.locked(async (tx) => {
+      const deleted = await this.locked(async (tx) => {
         const snapshot = await this.snapshot(tx);
         assertAllowed(snapshot, { kind: 'role.delete', roleId: id }, actor.id);
         const role = snapshot.roles.find((r) => r.id === id)!;
@@ -357,6 +372,8 @@ export class AccessService {
         await this.audit.record(actor, { action: 'role.deleted', target: { type: 'role', id, label: role.name }, detail: { affectedMembers: affected } }, tx);
         return { id, affectedMembers: affected };
       });
+      this.republishPlatformRoles();
+      return deleted;
     } catch (err) {
       translate(err);
     }

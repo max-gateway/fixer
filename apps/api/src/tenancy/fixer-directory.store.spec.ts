@@ -60,6 +60,28 @@ describe.skipIf(!URL)('FixerDirectoryStore (Postgres real)', () => {
     expect(await members(A)).toEqual([{ keycloakId: 'u1', role: 'admin', source: 'control_plane', email: 'antigo@x.com' }]);
   });
 
+  it('projeta os papéis de plataforma do control plane; a mudança vale na rodada seguinte', async () => {
+    const platformRoles = (org: string) => sys.orgMembership.findMany({ where: { orgId: org }, select: { keycloakId: true, platformRoles: true } });
+    await applySnapshot({ ...snap([A], []), members: [{ orgId: A, keycloakSub: 'u1', role: 'owner', email: 'a@x.com', platformRoles: ['price_manager', 'fiscal_editor'] }] }, store);
+    expect(await platformRoles(A)).toEqual([{ keycloakId: 'u1', platformRoles: ['price_manager', 'fiscal_editor'] }]);
+    await applySnapshot({ ...snap([A], []), members: [{ orgId: A, keycloakSub: 'u1', role: 'owner', email: 'a@x.com', platformRoles: ['viewer'] }] }, store);
+    expect(await platformRoles(A)).toEqual([{ keycloakId: 'u1', platformRoles: ['viewer'] }]);
+  });
+
+  it('lista vazia do control plane é decisão dele (nenhum papel) e VALE; ausência do campo não apaga o que já foi projetado', async () => {
+    const roles = async () => (await sys.orgMembership.findUnique({ where: { orgId_keycloakId: { orgId: A, keycloakId: 'u1' } }, select: { platformRoles: true } }))?.platformRoles;
+    await applySnapshot({ ...snap([A], []), members: [{ orgId: A, keycloakSub: 'u1', role: 'billing', email: 'a@x.com', platformRoles: ['viewer'] }] }, store);
+    await applySnapshot(snap([A], [{ orgId: A, keycloakSub: 'u1', role: 'billing', email: 'a@x.com' }]), store); // control plane antigo: sem o campo
+    expect(await roles()).toEqual(['viewer']);
+    await applySnapshot({ ...snap([A], []), members: [{ orgId: A, keycloakSub: 'u1', role: 'billing', email: 'a@x.com', platformRoles: [] }] }, store);
+    expect(await roles()).toEqual([]);
+  });
+
+  it('vínculo novo nasce sem papel algum (fecha por padrão) até o control plane projetar', async () => {
+    await applySnapshot(snap([A], [{ orgId: A, keycloakSub: 'u1', role: 'member', email: 'a@x.com' }]), store);
+    expect((await sys.orgMembership.findUnique({ where: { orgId_keycloakId: { orgId: A, keycloakId: 'u1' } } }))?.platformRoles).toEqual([]);
+  });
+
   it('quem sai do control plane perde o vínculo; o convidado local (tela de acessos) NUNCA é removido', async () => {
     await sys.orgMembership.createMany({
       data: [

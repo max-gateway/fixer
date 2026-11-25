@@ -34,9 +34,21 @@ export class MembershipService {
     }
   }
 
-  /** Grava (ou atualiza) a participação na organização do contexto. Idempotente e atômico (eventos chegam repetidos e em paralelo). */
-  async record(m: { keycloakId: string; email: string; role: string }): Promise<void> {
-    const data = { email: m.email.toLowerCase(), role: m.role, source: 'control_plane' };
+  /**
+   * Papéis de PLATAFORMA do `sub` em cada organização, como o control plane os decidiu (projeção; o Fixer não os calcula). Sem cache próprio: quem chama
+   * (`FixerTenantDirectory`) já guarda o resultado por 30 s. Falha de banco propaga: o pacote de auth responde 503 e nunca concede por engano.
+   */
+  async platformRolesFor(sub: string): Promise<Map<string, string[]>> {
+    const rows = await this.system.orgMembership.findMany({ where: { keycloakId: sub }, select: { orgId: true, platformRoles: true } });
+    return new Map(rows.map((r) => [r.orgId.toLowerCase(), r.platformRoles]));
+  }
+
+  /**
+   * Grava (ou atualiza) a participação na organização do contexto. Idempotente e atômico (eventos chegam repetidos e em paralelo).
+   * `platformRoles` ausente (evento antigo) não mexe nos papéis já projetados.
+   */
+  async record(m: { keycloakId: string; email: string; role: string; platformRoles?: string[] }): Promise<void> {
+    const data = { email: m.email.toLowerCase(), role: m.role, source: 'control_plane', ...(m.platformRoles ? { platformRoles: m.platformRoles } : {}) };
     await this.prisma.orgMembership.createMany({ data: [{ keycloakId: m.keycloakId, ...data }], skipDuplicates: true });
     await this.prisma.orgMembership.updateMany({ where: { keycloakId: m.keycloakId }, data });
     this.cache.delete(m.keycloakId); // a próxima requisição enxerga a organização nova na hora
