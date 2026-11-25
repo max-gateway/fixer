@@ -87,6 +87,23 @@ describe.skipIf(!URL)('Isolamento por organização (Postgres, RLS)', () => {
     await expect(inOrg(A, () => db.customer.create({ data: { name: 'Dup', document: '12345678901' } }))).rejects.toThrow();
   });
 
+  it('o CNPJ fiscal é ÚNICO entre organizações, mesmo sem a segunda enxergar a primeira (RLS); organização sem CNPJ pode repetir', async () => {
+    await wipe();
+    const CNPJ = '11222333000181';
+    await inOrg(A, () => db.tenantFiscalSettings.create({ data: { cnpj: CNPJ } }));
+    // B não vê a linha de A, mas o índice único é global: a gravação é recusada em vez de sobrescrever.
+    expect(await inOrg(B, () => db.tenantFiscalSettings.findMany())).toEqual([]);
+    const err = await inOrg(B, () => db.tenantFiscalSettings.create({ data: { cnpj: CNPJ } })).catch((e) => e);
+    expect(err).toMatchObject({ code: 'P2002' });
+    // Com o cliente que aplica RLS o Prisma não informa a restrição (`meta.target` nulo): a causa é decidida pelo serviço, ver cnpj-unico.integration.spec.ts.
+    // Uma organização ainda sem CNPJ (NULL) não conflita com outra na mesma situação.
+    await inOrg(B, () => db.tenantFiscalSettings.create({ data: { cnpj: null } }));
+    await inOrg(A, () => db.tenantFiscalSettings.update({ where: { orgId: A }, data: { cnpj: null } }));
+    // Liberado o CNPJ (como ao remover o certificado), outra organização pode usá-lo.
+    await inOrg(B, () => db.tenantFiscalSettings.update({ where: { orgId: B }, data: { cnpj: CNPJ } }));
+    expect((await inOrg(B, () => db.tenantFiscalSettings.findUnique({ where: { orgId: B } })))?.cnpj).toBe(CNPJ);
+  });
+
   it('buscar por id de OUTRA organização não acha nada (nem por chave única)', async () => {
     await wipe();
     const orderA = await inOrg(A, () => seedOrder('p'));
