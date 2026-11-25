@@ -8,7 +8,7 @@ const user = { id: 'u1', keycloakId: 'k', name: 'Ana', email: 'a@x.com' };
 function setup(order: { status: string; partLines: unknown[] } | null, stockUpdateCount = 1) {
   const tx = {
     serviceOrder: {
-      findUnique: vi.fn().mockResolvedValue(order && { id: 'o1', number: 7, ...order }),
+      findUnique: vi.fn().mockResolvedValue(order && { id: 'o1', number: 7, serviceLines: [], ...order }),
       update: vi.fn(),
       findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'o1', status: 'APPROVED' }),
     },
@@ -23,7 +23,8 @@ function setup(order: { status: string; partLines: unknown[] } | null, stockUpda
     outboxEvent: { create: vi.fn() },
   };
   const prisma = { $transaction: (fn: (t: typeof tx) => unknown) => fn(tx) };
-  return { tx, service: new ServiceOrdersService(prisma as never) };
+  const learning = { recordForOrder: vi.fn().mockResolvedValue(undefined), estimateFor: vi.fn() };
+  return { tx, service: new ServiceOrdersService(prisma as never, { attachToVehicle: vi.fn() } as never, learning as never) };
 }
 
 const line = { id: 'l1', partId: 'p1', partName: 'Filtro', quantity: 2 };
@@ -134,7 +135,9 @@ describe('ServiceOrdersService.create — por telefone', () => {
       outboxEvent: { create: vi.fn() },
     };
     const prisma = { $transaction: (fn: (t: typeof tx) => unknown) => fn(tx) };
-    return { tx, service: new ServiceOrdersService(prisma as never) };
+    const variants = { attachToVehicle: vi.fn().mockResolvedValue(undefined) };
+    const learning = { estimateFor: vi.fn().mockResolvedValue({ source: 'NONE' }), recordForOrder: vi.fn() };
+    return { tx, variants, service: new ServiceOrdersService(prisma as never, variants as never, learning as never) };
   }
 
   it('sem cadastro com esse telefone: cria um cliente pendente (sem documento) só com o telefone', async () => {
@@ -154,6 +157,12 @@ describe('ServiceOrdersService.create — por telefone', () => {
   it('o schema aceita criar a OS sem telefone nem cliente', () => {
     const r = CreateServiceOrderSchema.safeParse({ vehicle: { plate: 'abc-1d23', brand: 'VW', model: 'Gol' } });
     expect(r.success).toBe(true);
+  });
+
+  it('normaliza o veículo na hierarquia de variantes a partir do lookup da placa', async () => {
+    const { tx, variants, service } = setupCreate(null);
+    await service.create(input, user);
+    expect(variants.attachToVehicle).toHaveBeenCalledWith(tx, 'v1', 'ABC1D23');
   });
 
   it('já existe cadastro com o telefone: reaproveita, sem criar outro', async () => {

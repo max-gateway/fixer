@@ -12,7 +12,7 @@ npm run start:dev --workspace=@fixer/api
 ## Módulos
 
 - `PlateEventsModule` (`src/plate-events/`) — consome os eventos de leitura de
-  placa publicados pelo microservice `apps/plate-reader` (Python) via Redis
+  placa publicados pelo microservice `plate-reader` (Python, max-gateway/platform) via Redis
   Streams, com consumer group, retry e reivindicação de mensagens travadas.
   Ver `src/plate-events/README.md`.
 

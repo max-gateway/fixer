@@ -1,13 +1,15 @@
 import { randomBytes } from 'node:crypto';
 import { ConflictException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import type { Prisma, ServiceOrderStatus } from '@fixer/db';
+import type { EstimateSource, Prisma, Service, ServiceOrderStatus, VariantResolution } from '@fixer/db';
 import type { AuthUser } from '../auth/auth.decorators.js';
 import { emitOrderEvent } from '../outbox/order-events.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { LearningService } from '../learning/learning.service.js';
+import { VehicleVariantsService } from '../vehicle-variants/vehicle-variants.service.js';
 import { generateLinkCode } from '../whatsapp-link/link-code.js';
 import { DEFAULT_CHECKLIST } from './checklist.template.js';
 import { appendEvent, EVENT_SELECT } from './events.js';
-import type { ChecklistItemInput, CreateServiceOrderInput, MessageInput, TransitionInput } from './schema.js';
+import type { AddServiceLineInput, ChecklistItemInput, CreateServiceOrderInput, HoursInput, MessageInput, TransitionInput } from './schema.js';
 import { canTransition, hasDebitedStock, isTerminal, nextStatuses } from './status.js';
 
 type Tx = Prisma.TransactionClient;
@@ -38,7 +40,11 @@ const staff = (user: AuthUser) => ({ kind: 'staff' as const, id: user.id, name: 
 
 @Injectable()
 export class ServiceOrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly variants: VehicleVariantsService,
+    private readonly learning: LearningService,
+  ) {}
 
   list(filter: { status?: ServiceOrderStatus; search?: string }) {
     const q = filter.search?.trim();
@@ -85,11 +91,16 @@ export class ServiceOrdersService {
         },
       });
       await this.ensureOwner(tx, vehicle.id, customer.id);
+      const resolved = await this.variants.attachToVehicle(tx, vehicle.id, plate);
+      // Sem lookup novo, vale a variante que o veículo já tinha.
+      const variantId = resolved?.variantId ?? vehicle.variantId ?? null;
+      const variantResolution = resolved?.resolution ?? vehicle.variantResolution ?? null;
 
       const parts = await tx.part.findMany({ where: { id: { in: input.partLines.map((l) => l.partId) } } });
       const services = await tx.service.findMany({ where: { id: { in: input.serviceLines.map((l) => l.serviceId) } } });
       const partById = new Map(parts.map((p) => [p.id, p]));
       const serviceById = new Map(services.map((s) => [s.id, s]));
+      const serviceLines = await this.buildServiceLines(tx, input.serviceLines, serviceById, variantId, variantResolution);
 
       const created = await tx.serviceOrder.create({
         data: {
@@ -119,13 +130,7 @@ export class ServiceOrdersService {
               return { partId: part.id, partName: part.name, quantity: l.quantity, unitPrice: part.sellPrice };
             }),
           },
-          serviceLines: {
-            create: input.serviceLines.map((l) => {
-              const service = serviceById.get(l.serviceId);
-              if (!service) throw new BadRequestException(`Serviço não encontrado: ${l.serviceId}`);
-              return { serviceId: service.id, serviceName: service.name, price: l.price ?? service.defaultPrice };
-            }),
-          },
+          serviceLines: { create: serviceLines },
           statusLogs: { create: { fromStatus: null, toStatus: 'QUOTE', changedById: user.id } },
         },
         include: DETAIL,
@@ -135,6 +140,104 @@ export class ServiceOrdersService {
         mileageAtEntry: input.mileageAtEntry ?? null,
       });
       return withNext(created);
+    });
+  }
+
+  /**
+   * Linhas de serviço com o snapshot de nome, preço, variante do veículo e estimativa de horas
+   * (spec §5): LEARNED pré-preenche, REFERENCE só informa, sem histórico fica NONE; horas
+   * digitadas na criação são MANUAL e prevalecem. Serviço HOURLY tem preço = horas × valor-hora.
+   */
+  private async buildServiceLines(
+    tx: Tx,
+    inputs: CreateServiceOrderInput['serviceLines'],
+    serviceById: Map<string, Service>,
+    variantId: string | null,
+    variantResolution: VariantResolution | null,
+  ) {
+    const hourlyRate = inputs.some((l) => serviceById.get(l.serviceId)?.pricingMode === 'HOURLY')
+      ? Number((await tx.tenantFiscalSettings.findUnique({ where: { id: 1 } }))?.hourlyRate ?? 0) || null
+      : null;
+
+    const lines = [];
+    for (const l of inputs) {
+      const service = serviceById.get(l.serviceId);
+      if (!service) throw new BadRequestException(`Serviço não encontrado: ${l.serviceId}`);
+
+      const estimate = service.definitionId
+        ? await this.learning.estimateFor(tx, service.definitionId, variantId)
+        : ({ source: 'NONE' } as const);
+
+      let hoursEstimated: number | null = null;
+      let hoursEstimateSource: EstimateSource = 'NONE';
+      if (l.hours != null) {
+        hoursEstimated = l.hours;
+        hoursEstimateSource = 'MANUAL';
+      } else if (estimate.source !== 'NONE') {
+        hoursEstimated = estimate.hours;
+        hoursEstimateSource = estimate.source;
+      }
+
+      const computedPrice =
+        service.pricingMode === 'HOURLY' && hoursEstimated != null && hourlyRate
+          ? Math.round(hoursEstimated * hourlyRate * 100) / 100
+          : null;
+      lines.push({
+        serviceId: service.id,
+        serviceName: service.name,
+        price: l.price ?? computedPrice ?? service.defaultPrice,
+        description: l.description ?? null,
+        hoursEstimated,
+        hoursEstimateSource,
+        variantId,
+        variantResolution,
+      });
+    }
+    return lines;
+  }
+
+  /** Acrescenta um serviço a uma OS ainda aberta, com o mesmo snapshot de variante/estimativa da criação. */
+  addServiceLine(id: string, input: AddServiceLineInput) {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.serviceOrder.findUnique({
+        where: { id },
+        select: { id: true, status: true, vehicle: { select: { variantId: true, variantResolution: true } } },
+      });
+      if (!order) throw new NotFoundException('Ordem de serviço não encontrada');
+      if (!['QUOTE', 'APPROVED', 'IN_PROGRESS', 'AWAITING_PART'].includes(order.status)) {
+        throw new ConflictException('Esta ordem não aceita mais serviços');
+      }
+      const services = await tx.service.findMany({ where: { id: input.serviceId } });
+      const [line] = await this.buildServiceLines(
+        tx,
+        [input],
+        new Map(services.map((s) => [s.id, s])),
+        order.vehicle.variantId,
+        order.vehicle.variantResolution,
+      );
+      return tx.serviceOrderServiceLine.create({ data: { serviceOrderId: id, ...line } });
+    });
+  }
+
+  /**
+   * Horas reais de uma linha de serviço (informadas durante a execução, antes de concluir).
+   * Aceitar o valor sugerido sem alterá-lo não é medição: vira ACCEPTED_DEFAULT (peso menor no aprendizado).
+   */
+  recordHours(id: string, lineId: string, input: HoursInput) {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.serviceOrder.findUnique({ where: { id }, select: { id: true, status: true } });
+      if (!order) throw new NotFoundException('Ordem de serviço não encontrada');
+      if (order.status !== 'IN_PROGRESS' && order.status !== 'AWAITING_PART') {
+        throw new ConflictException('Horas só podem ser informadas com a ordem em execução');
+      }
+      const line = await tx.serviceOrderServiceLine.findFirst({ where: { id: lineId, serviceOrderId: id } });
+      if (!line) throw new NotFoundException('Serviço não encontrado nesta ordem');
+
+      const acceptedSuggestion = line.hoursEstimateSource === 'LEARNED' && Number(line.hoursEstimated) === input.hours;
+      return tx.serviceOrderServiceLine.update({
+        where: { id: lineId },
+        data: { hoursActual: input.hours, hoursActualSource: acceptedSuggestion ? 'ACCEPTED_DEFAULT' : 'EDITED' },
+      });
     });
   }
 
@@ -149,13 +252,23 @@ export class ServiceOrdersService {
 
   transition(id: string, input: TransitionInput, user: AuthUser) {
     return this.prisma.$transaction(async (tx) => {
-      const order = await tx.serviceOrder.findUnique({ where: { id }, include: { partLines: true } });
+      const order = await tx.serviceOrder.findUnique({
+        where: { id },
+        include: { partLines: true, serviceLines: { include: { service: { select: { definitionId: true } } } } },
+      });
       if (!order) throw new NotFoundException('Ordem de serviço não encontrada');
 
       const from = order.status;
       const to = input.status;
       if (!canTransition(from, to)) {
         throw new ConflictException(`Transição inválida: ${from} -> ${to}`);
+      }
+      if (to === 'COMPLETED') {
+        // Serviços do catálogo precisam das horas reais: é com elas que o sistema aprende.
+        const missing = order.serviceLines.filter((l) => l.service?.definitionId && l.hoursActual == null);
+        if (missing.length) {
+          throw new ConflictException(`Informe as horas reais de: ${missing.map((l) => l.serviceName).join(', ')}`);
+        }
       }
 
       if (from === 'QUOTE' && to === 'APPROVED') {
@@ -172,6 +285,7 @@ export class ServiceOrdersService {
         where: { id },
         data: { status: to, closedAt: isTerminal(to) ? new Date() : null },
       });
+      if (to === 'COMPLETED') await this.learning.recordForOrder(tx, id);
       await tx.serviceOrderStatusLog.create({
         data: { serviceOrderId: id, fromStatus: from, toStatus: to, changedById: user.id, note: input.note },
       });

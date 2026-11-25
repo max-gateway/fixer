@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PlateLookupClient } from './plate-lookup.client.js';
-import type { PlateLookupResult } from './schema.js';
+import { PlateLookupResultSchema, type PlateLookupResult } from './schema.js';
 
 export interface PlateLookupRecord {
   plate: string;
@@ -20,6 +20,11 @@ const PLATE_RE = /^[A-Za-z0-9]{7}$/;
  *
  * Placa e dados cadastrais do veículo não mudam, então o resultado é tratado
  * como definitivo. Não há TTL/expiração aqui de propósito.
+ *
+ * Persistimos o JSON CRU do provedor (rawResponse), sem filtrar campos: como
+ * a consulta é paga e nunca expira, o que não for salvo agora só voltaria com
+ * nova cobrança. A leitura tipada (PlateLookupResultSchema) é tolerante e
+ * extrai só o que a aplicação usa.
  */
 @Injectable()
 export class PlateLookupService {
@@ -43,11 +48,12 @@ export class PlateLookupService {
         plate,
         cached: true,
         queriedAt: existing.queriedAt,
-        result: existing.rawResponse as unknown as PlateLookupResult,
+        result: PlateLookupResultSchema.parse(existing.rawResponse),
       };
     }
 
-    const result = await this.client.consultaPlaca(plate);
+    const raw = await this.client.consultaPlaca(plate);
+    const result = PlateLookupResultSchema.parse(raw);
     const dados = result.basico?.dados;
 
     const saved = await this.prisma.plateLookup.upsert({
@@ -57,13 +63,13 @@ export class PlateLookupService {
       // na constraint única — evita uma race condition rara em cadastro duplicado.
       create: {
         plate,
-        rawResponse: result as object,
+        rawResponse: raw as object,
         brand: dados?.marca ?? null,
         model: dados?.modelo ?? null,
         year: dados?.ano ?? null,
       },
       update: {
-        rawResponse: result as object,
+        rawResponse: raw as object,
         brand: dados?.marca ?? null,
         model: dados?.modelo ?? null,
         year: dados?.ano ?? null,

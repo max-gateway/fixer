@@ -54,6 +54,10 @@ export const CreateServiceOrderSchema = z.object({
         z.object({
           serviceId: z.string().min(1),
           price: z.number().nonnegative().optional(),
+          // Texto livre (vai para a discriminação da NFS-e; nunca alimenta o aprendizado).
+          description: z.string().trim().max(500).nullable().optional(),
+          // Horas informadas na criação, quando não há estimativa aprendida (ou para sobrescrevê-la).
+          hours: z.number().positive().max(100).optional(),
         }),
       )
       .default([]),
@@ -62,6 +66,17 @@ export const CreateServiceOrderSchema = z.object({
 export const TransitionSchema = z.object({
   status: ServiceOrderStatusSchema,
   note: z.string().trim().nullable().optional(),
+});
+
+export const AddServiceLineSchema = z.object({
+  serviceId: z.string().min(1),
+  price: z.number().nonnegative().optional(),
+  description: z.string().trim().max(500).nullable().optional(),
+  hours: z.number().positive().max(100).optional(),
+});
+
+export const HoursSchema = z.object({
+  hours: z.number().positive('Horas devem ser maiores que zero').max(100, 'Máximo de 100 horas'),
 });
 
 export const MessageSchema = z.object({
@@ -79,5 +94,7 @@ export const ChecklistItemSchema = z.object({
 
 export type CreateServiceOrderInput = z.infer<typeof CreateServiceOrderSchema>;
 export type TransitionInput = z.infer<typeof TransitionSchema>;
-export type MessageInput = z.infer<typeof MessageSchema>;
+export type AddServiceLineInput = z.infer<typeof AddServiceLineSchema>;
+export type HoursInput = z.infer<typeof HoursSchema>;
+export type MessageInput =z.infer<typeof MessageSchema>;
 export type ChecklistItemInput = z.infer<typeof ChecklistItemSchema>;

@@ -1,221 +1,218 @@
 'use client';
 
+import { CancelledError, useQueryClient } from '@tanstack/react-query';
+import { Camera, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { PlateCameraSheet } from './plate-camera-sheet';
+import { type PlateReading, PlateResult } from './plate-result';
 
-type Reading = {
-  status: 'processing' | 'accepted' | 'pending_vote' | 'rejected';
-  plate?: string | null;
-  confidence?: number;
-};
+type Reading = Omit<PlateReading, 'status'> & { status: 'processing' | PlateReading['status'] };
+
+type Phase =
+  | { kind: 'idle' }
+  | { kind: 'camera' }
+  | { kind: 'reading'; live: boolean; thumb: string }
+  | { kind: 'result'; live: boolean; thumb: string; reading: PlateReading | null; error: string | null; n: number };
 
 const POLL_MS = 1000;
 const MAX_POLLS = 20;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-// Moldura de enquadramento (em fração do quadro do vídeo). Ela obriga a placa a
-// ocupar uma fração razoável da imagem na resolução original do sensor (placa
-// minúscula num quadro cheio não é detectada pelo reader).
-//
-// O recorte enviado NÃO pode ser justo na placa: o detector do reader descarta
-// contornos acima de 35% da área da imagem (_MAX_PLATE_AREA_FRACTION em
-// apps/plate-reader/app/pipeline/plate_detection.py), e uma placa bem recortada
-// passa disso — medido: recorte justo ou com 12% de folga => 0 regiões detectadas.
-// Por isso o recorte é bem folgado em volta da moldura (placa em ~10–20% da área).
-const GUIDE = { w: 0.5, aspect: 3.2, cy: 0.55 };
-const CROP_SCALE_W = 2.2; // largura do recorte / largura da moldura
-const CROP_SCALE_H = 5; // altura do recorte / altura da moldura
-
-/** Retângulo de recorte em pixels do vídeo, centrado na moldura e limitado ao quadro. */
-export function guideCrop(vw: number, vh: number) {
-  const gw = vw * GUIDE.w;
-  const gh = gw / GUIDE.aspect;
-  const w = Math.min(vw, gw * CROP_SCALE_W);
-  const h = Math.min(vh, gh * CROP_SCALE_H);
-  const x = (vw - w) / 2;
-  const y = Math.max(0, Math.min(vh - h, vh * GUIDE.cy - h / 2));
-  return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
-}
+class StillProcessing extends Error {}
+class ReadingFailed extends Error {}
+const isCancelled = (err: unknown) => err instanceof CancelledError;
 
 /**
- * Lê a placa via OCR (plate-reader). Abre a câmera com uma moldura para enquadrar a
- * placa de perto; se a câmera não estiver disponível, aceita um arquivo. O resultado
- * é assíncrono (polling) e a placa lida sempre pode ser corrigida pelo usuário.
+ * Lê a placa via OCR (plate-reader). A câmera abre em tela cheia com uma moldura grande (só a
+ * placa, o carro não precisa aparecer); sem câmera, cai no seletor nativo. O resultado é
+ * assíncrono (polling) e sempre passa por uma conferência do usuário antes de preencher o campo.
+ * A geometria da moldura e do recorte está em plate-guide.ts.
  */
-export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) {
+export function PlateCapture({
+  onPlate,
+  allowUpload = true,
+  variant = 'default',
+}: {
+  onPlate: (plate: string) => void;
+  allowUpload?: boolean;
+  /** `inline`: botão de texto com ícone, para ficar numa linha de apoio abaixo do campo. */
+  /** `tile`: botão quadrado só com ícone, para ficar ao lado do campo de placa (sem mensagens/upload). */
+  variant?: 'default' | 'tile' | 'inline';
+}) {
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
-  const video = useRef<HTMLVideoElement>(null);
-  const stream = useRef<MediaStream | null>(null);
-  const [cameraOn, setCameraOn] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
+  const thumb = useRef<string | null>(null);
+  const run = useRef(0);
+  const pending = useRef<unknown[] | null>(null);
+  const queryClient = useQueryClient();
+  const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const [message, setMessage] = useState<string | null>(null);
 
-  useEffect(() => () => stopCamera(), []);
+  useEffect(
+    () => () => {
+      run.current++;
+      if (pending.current) void queryClient.cancelQueries({ queryKey: pending.current });
+      if (thumb.current) URL.revokeObjectURL(thumb.current);
+    },
+    [],
+  );
 
-  function stopCamera() {
-    stream.current?.getTracks().forEach((t) => t.stop());
-    stream.current = null;
-    setCameraOn(false);
-  }
-
-  async function startCamera() {
+  function openCamera() {
     setMessage(null);
     if (!navigator.mediaDevices?.getUserMedia) {
       // Sem HTTPS o navegador móvel bloqueia getUserMedia: abre a câmera nativa (capture) no lugar.
       cameraInput.current?.click();
       return;
     }
-    try {
-      stream.current = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false,
-      });
-      setCameraOn(true);
-      // O <video> só existe depois do render com cameraOn.
-      requestAnimationFrame(() => {
-        if (video.current && stream.current) {
-          video.current.srcObject = stream.current;
-          void video.current.play();
-        }
-      });
-    } catch {
-      setMessage('Não foi possível acessar a câmera (permissão negada?). Abrindo a câmera do aparelho…');
-      cameraInput.current?.click();
-    }
+    setPhase({ kind: 'camera' });
   }
 
-  function capture() {
-    const v = video.current;
-    if (!v || !v.videoWidth) return;
-    const { x, y, w, h } = guideCrop(v.videoWidth, v.videoHeight);
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    canvas.getContext('2d')!.drawImage(v, x, y, w, h, 0, 0, w, h);
-    stopCamera();
-    canvas.toBlob(
-      (blob) => {
-        if (blob) void read(blob, 'placa.jpg');
-        else setMessage('Falha ao capturar a imagem.');
-      },
-      'image/jpeg',
-      0.92,
-    );
+  function close() {
+    run.current++; // descarta qualquer polling em andamento
+    if (pending.current) void queryClient.cancelQueries({ queryKey: pending.current });
+    setPhase({ kind: 'idle' });
   }
 
-  async function read(image: Blob, filename: string) {
-    setBusy(true);
-    setMessage('Lendo placa…');
-    setPreview((old) => {
-      if (old) URL.revokeObjectURL(old);
-      return URL.createObjectURL(image);
-    });
+  function cameraUnavailable() {
+    setPhase({ kind: 'idle' });
+    setMessage('Não foi possível acessar a câmera (permissão negada?). Abrindo a câmera do aparelho…');
+    cameraInput.current?.click();
+  }
+
+  async function read(image: Blob, filename: string, live: boolean) {
+    const id = ++run.current;
+    if (thumb.current) URL.revokeObjectURL(thumb.current);
+    const url = (thumb.current = URL.createObjectURL(image));
+    const done = (reading: PlateReading | null, error: string | null) => {
+      if (run.current === id) setPhase({ kind: 'result', live, thumb: url, reading, error, n: id });
+    };
+    setPhase({ kind: 'reading', live, thumb: url });
     try {
       const form = new FormData();
       form.set('image', image, filename);
       const sent = await fetch('/api/plate-readings', { method: 'POST', body: form });
       const sentBody = await sent.json().catch(() => ({}));
-      if (!sent.ok) return setMessage(sentBody.message ?? 'Falha ao enviar a imagem.');
+      if (!sent.ok) return done(null, sentBody.message ?? 'Falha ao enviar a imagem.');
 
-      for (let i = 0; i < MAX_POLLS; i++) {
-        await sleep(POLL_MS);
-        const res = await fetch(`/api/plate-readings/${sentBody.requestId}`);
-        if (!res.ok) return setMessage('Falha ao consultar a leitura.');
-        const reading = (await res.json()) as Reading;
-        if (reading.status === 'processing') continue;
-
-        if (reading.plate) {
-          onPlate(reading.plate);
-          const pct = Math.round(reading.confidence ?? 0);
-          return setMessage(
-            reading.status === 'accepted'
-              ? `Placa lida: ${reading.plate} (${pct}%). Confira antes de continuar.`
-              : `Leitura incerta: ${reading.plate} (${pct}%). Confira e corrija se preciso.`,
-          );
-        }
-        return setMessage('Não foi possível ler a placa. Chegue mais perto, enquadre só a placa ou digite manualmente.');
-      }
-      setMessage('A leitura demorou demais. Digite a placa manualmente.');
-    } catch {
-      setMessage('Falha de rede.');
+      // Polling via retry do TanStack Query: "processing" é lançado como erro retentável a cada POLL_MS.
+      const key = ['plate-reading', sentBody.requestId];
+      pending.current = key;
+      const reading = await queryClient.fetchQuery({
+        queryKey: key,
+        staleTime: 0,
+        gcTime: 0,
+        retry: (count, err) => err instanceof StillProcessing && count < MAX_POLLS,
+        retryDelay: POLL_MS,
+        queryFn: async () => {
+          const res = await fetch(`/api/plate-readings/${sentBody.requestId}`);
+          if (!res.ok) throw new ReadingFailed();
+          const r = (await res.json()) as Reading;
+          if (r.status === 'processing') throw new StillProcessing();
+          return r;
+        },
+      });
+      if (run.current !== id) return;
+      if (reading.plate) return done(reading as PlateReading, null);
+      done(null, 'Chegue mais perto, enquadre só a placa ou digite manualmente.');
+    } catch (err) {
+      if (err instanceof StillProcessing) done(null, 'A leitura demorou demais. Digite a placa manualmente.');
+      else if (err instanceof ReadingFailed) done(null, 'Falha ao consultar a leitura.');
+      else if (!isCancelled(err)) done(null, 'Falha de rede.');
     } finally {
-      setBusy(false);
       if (fileInput.current) fileInput.current.value = '';
+      if (cameraInput.current) cameraInput.current.value = '';
     }
   }
 
+  function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) void read(file, file.name, false);
+  }
+
+  function use(plate: string) {
+    onPlate(plate);
+    setMessage(`Placa ${plate} lida. Confira antes de continuar.`);
+    close();
+  }
+
+  function typeInstead() {
+    close();
+    setMessage('Digite a placa no campo.');
+  }
+
+  const inline = variant === 'inline';
+  const tile = variant === 'tile' || inline;
+
   return (
-    <div className="space-y-2">
-      <input
-        ref={fileInput}
-        type="file"
-        accept="image/jpeg,image/png"
-        hidden
-        onChange={(e) => e.target.files?.[0] && read(e.target.files[0], e.target.files[0].name)}
-      />
+    <div className={tile ? 'contents' : 'space-y-2'}>
+      {allowUpload && !tile && <input ref={fileInput} type="file" accept="image/jpeg,image/png" hidden onChange={pickFile} />}
+      <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={pickFile} />
 
-      <input
-        ref={cameraInput}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        hidden
-        onChange={(e) => e.target.files?.[0] && read(e.target.files[0], e.target.files[0].name)}
-      />
-
-      {cameraOn ? (
-        <div className="max-w-md space-y-2">
-          <div className="relative overflow-hidden rounded bg-black">
-            <video ref={video} playsInline muted className="block w-full" />
-            <div
-              aria-hidden
-              className="pointer-events-none absolute rounded border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]"
-              style={{
-                width: `${GUIDE.w * 100}%`,
-                aspectRatio: String(GUIDE.aspect),
-                left: `${((1 - GUIDE.w) / 2) * 100}%`,
-                top: `${GUIDE.cy * 100}%`,
-                transform: 'translateY(-50%)',
-              }}
-            />
-          </div>
-          <p className="text-sm text-slate-600">Enquadre só a placa dentro da moldura, de frente e bem iluminada.</p>
-          <div className="flex gap-2">
-            <button type="button" onClick={capture} className="rounded bg-brand px-4 py-2 transition hover:bg-brand-hover text-sm font-medium text-white">
-              Capturar
-            </button>
-            <button type="button" onClick={stopCamera} className="rounded border border-slate-300 px-4 py-2 text-sm">
-              Cancelar
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-2">
+      {inline && (
+        <button
+          type="button"
+          onClick={openCamera}
+          className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-3 py-1 text-sm font-semibold text-brand transition-colors hover:bg-brand hover:text-white focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none active:scale-95"
+        >
+          <Camera aria-hidden className="size-4" /> Ler com a câmera
+        </button>
+      )}
+      {variant === 'tile' && (
+        <button
+          type="button"
+          onClick={openCamera}
+          aria-label="Ler placa com a câmera"
+          title="Ler placa com a câmera"
+          className="group grid w-20 shrink-0 place-items-center content-center gap-1 rounded-2xl border-2 border-brand/25 bg-brand-soft text-brand shadow-sm transition hover:border-brand hover:bg-brand hover:text-white focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none active:scale-95"
+        >
+          <Camera aria-hidden className="size-7 transition-transform group-hover:scale-110" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider">Câmera</span>
+        </button>
+      )}
+      {!tile && <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={openCamera}
+          className="inline-flex items-center gap-2 rounded bg-brand px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-hover"
+        >
+          <Camera className="size-4" />
+          Ler placa com a câmera
+        </button>
+        {allowUpload && (
           <button
             type="button"
-            disabled={busy}
-            onClick={startCamera}
-            className="rounded border border-slate-300 px-4 py-2 text-sm disabled:opacity-60"
-          >
-            {busy ? 'Lendo…' : 'Ler placa com a câmera'}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
             onClick={() => fileInput.current?.click()}
-            className="rounded border border-slate-300 px-4 py-2 text-sm disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded border border-slate-300 px-4 py-2 text-sm"
           >
+            <Upload className="size-4" />
             Enviar foto
           </button>
-        </div>
-      )}
+        )}
+      </div>}
 
-      {preview && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={preview} alt="Imagem enviada" className="max-h-40 rounded border border-slate-200" />
+      {message && !tile && <p className="text-sm text-slate-600">{message}</p>}
+
+      {phase.kind !== 'idle' && (
+        <PlateCameraSheet
+          live={phase.kind === 'camera' || phase.live}
+          frozen={phase.kind !== 'camera'}
+          onCapture={(blob) => void read(blob, 'placa.jpg', true)}
+          onClose={close}
+          onUnavailable={cameraUnavailable}
+          onManual={typeInstead}
+        >
+          {phase.kind !== 'camera' && (
+            <PlateResult
+              key={phase.kind === 'result' ? phase.n : 'reading'}
+              thumb={phase.thumb}
+              busy={phase.kind === 'reading'}
+              reading={phase.kind === 'result' ? phase.reading : null}
+              error={phase.kind === 'result' ? phase.error : null}
+              onUse={use}
+              onRetry={() => (phase.live ? setPhase({ kind: 'camera' }) : openCamera())}
+              onManual={typeInstead}
+            />
+          )}
+        </PlateCameraSheet>
       )}
-      {message && <p className="text-sm text-slate-600">{message}</p>}
     </div>
   );
 }

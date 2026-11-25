@@ -36,7 +36,15 @@ export type OrderDetail = Omit<OrderSummary, 'customer'> & OrderPortalData & {
   mileageAtEntry: number | null;
   nextStatuses: OrderStatus[];
   partLines: { id: string; partName: string; quantity: string; unitPrice: string }[];
-  serviceLines: { id: string; serviceName: string; price: string }[];
+  serviceLines: {
+    id: string;
+    serviceName: string;
+    price: string;
+    description: string | null;
+    hoursEstimated: string | null;
+    hoursEstimateSource: EstimateSource | null;
+    hoursActual: string | null;
+  }[];
   statusLogs: {
     id: string;
     fromStatus: OrderStatus | null;
@@ -48,6 +56,7 @@ export type OrderDetail = Omit<OrderSummary, 'customer'> & OrderPortalData & {
 };
 
 import type { ChecklistItem, OrderEvent } from './portal';
+import type { EstimateSource } from './service-hours';
 
 export type OrderPortalData = {
   portalToken: string;
@@ -64,3 +73,28 @@ export const brl = (value: string | number) =>
 
 /** Espelha status.ts da API: DELIVERED e CANCELLED não aceitam mais interação. */
 export const isTerminal = (status: OrderStatus) => status === 'DELIVERED' || status === 'CANCELLED';
+
+/** Cor semântica fixa por status (igual em todos os tenants). `dot` marca a bolinha; `chip` o fundo/texto do selo. */
+export const STATUS_STYLE: Record<OrderStatus, { dot: string; chip: string }> = {
+  QUOTE: { dot: 'bg-slate-400', chip: 'bg-slate-100 text-slate-700' },
+  APPROVED: { dot: 'bg-sky-500', chip: 'bg-sky-100 text-sky-900' },
+  IN_PROGRESS: { dot: 'bg-brand', chip: 'bg-brand-soft text-brand' },
+  AWAITING_PART: { dot: 'bg-amber-500', chip: 'bg-amber-100 text-amber-900' },
+  COMPLETED: { dot: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-800' },
+  DELIVERED: { dot: 'bg-emerald-700', chip: 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200 ring-inset' },
+  CANCELLED: { dot: 'bg-red-500', chip: 'bg-red-100 text-red-800' },
+};
+
+/** "há 3 h", "ontem", "12/08". Cai para data curta depois de uma semana. */
+export function relativeDate(iso: string, now = Date.now()): string {
+  const diff = now - new Date(iso).getTime();
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return 'agora';
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `há ${h} h`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return 'ontem';
+  if (d < 7) return `há ${d} dias`;
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '');
+}

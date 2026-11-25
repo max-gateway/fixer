@@ -1,3 +1,6 @@
+> **Cópia legada.** A fonte deste serviço agora é [max-gateway/platform](https://github.com/max-gateway/platform) (`services/whatsapp`). Não edite aqui:
+> o Fixer só mantém esta pasta até consumir a imagem da plataforma (ver `infra/MIGRATION.md` lá).
+
 # @fixer/whatsapp
 
 Serviço de WhatsApp do Fixer, sobre a **WhatsApp Cloud API (Meta)**. Recebe pedidos de envio de outros

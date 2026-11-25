@@ -3,13 +3,15 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthConfig } from './auth.config.js';
 import { AuthGuard } from './auth.guard.js';
 import { AuthService } from './auth.service.js';
+import { PermissionGuard } from './permission.guard.js';
 
 /**
  * Autenticação via JWT do Keycloak do tenant. O guard é global: toda rota exige
- * Bearer token, salvo as marcadas com @Public().
+ * Bearer token, salvo as marcadas com @Public(). O PermissionGuard (depois do AuthGuard) aplica
+ * @RequirePermission nas rotas que o usam.
  */
 @Module({
-  providers: [AuthConfig, AuthService, { provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [AuthConfig, AuthService, { provide: APP_GUARD, useClass: AuthGuard }, { provide: APP_GUARD, useClass: PermissionGuard }],
   exports: [AuthService],
 })
 export class AuthModule {}

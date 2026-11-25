@@ -1,10 +1,23 @@
 import { z } from 'zod';
 
 /**
- * Espelha app/models/schemas.py::PlateLookupResult do microservice
- * apps/plate-lookup (Python). Mantenha os dois em sincronia manualmente —
- * não há geração de schema compartilhado entre os dois serviços.
+ * Visão tipada e tolerante da resposta da Puxa Placa. O que é persistido em
+ * PlateLookup.rawResponse é o JSON cru do provedor (o microservice
+ * apps/plate-lookup o repassa sem filtrar); este schema só serve para LER
+ * campos de forma tipada. Campos não declarados aqui passam intactos
+ * (`.passthrough()`), então adicionar um campo novo é só declará-lo — não
+ * exige reconsultar a placa.
  */
+
+// O provedor devolve números como string ("2023"); null/vazio vira null.
+const looseNumber = z.preprocess(
+  (v) => (v === '' || v === null ? null : typeof v === 'string' ? Number(v) : v),
+  z.number().nullable().optional(),
+);
+const looseInt = z.preprocess(
+  (v) => (v === '' || v === null ? null : typeof v === 'string' ? Number(v) : v),
+  z.number().int().nullable().optional(),
+);
 
 const BasicoDadosSchema = z.object({
   marcamodelo: z.string().nullable().optional(),
@@ -14,8 +27,8 @@ const BasicoDadosSchema = z.object({
   modelo: z.string().nullable().optional(),
   marca: z.string().nullable().optional(),
   cor: z.string().nullable().optional(),
-  ano: z.number().int().nullable().optional(),
-  anoModelo: z.number().int().nullable().optional(),
+  ano: looseInt,
+  anoModelo: looseInt,
   municipio: z.string().nullable().optional(),
   uf: z.string().nullable().optional(),
   origem: z.string().nullable().optional(),
@@ -27,14 +40,29 @@ const BasicoDadosSchema = z.object({
   data: z.string().nullable().optional(),
   atualizado: z.boolean().nullable().optional(),
   logo: z.string().nullable().optional(),
-});
+  // Motorização e dados técnicos
+  motor: z.string().nullable().optional(),
+  cilindradas: looseNumber,
+  potencia: looseNumber,
+  cmt: looseNumber,
+  cmc: looseNumber,
+  pbt: looseNumber,
+  lotacao: looseInt,
+  qtdEixos: looseInt,
+  tipoVeiculo: z.string().nullable().optional(),
+  tipoCarroceria: z.string().nullable().optional(),
+  procedencia: z.string().nullable().optional(),
+  segmento: z.string().nullable().optional(),
+  sub_segmento: z.string().nullable().optional(),
+  modelo_lista: z.array(z.string()).nullable().optional(),
+}).passthrough();
 
 const BasicoBlockSchema = z.object({
   error: z.boolean().default(false),
   message: z.string().nullable().optional(),
   dados: BasicoDadosSchema.nullable().optional(),
   execucao: z.string().nullable().optional(),
-});
+}).passthrough();
 
 const ChassiBlockSchema = z.object({
   error: z.boolean().default(false),
@@ -95,6 +123,6 @@ export const PlateLookupResultSchema = z.object({
   renavam: RenavamBlockSchema.nullable().optional(),
   rouboFurto: RouboFurtoBlockSchema.nullable().optional(),
   fipe: FipeBlockSchema.nullable().optional(),
-});
+}).passthrough();
 
 export type PlateLookupResult = z.infer<typeof PlateLookupResultSchema>;

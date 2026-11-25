@@ -24,11 +24,15 @@ model User {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  roles                   UserRole[]
-  createdServiceOrders    ServiceOrder[]          @relation("ServiceOrderCreatedBy")
-  assignedServiceOrders   ServiceOrder[]          @relation("ServiceOrderAssignedTo")
-  statusChanges           ServiceOrderStatusLog[]
-  stockMovements          StockMovement[]
+  roles                     UserRole[]
+  createdServiceOrders      ServiceOrder[]          @relation("ServiceOrderCreatedBy")
+  assignedServiceOrders     ServiceOrder[]          @relation("ServiceOrderAssignedTo")
+  statusChanges             ServiceOrderStatusLog[]
+  stockMovements            StockMovement[]
+  fiscalCredentialsUploaded FiscalCredential[]      @relation("FiscalUploadedBy")
+  fiscalAutoExports         FiscalCredential[]      @relation("FiscalAutoExportBy")
+  postedInvoices            PurchaseInvoice[]       @relation("InvoicePostedBy")
+  fiscalAuditLogs           FiscalAuditLog[]
 }
 
 model Role {
@@ -62,8 +66,8 @@ model RolePermission {
 model UserRole {
   userId String
   roleId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
 }
@@ -80,7 +84,7 @@ model UserRole {
 model PlateLookup {
   id          String   @id @default(cuid())
   plate       String   @unique
-  rawResponse Json // payload completo devolvido pela Puxa Placa (schema em apps/plate-lookup)
+  rawResponse Json // JSON cru devolvido pela Puxa Placa, sem filtrar campos (leitura tipada em apps/api/src/plate-lookup/schema.ts)
   brand       String? // extraído de rawResponse.basico.dados.marca, para consulta/index sem parsear o JSON
   model       String? // extraído de rawResponse.basico.dados.modelo
   year        Int? // extraído de rawResponse.basico.dados.ano
@@ -92,11 +96,11 @@ model PlateLookup {
 // ============================================================
 
 model Customer {
-  id        String   @id @default(cuid())
-  name      String
-  document  String?  @unique // CPF/CNPJ; null = cadastro pendente (OS aberta só com o telefone, o cliente completa no portal)
-  phone     String?
-  email     String?
+  id       String  @id @default(cuid())
+  name     String
+  document String? @unique // CPF/CNPJ; null = cadastro pendente (OS aberta só com o telefone, o cliente completa no portal)
+  phone    String?
+  email    String?
 
   // Endereço — preenchido pelo próprio cliente no portal da ordem de serviço.
   zipCode    String?
@@ -106,6 +110,12 @@ model Customer {
   district   String?
   city       String?
   state      String?
+
+  // Dados de PJ vindos da consulta de CNPJ (apps/cnpj-lookup) no cadastro.
+  tradeName               String? // nome fantasia
+  stateRegistration       String? // Inscrição Estadual (CCC) da UF do endereço
+  stateRegistrationStatus String? // ex.: "Sem restrição"
+  registryCheckedAt       DateTime? // quando o cadastro foi consultado na Receita/CCC
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -124,6 +134,11 @@ model Vehicle {
   mileage   Int? // km at last known update
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Variante normalizada (marca > modelo > família > versão); null = não resolvida. Ver docs/specs/service-catalog.md §4.4
+  variantId         String?
+  variant           VehicleVariant?    @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  variantResolution VariantResolution?
 
   owners        VehicleOwner[]
   serviceOrders ServiceOrder[]
@@ -149,30 +164,60 @@ model VehicleOwner {
 // ============================================================
 
 model Part {
-  id           String   @id @default(cuid())
-  sku          String   @unique
+  id           String  @id @default(cuid())
+  sku          String  @unique
   name         String
   costPrice    Decimal
   sellPrice    Decimal
-  stockQty     Decimal  @default(0)
+  stockQty     Decimal @default(0)
   supplierName String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
 
-  orderLines     ServiceOrderPartLine[]
-  stockMovements StockMovement[]
+  // Fiscal (NF-e/NFC-e). Nullable até a emissão ser ativada; o ideal é vir do XML da NF-e de entrada.
+  ncm            String?
+  cest           String?
+  originCode     Int? // 0–8
+  unit           String?
+  defaultCfop    String?
+  csosn          String? // Simples Nacional
+  cst            String? // demais regimes
+  fiscalVerified Boolean @default(false) // confirmado por contador; a emissão exige true
+
+  ean String? // GTIN; o matcher da importação de NF-e casa o item da nota por aqui
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderLines       ServiceOrderPartLine[]
+  stockMovements   StockMovement[]
+  supplierItemMaps SupplierItemMap[]
+  invoiceItems     PurchaseInvoiceItem[]
+
+  @@index([ean])
 }
 
 model Service {
   id               String   @id @default(cuid())
   name             String   @unique // e.g. "Oil change", "Wheel alignment"
   description      String?
-  estimatedMinutes Int?
+  estimatedMinutes Int? // fallback legado; a estimativa vem de ServiceEstimate (depreciado após a fase 2)
   defaultPrice     Decimal
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  // null = serviço avulso: não gera observação nem estimativa
+  definitionId    String?
+  definition      ServiceDefinition?    @relation(fields: [definitionId], references: [id], onDelete: SetNull)
+  pricingMode     ServicePricingMode    @default(FIXED)
+  isSubcontracted Boolean               @default(false) // terceirizado (retífica, usinagem)
+  fiscalProfileId String? // override do perfil herdado da definição
+  fiscalProfile   ServiceFiscalProfile? @relation(fields: [fiscalProfileId], references: [id], onDelete: SetNull)
+
   orderLines ServiceOrderServiceLine[]
+}
+
+enum ServicePricingMode {
+  FIXED // defaultPrice
+  HOURLY // horas × TenantFiscalSettings.hourlyRate
 }
 
 // ============================================================
@@ -214,10 +259,10 @@ model ServiceOrder {
   vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
 
   createdById String
-  createdBy   User @relation("ServiceOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdBy   User   @relation("ServiceOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
   assignedToId String?
-  assignedTo   User? @relation("ServiceOrderAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedTo   User?   @relation("ServiceOrderAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
 
   partLines    ServiceOrderPartLine[]
   serviceLines ServiceOrderServiceLine[]
@@ -260,6 +305,19 @@ model ServiceOrderServiceLine {
   serviceName String // snapshot of the service's name at time of execution
   price       Decimal // price charged on this order, frozen
 
+  // Texto livre → discriminação da NFS-e. NUNCA alimenta o aprendizado.
+  description String?
+
+  // Horas: estimativa exibida no orçamento e horas reais informadas na conclusão (spec §6)
+  hoursEstimated      Decimal?
+  hoursEstimateSource EstimateSource?
+  hoursActual         Decimal?
+  hoursActualSource   HoursSource?
+  variantId           String? // snapshot do veículo no momento da execução
+  variantResolution   VariantResolution?
+
+  observation ServiceObservation?
+
   createdAt DateTime @default(now())
 }
 
@@ -272,9 +330,9 @@ model ServiceOrderStatusLog {
   fromStatus  ServiceOrderStatus?
   toStatus    ServiceOrderStatus
   changedById String
-  changedBy   User    @relation(fields: [changedById], references: [id], onDelete: Restrict)
+  changedBy   User                @relation(fields: [changedById], references: [id], onDelete: Restrict)
   note        String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime            @default(now())
 }
 
 // ============================================================
@@ -310,7 +368,7 @@ model ServiceOrderEvent {
   authorName   String? // snapshot do nome exibido no momento do evento
   body         String?
   data         Json?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime    @default(now())
 
   @@index([serviceOrderId, createdAt])
 }
@@ -361,9 +419,17 @@ model StockMovement {
 
   note        String? // reason, purchase invoice number, etc.
   createdById String
-  createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdBy   User    @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  // Entrada por NF-e (docs/specs/nfe-import.md §8.3). Idempotência: no máximo um PURCHASE e um
+  // ADJUSTMENT (estorno) por item de nota. NULLs são distintos no Postgres, então os demais
+  // movimentos não são afetados.
+  purchaseInvoiceItemId String?
+  purchaseInvoiceItem   PurchaseInvoiceItem? @relation(fields: [purchaseInvoiceItemId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
+
+  @@unique([purchaseInvoiceItemId, type])
 }
 
 // ============================================================
@@ -397,4 +463,380 @@ model OutboxEvent {
   publishedAt   DateTime?
 
   @@index([publishedAt, seq])
+}
+
+// ============================================================
+// Catálogo de serviços, fiscal e aprendizado de tempos
+// Spec: docs/specs/service-catalog.md
+// ============================================================
+
+enum CatalogOrigin {
+  GLOBAL // vem do packages/catalog
+  LOCAL // criado neste tenant
+}
+
+enum ServiceAction {
+  SUBSTITUIR
+  REVISAR
+  REGULAR
+  DIAGNOSTICAR
+  LIMPAR
+  REPARAR
+  INSTALAR
+  REMOVER
+}
+
+enum VariantLevel {
+  MAKE
+  MODEL
+  FAMILY
+  VERSION
+}
+
+enum VariantResolution {
+  FIPE
+  FAMILY
+  MODEL
+  MAKE
+  NONE
+}
+
+enum EstimateSource {
+  LEARNED // nó com n >= N_MIN: pré-preenche
+  REFERENCE // 1 <= n < N_MIN: só exibe
+  MANUAL // usuário digitou
+  NONE // sem histórico
+}
+
+enum HoursSource {
+  MEASURED // reservado (cronômetro, fora da v1)
+  EDITED
+  ACCEPTED_DEFAULT
+}
+
+enum TaxRegime {
+  SIMPLES
+  PRESUMIDO
+  REAL
+}
+
+// Árvore de sistemas/componentes: Transmissão > Embreagem > Kit de embreagem
+model VehicleComponent {
+  id       String             @id @default(cuid())
+  code     String             @unique // "EMBREAGEM_KIT" — estável
+  name     String
+  parentId String?
+  parent   VehicleComponent?  @relation("ComponentTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children VehicleComponent[] @relation("ComponentTree")
+
+  definitions ServiceDefinition[]
+}
+
+model ServiceFiscalProfile {
+  id          String  @id @default(cuid())
+  code        String  @unique // "LC116_14_01"
+  lc116Item   String // "14.01"
+  nbs         String? // default em spec §4.3.1
+  cnae        String?
+  issWithheld Boolean @default(false)
+  verified    Boolean @default(false) // confirmado por contador; a emissão exige true
+  // Alíquota de ISS e código de tributação municipal NÃO ficam aqui: dependem do município (TenantFiscalSettings).
+
+  definitions ServiceDefinition[]
+  services    Service[]
+}
+
+model ServiceDefinition {
+  id               String                @id @default(cuid())
+  code             String                @unique // "SUBSTITUIR:EMBREAGEM_KIT"
+  action           ServiceAction
+  componentId      String
+  component        VehicleComponent      @relation(fields: [componentId], references: [id], onDelete: Restrict)
+  nfseTextTemplate String?
+  fiscalProfileId  String?
+  fiscalProfile    ServiceFiscalProfile? @relation(fields: [fiscalProfileId], references: [id], onDelete: SetNull)
+  origin           CatalogOrigin         @default(GLOBAL)
+  catalogVersion   String?
+  deprecatedAt     DateTime? // nunca DELETE: há OS referenciando
+
+  services       Service[]
+  suggestedParts ServiceSuggestedPart[]
+  estimates      ServiceEstimate[]
+  observations   ServiceObservation[]
+
+  @@unique([action, componentId])
+}
+
+model VehicleVariant {
+  id       String           @id @default(cuid())
+  level    VariantLevel
+  key      String           @unique // determinístico: "fiat/palio/1.0/flex", "fipe:001267-0"
+  parentId String?
+  parent   VehicleVariant?  @relation("VariantTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children VehicleVariant[] @relation("VariantTree")
+
+  make     String
+  model    String?
+  engine   String? // litros, "1.0"
+  fuel     String?
+  fipeCode String? // só em VERSION
+  origin   CatalogOrigin @default(GLOBAL)
+
+  vehicles     Vehicle[]
+  estimates    ServiceEstimate[]
+  observations ServiceObservation[]
+
+  @@index([parentId])
+}
+
+// Fonte da verdade do aprendizado. unique(serviceLineId) garante idempotência.
+model ServiceObservation {
+  id                  String                  @id @default(cuid())
+  serviceLineId       String                  @unique
+  serviceLine         ServiceOrderServiceLine @relation(fields: [serviceLineId], references: [id], onDelete: Cascade)
+  serviceDefinitionId String
+  serviceDefinition   ServiceDefinition       @relation(fields: [serviceDefinitionId], references: [id], onDelete: Restrict)
+  variantId           String
+  variant             VehicleVariant          @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  hoursActual         Decimal
+  weight              Decimal                 @default(1) // 1 editado/medido; 0.25 aceito sem edição
+  observedAt          DateTime
+  excluded            Boolean                 @default(false)
+  excludedReason      String?
+
+  @@index([serviceDefinitionId, variantId])
+}
+
+// Agregado recalculável: função pura das observações (spec §6.4).
+model ServiceEstimate {
+  id                  String            @id @default(cuid())
+  serviceDefinitionId String
+  serviceDefinition   ServiceDefinition @relation(fields: [serviceDefinitionId], references: [id], onDelete: Cascade)
+  variantId           String
+  variant             VehicleVariant    @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  hoursMedian         Decimal
+  hoursP25            Decimal
+  hoursP75            Decimal
+  sampleCount         Int
+  computedAt          DateTime
+  inputsDigest        String // hash das observações usadas; igual = não regrava
+
+  @@unique([serviceDefinitionId, variantId])
+}
+
+model ServiceSuggestedPart {
+  id                  String            @id @default(cuid())
+  serviceDefinitionId String
+  serviceDefinition   ServiceDefinition @relation(fields: [serviceDefinitionId], references: [id], onDelete: Cascade)
+  variantKey          String? // null = vale para qualquer veículo
+  partCategory        String // "DISCO_EMBREAGEM"
+  quantity            Decimal           @default(1)
+  optional            Boolean           @default(false)
+
+  @@unique([serviceDefinitionId, variantKey, partCategory])
+}
+
+// Singleton por tenant (1 banco = 1 oficina).
+model TenantFiscalSettings {
+  id                   Int        @id @default(1)
+  cnpj                 String? // 14 caracteres alfanuméricos [A-Z0-9]{12}[0-9]{2}, sem máscara (nfe-import.md D12)
+  legalName            String?
+  ufCode               Int? // cUFAutor (código IBGE da UF)
+  municipalityIbge     String?
+  taxRegime            TaxRegime?
+  issRate              Decimal?
+  municipalServiceCode String?
+  hourlyRate           Decimal?
+
+  @@map("tenant_fiscal_settings")
+}
+
+// Singleton: versão do packages/catalog aplicada neste banco.
+model CatalogState {
+  id        Int      @id @default(1)
+  version   String
+  appliedAt DateTime
+
+  @@map("catalog_state")
+}
+
+// ============================================================
+// Importação de NF-e de compra (docs/specs/nfe-import.md)
+// ============================================================
+
+enum FiscalEnvironment {
+  PRODUCTION
+  HOMOLOGATION
+}
+
+// Singleton. O .pfx e a senha NUNCA saem do banco em claro nem pela API (envelope AES-256-GCM, §7.2).
+model FiscalCredential {
+  id          Int               @id @default(1)
+  environment FiscalEnvironment @default(PRODUCTION)
+
+  pfxCiphertext     Bytes
+  pfxPassCiphertext Bytes
+  keyId             String // qual chave mestra cifrou (rotação)
+
+  subject   String // CN do certificado, só para exibição
+  certCnpj  String // CNPJ extraído do certificado (OID 2.16.76.1.3.3)
+  notBefore DateTime
+  notAfter  DateTime
+
+  enabled        Boolean @default(false) // liga/desliga a sincronização
+  autoManifest   Boolean @default(false) // consente a Ciência da Operação automática
+  autoExport     Boolean @default(false) // dá entrada sem confirmação quando 100% resolvido
+  autoExportById String? // autor dos movimentos automáticos (StockMovement.createdById é obrigatório)
+  autoExportBy   User?   @relation("FiscalAutoExportBy", fields: [autoExportById], references: [id], onDelete: Restrict)
+
+  uploadedById String
+  uploadedBy   User     @relation("FiscalUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  syncState FiscalSyncState?
+}
+
+model FiscalSyncState {
+  id         Int              @id @default(1)
+  credential FiscalCredential @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  lastNsu             BigInt    @default(0) // último NSU consumido (até 15 dígitos)
+  maxNsu              BigInt    @default(0)
+  nextPollAt          DateTime  @default(now())
+  leaseUntil          DateTime?
+  leaseOwner          String?
+  consecutiveFailures Int       @default(0)
+  lastStatusCode      Int? // último cStat da SEFAZ
+  lastError           String?
+  lastRunAt           DateTime?
+  lastSuccessAt       DateTime?
+}
+
+model FiscalAuditLog {
+  id     String   @id @default(cuid())
+  at     DateTime @default(now())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  action String // ex.: "credential.upload", "credential.delete", "flags.update"
+  detail Json? // nunca contém segredo
+  ip     String?
+
+  @@index([at])
+}
+
+// Ciclo fiscal: o que a SEFAZ entregou.
+enum PurchaseInvoiceStatus {
+  SUMMARY // só o resumo (resNFe); falta ciência para vir o XML completo
+  MANIFESTED // ciência enviada; aguardando o procNFe
+  FULL // XML completo guardado e itens extraídos
+  CANCELED // evento de cancelamento recebido
+  IGNORED // não é compra para este CNPJ, ou XML inválido
+}
+
+// Ciclo de estoque: o que foi feito com a nota.
+enum InvoiceExportStatus {
+  NOT_READY // ainda sem XML completo
+  PENDING_MATCH // há item sem vínculo, ou a nota exige revisão
+  READY // 100% resolvida, aguardando confirmação (ou autoExport)
+  POSTED // entrada lançada no estoque
+  VOIDED // cancelada antes da entrada, ou entrada estornada
+}
+
+model PurchaseInvoice {
+  id            String    @id @default(cuid())
+  accessKey     String    @unique // 44 caracteres alfanuméricos
+  nsu           BigInt? // facultativo na NT
+  series        Int?
+  number        Int?
+  issuedAt      DateTime?
+  issuerCnpj    String // 14 alfanuméricos; CPF (11 dígitos) em produtor rural
+  issuerName    String
+  recipientCnpj String?
+  totalAmount   Decimal
+  finality      Int? // finNFe: 1 normal, 2 compl., 3 ajuste, 4 devolução
+  operationType Int? // tpNF: 1 = saída do emitente
+
+  status           PurchaseInvoiceStatus @default(SUMMARY)
+  manifestedAt     DateTime?
+  // Ciência da Operação (nfe-import.md §6.4): tentativas e último erro, para backoff e para a UI mostrar a falha.
+  manifestAttempts Int                   @default(0)
+  manifestError    String?
+  manifestNextAt   DateTime?
+  canceledAt       DateTime?
+  ignoredReason    String?
+
+  xmlGz     Bytes? // procNFe original, gzip. Guarda fiscal: nunca apagar
+  xmlSha256 String?
+
+  exportStatus InvoiceExportStatus @default(NOT_READY)
+  needsReview  Boolean             @default(false) // finalidade ≠ 1 ou outro motivo: nunca READY automático
+  postedAt     DateTime?
+  postedById   String?
+  postedBy     User?               @relation("InvoicePostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+
+  receivedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  items PurchaseInvoiceItem[]
+
+  @@index([exportStatus])
+  @@index([status, manifestNextAt])
+  @@index([issuedAt])
+}
+
+enum ItemResolution {
+  UNRESOLVED
+  AUTO_MAP // casou por SupplierItemMap
+  AUTO_EAN // casou por Part.ean
+  MANUAL // escolhido pelo usuário
+  IGNORED // não é estoque (uso e consumo, brinde, frete)
+}
+
+model PurchaseInvoiceItem {
+  id           String          @id @default(cuid())
+  invoiceId    String
+  invoice      PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  itemNumber   Int // nItem
+  supplierCode String // cProd
+  ean          String? // cEAN / cEANTrib válido (≠ "SEM GTIN")
+  description  String // xProd
+  ncm          String
+  cest         String?
+  origin       Int? // orig (0–8)
+  cfop         String
+  unit         String // uCom
+  quantity     Decimal // qCom
+  unitPrice    Decimal // vUnCom
+  totalPrice   Decimal // vProd
+  discount     Decimal         @default(0) // vDesc
+  freight      Decimal         @default(0) // vFrete
+  insurance    Decimal         @default(0) // vSeg
+  otherCosts   Decimal         @default(0) // vOutro
+  ipi          Decimal         @default(0) // vIPI
+  icmsSt       Decimal         @default(0) // vICMSST
+
+  resolution ItemResolution @default(UNRESOLVED)
+  partId     String?
+  part       Part?          @relation(fields: [partId], references: [id], onDelete: Restrict)
+  unitFactor Decimal        @default(1) // unidades de estoque por unidade da nota (caixa de 4 = 4)
+
+  stockMovements StockMovement[]
+
+  @@unique([invoiceId, itemNumber])
+  @@index([supplierCode])
+}
+
+// Vínculo aprendido: o próximo item do mesmo fornecedor/código resolve sozinho.
+model SupplierItemMap {
+  id           String   @id @default(cuid())
+  supplierCnpj String
+  supplierCode String
+  partId       String
+  part         Part     @relation(fields: [partId], references: [id], onDelete: Restrict)
+  unitFactor   Decimal  @default(1)
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime @default(now())
+
+  @@unique([supplierCnpj, supplierCode])
 }

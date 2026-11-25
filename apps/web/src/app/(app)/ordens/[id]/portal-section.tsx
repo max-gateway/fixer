@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
 import { Conversation } from '@/components/conversation';
 import { Icon } from '@/components/icons';
 import type { ChecklistItem, OrderEvent } from '@/lib/portal';
@@ -26,34 +27,36 @@ export function PortalSection({
   initialChecklist: ChecklistItem[];
   closed: boolean;
 }) {
-  const [events, setEvents] = useState(initialEvents);
-  const [checklist, setChecklist] = useState(initialChecklist);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  type OrderSnapshot = { events: OrderEvent[]; checklist: ChecklistItem[] };
+  const queryKey = ['service-order', orderId] as const;
+  const queryClient = useQueryClient();
   const inflight = useRef(0);
   const tmp = useRef(0);
+  // Mensagens ainda não confirmadas pelo servidor (enviando ou com falha), exibidas após as do servidor.
+  const [local, setLocal] = useState<OrderEvent[]>([]);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const poll = async () => {
-      if (document.hidden || inflight.current > 0) return;
-      try {
-        const res = await fetch(`/api/service-orders/${orderId}`, { cache: 'no-store' });
-        if (!res.ok || inflight.current > 0) return;
-        const fresh = await res.json();
-        setEvents((prev) => [...fresh.events, ...prev.filter((e) => e.pending || e.failed)]);
-        setChecklist(fresh.checklist);
-      } catch {
-        /* próxima tentativa */
-      }
-    };
-    const id = setInterval(poll, 5000);
-    return () => clearInterval(id);
-  }, [orderId]);
+  const { data } = useQuery({
+    queryKey,
+    queryFn: async ({ signal }): Promise<OrderSnapshot> => {
+      const res = await fetch(`/api/service-orders/${orderId}`, { cache: 'no-store', signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    initialData: { events: initialEvents, checklist: initialChecklist },
+    staleTime: 4000,
+    // Não consulta durante um envio (evita sobrescrever a mensagem recém-criada); pausa com a aba oculta.
+    refetchInterval: () => (inflight.current > 0 ? false : 5000),
+    refetchIntervalInBackground: false,
+  });
+  const events = [...data.events, ...local];
+  const checklist = data.checklist;
 
   async function send(text: string, retryId?: string) {
     const id = retryId ?? `tmp-${++tmp.current}`;
     const optimistic: OrderEvent = { id, type: 'MESSAGE', author: 'SHOP', authorName: 'Você', body: text, data: null, createdAt: new Date().toISOString(), pending: true };
-    setEvents((prev) => (retryId ? prev.map((e) => (e.id === id ? optimistic : e)) : [...prev, optimistic]));
+    setLocal((prev) => (retryId ? prev.map((e) => (e.id === id ? optimistic : e)) : [...prev, optimistic]));
     setError(null);
     inflight.current++;
     try {
@@ -64,9 +67,11 @@ export function PortalSection({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.message ?? 'Falha ao enviar.');
-      setEvents((prev) => prev.map((e) => (e.id === id ? body : e)));
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData<OrderSnapshot>(queryKey, (old) => old && { ...old, events: [...old.events, body] });
+      setLocal((prev) => prev.filter((e) => e.id !== id));
     } catch (err) {
-      setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, pending: false, failed: true } : e)));
+      setLocal((prev) => prev.map((e) => (e.id === id ? { ...e, pending: false, failed: true } : e)));
       setError(err instanceof Error ? err.message : 'Falha ao enviar.');
     } finally {
       inflight.current--;

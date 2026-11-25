@@ -28,6 +28,18 @@ verdade de "essa placa já foi consultada" — guarda o payload completo
 (`rawResponse`) e alguns campos extraídos (`brand`, `model`, `year`) só para
 facilitar consulta/index sem precisar parsear o JSON.
 
+## Resposta crua (nada é descartado)
+
+`rawResponse` guarda o JSON **exatamente como a Puxa Placa devolveu**: o
+microservice o repassa sem filtrar e o core não o reescreve. A consulta é paga
+e nunca expira, então campos que o schema ainda não conhece (motor,
+cilindradas, potência, etc.) são preservados. `schema.ts` é só uma visão
+tipada e tolerante para leitura (`.passthrough()`, números-string
+convertidos); para expor um campo novo basta declará-lo ali.
+
+Linhas gravadas antes dessa mudança foram salvas filtradas e não têm os campos
+extras; só uma nova consulta (paga) os traz — em dev, apague a linha da placa.
+
 ## Por que não usar o model `Vehicle` existente
 
 `Vehicle` é o cadastro operacional da oficina (dono edita `mileage`, etc.) e

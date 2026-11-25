@@ -1,5 +1,6 @@
 'use client';
 
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Conversation } from '@/components/conversation';
 import { Icon, type IconName } from '@/components/icons';
@@ -17,47 +18,46 @@ const POLL_MS = 5000;
 const QUICK_REPLIES = ['Qual a previsão de entrega?', 'Pode começar o serviço', 'Posso retirar hoje?', 'Quero ver o orçamento'];
 
 export function Portal({ token, initial, shop }: { token: string; initial: PortalOrder; shop: { name: string; logoUrl: string | null } }) {
-  const [order, setOrder] = useState(initial);
-  const [events, setEvents] = useState<OrderEvent[]>(initial.events);
+  const queryClient = useQueryClient();
+  const queryKey = ['portal-order', token] as const;
+  const inflight = useRef(0);
+  const tmp = useRef(0);
+  // Mensagens ainda não confirmadas pelo servidor (enviando ou com falha), exibidas após as do servidor.
+  const [local, setLocal] = useState<OrderEvent[]>([]);
   // Cadastro pendente (OS aberta só com o telefone): o primeiro passo é se identificar.
   const [tab, setTab] = useState<Tab>(initial.registrationPending ? 'dados' : 'conversa');
   const [seen, setSeen] = useState(initial.events.length);
   const [problemOpen, setProblemOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [offline, setOffline] = useState(false);
-  const inflight = useRef(0);
-  const tmp = useRef(0);
 
   const notify = useCallback((message: string) => {
     setToast(message);
     setTimeout(() => setToast((t) => (t === message ? null : t)), 3200);
   }, []);
 
-  // Polling: só com a aba visível, e sem aplicar a resposta enquanto há escrita em voo
-  // (evita a mensagem otimista aparecer duplicada junto com a versão do servidor).
-  useEffect(() => {
-    let stopped = false;
-    async function poll() {
-      if (stopped || document.hidden || inflight.current > 0) return;
-      try {
-        const fresh = await portalFetch<PortalOrder>(token, '');
-        if (stopped || inflight.current > 0) return;
-        setOffline(false);
-        setOrder((o) => ({ ...fresh, customer: o.customer })); // o formulário de dados é dono do próprio estado
-        setEvents((prev) => [...fresh.events, ...prev.filter((e) => e.pending || e.failed)]);
-      } catch (err) {
-        if (err instanceof PortalApiError && err.status === 0) setOffline(true);
-      }
-    }
-    const id = setInterval(poll, POLL_MS);
-    const onVisible = () => !document.hidden && poll();
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      stopped = true;
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [token]);
+  // Polling: pausa com a aba oculta e não aplica a resposta enquanto há escrita em voo
+  // (evita sobrescrever uma alteração otimista ou duplicar a mensagem recém-enviada).
+  const { data: order, error } = useQuery({
+    queryKey,
+    queryFn: async (): Promise<PortalOrder> => {
+      const fresh = await portalFetch<PortalOrder>(token, '');
+      const current = queryClient.getQueryData<PortalOrder>(queryKey);
+      if (inflight.current > 0 && current) return current;
+      return { ...fresh, customer: current?.customer ?? fresh.customer }; // o formulário de dados é dono do próprio estado
+    },
+    initialData: initial,
+    staleTime: 4000,
+    refetchInterval: POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+  const offline = error instanceof PortalApiError && error.status === 0;
+  const events = [...order.events, ...local];
+  const patchOrder = (fn: (o: PortalOrder) => PortalOrder) => queryClient.setQueryData<PortalOrder>(queryKey, (o) => o && fn(o));
+  const confirm = async (id: string, saved: OrderEvent) => {
+    await queryClient.cancelQueries({ queryKey }); // uma consulta em voo não pode sobrescrever a mensagem recém-criada
+    patchOrder((o) => ({ ...o, events: [...o.events, saved] }));
+    setLocal((prev) => prev.filter((e) => e.id !== id));
+  };
 
   // O polling traz o vínculo feito no WhatsApp: confirma na tela sem o cliente precisar recarregar.
   const wasLinked = useRef(initial.whatsapp.linked);
@@ -87,12 +87,12 @@ export function Portal({ token, initial, shop }: { token: string; initial: Porta
     async (text: string, retryId?: string) => {
       const id = retryId ?? `tmp-${++tmp.current}`;
       const optimistic: OrderEvent = { id, type: 'MESSAGE', author: 'CUSTOMER', authorName: order.customer.name, body: text, data: null, createdAt: new Date().toISOString(), pending: true };
-      setEvents((prev) => (retryId ? prev.map((e) => (e.id === id ? optimistic : e)) : [...prev, optimistic]));
+      setLocal((prev) => (retryId ? prev.map((e) => (e.id === id ? optimistic : e)) : [...prev, optimistic]));
       try {
         const saved = await post('/messages', { body: text });
-        setEvents((prev) => prev.map((e) => (e.id === id ? saved : e)));
+        await confirm(id, saved);
       } catch (err) {
-        setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, pending: false, failed: true } : e)));
+        setLocal((prev) => prev.map((e) => (e.id === id ? { ...e, pending: false, failed: true } : e)));
         notify(err instanceof Error ? err.message : 'Falha ao enviar.');
       }
     },
@@ -110,7 +110,7 @@ export function Portal({ token, initial, shop }: { token: string; initial: Porta
     setTab('conversa');
     try {
       const saved = await post('/problem', p);
-      setEvents((prev) => [...prev, saved]);
+      patchOrder((o) => ({ ...o, events: [...o.events, saved] }));
       notify('Relato enviado para a oficina ✓');
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Falha ao enviar o relato.');
@@ -120,12 +120,12 @@ export function Portal({ token, initial, shop }: { token: string; initial: Porta
 
   async function answerChecklist(id: string, status: ChecklistStatus, note: string | null) {
     const before = order.checklist;
-    setOrder((o) => ({ ...o, checklist: o.checklist.map((c) => (c.id === id ? { ...c, status, note } : c)) }));
+    patchOrder((o) => ({ ...o, checklist: o.checklist.map((c) => (c.id === id ? { ...c, status, note } : c)) }));
     try {
       await post(`/checklist/${encodeURIComponent(id)}`, { status, note }, 'PATCH');
       // O evento gerado entra na conversa no próximo ciclo de polling.
     } catch (err) {
-      setOrder((o) => ({ ...o, checklist: before }));
+      patchOrder((o) => ({ ...o, checklist: before }));
       notify(err instanceof Error ? err.message : 'Falha ao salvar.');
     }
   }
@@ -134,7 +134,7 @@ export function Portal({ token, initial, shop }: { token: string; initial: Porta
     inflight.current++;
     try {
       await portalFetch(token, '/customer', { method: 'PUT', body: values });
-      setOrder((o) => ({ ...o, customer: { ...o.customer, ...values } }));
+      patchOrder((o) => ({ ...o, customer: { ...o.customer, ...values } }));
     } finally {
       inflight.current--;
     }
@@ -150,8 +150,7 @@ export function Portal({ token, initial, shop }: { token: string; initial: Porta
     try {
       await portalFetch(token, '/customer', { method: 'PUT', body: { ...values, document } });
       const fresh = await portalFetch<PortalOrder>(token, '');
-      setOrder(fresh);
-      setEvents((prev) => [...fresh.events, ...prev.filter((e) => e.pending || e.failed)]);
+      queryClient.setQueryData(queryKey, fresh);
       notify('Cadastro confirmado ✓ Agora conte o que está acontecendo com o veículo.');
       setTab('conversa');
       setProblemOpen(true);

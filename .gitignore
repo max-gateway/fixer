@@ -4,7 +4,7 @@ dist/
 .turbo/
 *.tsbuildinfo
 
-# Python (apps/plate-reader)
+# Python
 __pycache__/
 *.pyc
 .venv/

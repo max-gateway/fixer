@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from '@/components/icons';
 import { customerCompleteness, type PortalCustomer } from '@/lib/portal';
@@ -72,6 +73,7 @@ export function MyDataPanel({
   const [save, setSave] = useState<Save>('idle');
   const [cepMsg, setCepMsg] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const queryClient = useQueryClient();
   const latest = useRef(values);
   latest.current = values;
 
@@ -136,8 +138,12 @@ export function MyDataPanel({
     if (cep.length !== 8) return setCepMsg(null);
     setCepMsg('Buscando endereço…');
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
-      const d = await res.json();
+      // Endereço de um CEP quase não muda: cache de 24 h evita repetir a consulta ao digitar de novo.
+      const d = await queryClient.fetchQuery({
+        queryKey: ['viacep', cep],
+        staleTime: 24 * 60 * 60_000,
+        queryFn: async () => (await fetch(`https://viacep.com.br/ws/${cep}/json/`)).json(),
+      });
       if (d.erro) return setCepMsg('CEP não encontrado. Preencha o endereço manualmente.');
       change({
         zipCode: masked,

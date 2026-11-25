@@ -153,6 +153,28 @@ resource "kubernetes_secret" "keycloak" {
   }
 }
 
+# Chave mestra (KEK) que embrulha as chaves de dados do certificado fiscal A1 (docs/specs/nfe-import.md §7).
+# O ciphertext do certificado vive no banco do tenant; esta chave NÃO. Perder o Secret torna os certificados
+# já enviados irrecuperáveis (o usuário teria de reenviar o .pfx), por isso prevent_destroy.
+# Rotação: adicionar uma chave "k2" ao JSON, ativá-la em FISCAL_ACTIVE_KEY_ID e rodar fiscal:rewrap.
+resource "random_id" "fiscal_kek" {
+  byte_length = 32
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "kubernetes_secret" "fiscal" {
+  metadata {
+    name      = "${var.tenant_slug}-fiscal"
+    namespace = kubernetes_namespace.tenant.metadata[0].name
+  }
+  data = {
+    FISCAL_ENC_KEYS      = jsonencode({ k1 = random_id.fiscal_kek.b64_std })
+    FISCAL_ACTIVE_KEY_ID = "k1"
+  }
+}
+
 # Seed system roles so the tenant is never left without an Admin.
 # (Actual rows are inserted by the API's own migration/seed step on first boot,
 # reading TENANT_SLUG from the ConfigMap; Terraform's job stops at infrastructure.)
@@ -171,6 +193,10 @@ output "redis_url_secret_name" {
 
 output "keycloak_secret_name" {
   value = kubernetes_secret.keycloak.metadata[0].name
+}
+
+output "fiscal_secret_name" {
+  value = kubernetes_secret.fiscal.metadata[0].name
 }
 
 output "keycloak_realm" {
