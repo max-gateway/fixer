@@ -117,6 +117,7 @@ services:
       COST_ENGINE_URL: ${COST_ENGINE_URL:-}
       COST_ENGINE_API_KEY: ${COST_ENGINE_API_KEY:-}
       CNPJ_LOOKUP_SERVICE_URL: ${CNPJ_LOOKUP_SERVICE_URL:-}
+      CNPJ_LOOKUP_API_KEY: ${CNPJ_LOOKUP_API_KEY:-}
       # Com padrão (e não :-vazio): a validação de URL da API recusa a string vazia.
       PLATE_LOOKUP_SERVICE_URL: ${PLATE_LOOKUP_SERVICE_URL:-http://plate_lookup:8081}
       # Controle de acesso (convites): link do e-mail volta para o web público.
