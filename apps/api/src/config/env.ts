@@ -19,6 +19,9 @@ const schema = z.object({
     .string()
     .optional()
     .transform((raw) => parseCatalogList(raw)),
+  /** Borda da plataforma do workforce (equipe). Opcional: sem ela a tela de equipe responde 503 e o resto da API funciona. */
+  WORKFORCE_URL: z.string().url().optional(),
+  WORKFORCE_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
   PLATE_LOOKUP_SERVICE_URL: z.string().url().default('http://localhost:8081'),
   PORT: z.coerce.number().int().positive().default(3000),
 });

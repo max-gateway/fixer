@@ -1,10 +1,11 @@
 'use client';
 
-import { CornerDownLeft, LogOut, Search, type LucideIcon } from 'lucide-react';
+import { CornerDownLeft, LogOut, Monitor, Moon, Search, Sun, type LucideIcon } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useRouter } from 'next/navigation';
 import { Dialog } from 'radix-ui';
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTheme } from '@/lib/theme';
 import { Kbd } from './kbd';
 import { ALL_LINKS, NAV_ACTIONS, normalize } from './nav-items';
 
@@ -18,10 +19,10 @@ type Command = {
   run: () => void;
 };
 
-type Props = { open: boolean; onOpenChange: (o: boolean) => void; signOutAction: () => Promise<void> };
+type Props = { open: boolean; onOpenChange: (o: boolean) => void };
 
 /** Paleta de comandos (Ctrl/⌘ K): navegar, criar e sair sem tirar a mão do teclado. */
-export function CommandPalette({ open, onOpenChange, signOutAction }: Props) {
+export function CommandPalette({ open, onOpenChange }: Props) {
   const reduce = useReducedMotion();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -34,7 +35,7 @@ export function CommandPalette({ open, onOpenChange, signOutAction }: Props) {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: reduce ? 0 : 0.15 }}
-                className="fixed inset-0 z-50 bg-brand-secondary/50 backdrop-blur-sm"
+                className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
               />
             </Dialog.Overlay>
             <div className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center px-3 pt-[10vh]">
@@ -47,7 +48,7 @@ export function CommandPalette({ open, onOpenChange, signOutAction }: Props) {
                   className="pointer-events-auto w-full max-w-xl overflow-hidden rounded-2xl border bg-popover text-popover-foreground shadow-2xl"
                 >
                   <Dialog.Title className="sr-only">Paleta de comandos</Dialog.Title>
-                  <PaletteBody close={() => onOpenChange(false)} signOutAction={signOutAction} />
+                  <PaletteBody close={() => onOpenChange(false)} />
                 </motion.div>
               </Dialog.Content>
             </div>
@@ -58,12 +59,27 @@ export function CommandPalette({ open, onOpenChange, signOutAction }: Props) {
   );
 }
 
-function PaletteBody({ close, signOutAction }: { close: () => void; signOutAction: () => Promise<void> }) {
+const THEMES = [
+  { pref: 'light', label: 'Tema claro', icon: Sun, keywords: ['light', 'claro', 'dia'] },
+  { pref: 'dark', label: 'Tema escuro', icon: Moon, keywords: ['dark', 'escuro', 'noite'] },
+  { pref: 'system', label: 'Tema do sistema', icon: Monitor, keywords: ['system', 'automatico', 'sistema'] },
+] as const;
+
+/** Logout é um POST em /logout (Keycloak encerra a sessão SSO e volta ao /login); sem server action. */
+function signOut() {
+  const f = document.createElement('form');
+  f.method = 'post';
+  f.action = '/logout';
+  document.body.appendChild(f);
+  f.submit();
+}
+
+function PaletteBody({ close }: { close: () => void }) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const { setPref } = useTheme();
 
   const commands = useMemo<Command[]>(() => {
     const go = (href: string) => () => {
@@ -77,15 +93,22 @@ function PaletteBody({ close, signOutAction }: { close: () => void; signOutActio
       ...NAV_ACTIONS.map<Command>((a) => ({
         id: a.id, group: 'Ações', label: a.label, icon: a.icon, keys: a.key ? [a.key] : undefined, keywords: a.keywords, run: go(a.href),
       })),
+      ...THEMES.map<Command>((t) => ({
+        id: `tema-${t.pref}`, group: 'Conta', label: t.label, icon: t.icon, keywords: ['tema', 'aparencia', 'modo', ...t.keywords],
+        run: () => {
+          setPref(t.pref);
+          close();
+        },
+      })),
       {
         id: 'sair', group: 'Conta', label: 'Sair', icon: LogOut, keywords: ['logout', 'encerrar sessao'],
         run: () => {
           close();
-          startTransition(() => void signOutAction());
+          signOut();
         },
       },
     ];
-  }, [close, router, signOutAction]);
+  }, [close, router, setPref]);
 
   const results = useMemo(() => {
     const tokens = normalize(query).split(/\s+/).filter(Boolean);

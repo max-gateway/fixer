@@ -219,10 +219,10 @@ describe.skipIf(!URL)('Importação de NF-e por HTTP (Postgres, integração)', 
       expect(conflict.body.message).toBeTruthy();
     });
 
-    it('preço de venda é obrigatório no cadastro de peça', async () => {
+    it('preço de venda é opcional no cadastro de peça, mas não pode ser negativo', async () => {
       const inv = await seedInvoice();
-      const res = await http().post(`/invoices/${inv.id}/items/1/create-part`).send({ sku: 'ITEST-X' }).expect(400);
-      expect(res.body.message).toContain('preço de venda');
+      const res = await http().post(`/invoices/${inv.id}/items/1/create-part`).send({ sku: 'ITEST-X', sellPrice: -1 }).expect(400);
+      expect(res.body.message).toContain('negativo');
     });
   });
 

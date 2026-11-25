@@ -24,7 +24,8 @@ beforeAll(() => {
   Element.prototype.releasePointerCapture ??= () => {};
 });
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
+  mockCatalog([]);
   api.putJson.mockResolvedValue({});
   api.postJson.mockResolvedValue({});
 });
@@ -67,11 +68,17 @@ function setup(over: { item?: InvoiceItem; editable?: boolean; suggestion?: Invo
 }
 const click = (user: ReturnType<typeof userEvent.setup>, name: RegExp) => user.click(screen.getByRole('button', { name }));
 
+/** A busca no catálogo devolve `hit`; a consulta "a oficina já tem esta peça?" devolve `local`. */
+function mockCatalog(local: object[]) {
+  api.getJson.mockImplementation(async (url: string) => (url.includes('/api/parts?catalogSku=') ? local : { data: [hit] }));
+}
+
 /** Escolhe a peça do catálogo no primeiro seletor aberto da tela. */
 async function pickCatalogPart(user: ReturnType<typeof userEvent.setup>) {
-  api.getJson.mockResolvedValue({ data: [hit] });
-  await user.click(screen.getByRole('combobox', { name: /peça do catálogo/i }));
-  await user.click(await screen.findByText('Pastilha do catálogo'));
+  await user.click(screen.getByRole('button', { name: /peça do catálogo/i }));
+  await user.click(await screen.findByRole('option', { name: /Pastilha do catálogo/ }));
+  // A janela sai com animação; até desmontar, o resto da tela fica inacessível para o teste.
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 }
 
 describe('ItemRow: sugestão do catálogo', () => {
@@ -99,7 +106,7 @@ describe('ItemRow: sugestão do catálogo', () => {
   it('"Usar esta peça" abre o vínculo já com a peça escolhida (a pessoa ainda confere as unidades por embalagem) e salva como vínculo manual', async () => {
     const user = setup({ suggestion });
     await click(user, /usar esta peça/i);
-    expect(screen.getByRole('combobox', { name: /peça/i }).textContent).toContain('BE-9 · Pastilha já no estoque');
+    expect(screen.getByRole('button', { name: /^peça da oficina$/i }).textContent).toContain('BE-9 · Pastilha já no estoque');
     await click(user, /salvar vínculo/i);
     await waitFor(() => expect(api.putJson).toHaveBeenCalledWith('/api/invoices/inv1/items/1', { action: 'link', partId: 'p9', unitFactor: 1, saveMapping: true }, expect.any(String)));
     await waitFor(() => expect(router.refresh).toHaveBeenCalled());
@@ -157,72 +164,113 @@ describe('ItemRow: peça vinculada e o catálogo', () => {
   });
 });
 
-describe('ItemRow: cadastrar peça a partir do catálogo', () => {
-  const openCreate = async (user: ReturnType<typeof userEvent.setup>) => click(user, /cadastrar peça/i);
-  const fillPrice = async (user: ReturnType<typeof userEvent.setup>, v = '70') => user.type(screen.getByLabelText(/preço de venda/i), v);
+describe('ItemRow: definir a peça pelo catálogo', () => {
+  const open = (user: ReturnType<typeof userEvent.setup>) => click(user, /definir peça/i);
+  const registeredPart = { id: 'p5', sku: 'CRC03017', name: 'Cubo da oficina', stockQty: '3' };
 
-  it('o formulário oferece a busca no catálogo (opcional) e explica o que vem de onde', async () => {
+  it('começa pela busca no catálogo, sem pedir SKU, nome nem preço de venda', async () => {
     const user = setup();
-    await openCreate(user);
-    expect(screen.getByRole('combobox', { name: /peça do catálogo/i })).toBeTruthy();
-    expect(screen.getByText(/nome e o sku vêm do catálogo/i)).toBeTruthy();
+    await open(user);
+    expect(screen.getByRole('button', { name: /peça do catálogo/i })).toBeTruthy();
+    expect(screen.queryByLabelText(/^sku/i)).toBeNull();
+    expect(screen.queryByLabelText(/^nome/i)).toBeNull();
+    expect(screen.queryByLabelText(/preço de venda/i)).toBeNull();
+    expect(screen.queryByRole('tab')).toBeNull();
   });
 
-  it('escolher a peça do catálogo preenche o SKU e o nome com os dela', async () => {
+  it('peça do catálogo ainda não cadastrada na oficina: avisa e cadastra levando só o catalogSku', async () => {
+    mockCatalog([]);
     const user = setup();
-    await openCreate(user);
+    await open(user);
     await pickCatalogPart(user);
-    expect((screen.getByLabelText(/^sku/i) as HTMLInputElement).value).toBe('PC-77');
-    expect((screen.getByLabelText(/^nome/i) as HTMLInputElement).value).toBe('Pastilha do catálogo');
-  });
-
-  it('com peça do catálogo, o cadastro leva o catalogSku (e só ele: nome e GTIN do catálogo nunca vão no corpo além do que a pessoa vê)', async () => {
-    const user = setup();
-    await openCreate(user);
-    await pickCatalogPart(user);
-    await fillPrice(user);
+    expect((await screen.findByText(/ainda não cadastrada na oficina/i)).textContent).toBeTruthy();
     await click(user, /cadastrar e vincular/i);
     await waitFor(() =>
-      expect(api.postJson).toHaveBeenCalledWith(
-        '/api/invoices/inv1/items/1/create-part',
-        { sku: 'PC-77', name: 'Pastilha do catálogo', sellPrice: 70, unitFactor: 1, saveMapping: true, catalogSku: 'cat-1' },
-        expect.any(String),
-      ),
+      expect(api.postJson).toHaveBeenCalledWith('/api/invoices/inv1/items/1/create-part', { unitFactor: 1, saveMapping: true, catalogSku: 'cat-1' }, expect.any(String)),
     );
+    expect(api.putJson).not.toHaveBeenCalled();
     await waitFor(() => expect(router.refresh).toHaveBeenCalled());
   });
 
-  it('sem escolher no catálogo, o cadastro é o de sempre (sem catalogSku)', async () => {
+  it('peça do catálogo que a oficina já cadastrou: mostra o estoque e vincula a ela, sem cadastrar outra', async () => {
+    mockCatalog([registeredPart]);
     const user = setup();
-    await openCreate(user);
-    await fillPrice(user);
+    await open(user);
+    await pickCatalogPart(user);
+    expect((await screen.findByRole('status')).textContent).toMatch(/já cadastrada na oficina.*CRC03017/i);
+    await click(user, /salvar vínculo/i);
+    await waitFor(() =>
+      expect(api.putJson).toHaveBeenCalledWith('/api/invoices/inv1/items/1', { action: 'link', partId: 'p5', unitFactor: 1, saveMapping: true }, expect.any(String)),
+    );
+    expect(api.postJson).not.toHaveBeenCalled();
+  });
+
+  it('sem escolher a peça do catálogo, avisa e não chama a API', async () => {
+    const user = setup();
+    await open(user);
+    await click(user, /cadastrar e vincular/i);
+    expect((await screen.findByRole('alert')).textContent).toMatch(/escolha a peça do catálogo/i);
+    expect(api.postJson).not.toHaveBeenCalled();
+    expect(api.putJson).not.toHaveBeenCalled();
+  });
+
+  it('peça fora do catálogo: cadastra só com os dados da nota (sem catalogSku)', async () => {
+    const user = setup();
+    await open(user);
+    await click(user, /cadastrar só com os dados da nota/i);
+    expect(screen.getByText(/será cadastrada com o código/i).textContent).toContain('PAST-001');
     await click(user, /cadastrar e vincular/i);
     await waitFor(() => expect(api.postJson).toHaveBeenCalled());
     const body = api.postJson.mock.calls[0]![1] as Record<string, unknown>;
-    expect(body).toEqual({ sku: 'PAST-001', name: 'PASTILHA DE FREIO DIANTEIRA', sellPrice: 70, unitFactor: 1, saveMapping: true });
-    expect(body).not.toHaveProperty('catalogSku');
+    expect(body).toEqual({ unitFactor: 1, saveMapping: true });
   });
 
-  it('a pessoa pode ajustar o SKU e o nome depois de escolher a peça do catálogo', async () => {
+  it('peça fora do catálogo: escolhe uma peça já cadastrada na oficina e vincula', async () => {
+    api.getJson.mockResolvedValue([registeredPart]);
     const user = setup();
-    await openCreate(user);
-    await pickCatalogPart(user);
-    await user.clear(screen.getByLabelText(/^sku/i));
-    await user.type(screen.getByLabelText(/^sku/i), 'MEU-SKU');
-    await fillPrice(user);
-    await click(user, /cadastrar e vincular/i);
-    await waitFor(() => expect(api.postJson).toHaveBeenCalled());
-    expect(api.postJson.mock.calls[0]![1]).toMatchObject({ sku: 'MEU-SKU', catalogSku: 'cat-1' });
+    await open(user);
+    await click(user, /escolher uma peça já cadastrada na oficina/i);
+    await user.click(screen.getByRole('button', { name: /^peça da oficina$/i }));
+    await user.click(await screen.findByRole('option', { name: /Cubo da oficina/ }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await click(user, /salvar vínculo/i);
+    await waitFor(() => expect(api.putJson).toHaveBeenCalledWith('/api/invoices/inv1/items/1', { action: 'link', partId: 'p5', unitFactor: 1, saveMapping: true }, expect.any(String)));
   });
 
-  it('a API recusa (ex.: peça do catálogo já no estoque): a mensagem aparece dentro do formulário', async () => {
-    api.postJson.mockRejectedValue(new Error('Esta peça do catálogo já está no estoque da oficina'));
+  it('busca vazia na oficina oferece buscar no catálogo e não diz que a peça "não existe"', async () => {
+    api.getJson.mockResolvedValue([]);
     const user = setup();
-    await openCreate(user);
+    await open(user);
+    await click(user, /escolher uma peça já cadastrada na oficina/i);
+    await user.click(screen.getByRole('button', { name: /^peça da oficina$/i }));
+    expect((await screen.findByText(/nenhuma peça cadastrada na oficina/i)).textContent).toBeTruthy();
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^buscar no catálogo$/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /peça do catálogo/i })).toBeTruthy());
+  });
+
+  it('trocar a peça de um item já vinculado também começa pelo catálogo', async () => {
+    const user = setup({ item: linkedItem('cat-1') });
+    await click(user, /trocar peça/i);
+    expect(screen.getByRole('button', { name: /peça do catálogo/i })).toBeTruthy();
+  });
+
+  it('o resultado em unidades acompanha as unidades por embalagem', async () => {
+    const user = setup();
+    await open(user);
+    await user.clear(screen.getByLabelText(/unidades por embalagem/i));
+    await user.type(screen.getByLabelText(/unidades por embalagem/i), '4');
+    expect(screen.getByText(/entram no estoque/i).textContent).toContain('8');
+  });
+
+  it('a API recusa o cadastro (ex.: sem permissão): a mensagem aparece dentro do formulário', async () => {
+    mockCatalog([]);
+    api.postJson.mockRejectedValue(new Error('Sem permissão para cadastrar peças'));
+    const user = setup();
+    await open(user);
     await pickCatalogPart(user);
-    await fillPrice(user);
+    await screen.findByText(/ainda não cadastrada na oficina/i);
     await click(user, /cadastrar e vincular/i);
     const form = screen.getByRole('button', { name: /cadastrar e vincular/i }).closest('form')!;
-    expect((await within(form).findByRole('alert')).textContent).toContain('já está no estoque da oficina');
+    expect((await within(form).findByRole('alert')).textContent).toContain('Sem permissão');
   });
 });

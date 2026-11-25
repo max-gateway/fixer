@@ -6,6 +6,7 @@ import { ApiError, apiGet } from '@/lib/api';
 import { loadSuggestions } from '@/lib/catalog-suggestions';
 import { invoiceNotices, type InvoiceFull } from '@/lib/invoice-view';
 import { AttentionPanel } from './attention';
+import { CatalogAutoMatch } from './catalog-auto-match';
 import { EntryTaxPayable } from './entry-tax-payable';
 import { InvoiceActions } from './invoice-actions';
 import { InvoiceHeader } from './invoice-header';
@@ -81,6 +82,7 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
         <>
           <section id="conciliar" aria-labelledby="conciliar-title" className="scroll-mt-24 space-y-3">
             <StepHeading n={1} id="conciliar-title" title="Conciliar itens" hint={unresolvedCount > 0 ? `${unresolvedCount} ${unresolvedCount === 1 ? 'item sem peça' : 'itens sem peça'}` : 'Todos os itens vinculados'} warn={unresolvedCount > 0} />
+            {editable && unresolvedCount > 0 && <CatalogAutoMatch invoiceId={inv.id} />}
             <ul className="space-y-3">
               {items.map((item) => (
                 <ItemRow key={item.id} invoiceId={inv.id} item={item} editable={editable} suggestion={suggestions.get(item.id)} />

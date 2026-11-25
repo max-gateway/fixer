@@ -36,7 +36,7 @@ export class MembershipService {
 
   /** Grava (ou atualiza) a participação na organização do contexto. Idempotente e atômico (eventos chegam repetidos e em paralelo). */
   async record(m: { keycloakId: string; email: string; role: string }): Promise<void> {
-    const data = { email: m.email.toLowerCase(), role: m.role };
+    const data = { email: m.email.toLowerCase(), role: m.role, source: 'control_plane' };
     await this.prisma.orgMembership.createMany({ data: [{ keycloakId: m.keycloakId, ...data }], skipDuplicates: true });
     await this.prisma.orgMembership.updateMany({ where: { keycloakId: m.keycloakId }, data });
     this.cache.delete(m.keycloakId); // a próxima requisição enxerga a organização nova na hora

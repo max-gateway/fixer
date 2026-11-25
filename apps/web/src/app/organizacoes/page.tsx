@@ -1,6 +1,6 @@
 import { Building2, ChevronRight } from 'lucide-react';
 import { redirect } from 'next/navigation';
-import { auth, signOut } from '@/auth';
+import { auth } from '@/auth';
 import { getBranding } from '@/lib/branding';
 import { getOrgContext, listOrganizations, orgLabel } from '@/lib/org-server';
 
@@ -17,11 +17,11 @@ export default async function OrganizationsPage() {
   const list = await listOrganizations();
 
   return (
-    <main className="grid min-h-screen place-items-center bg-slate-50 px-6 py-12">
+    <main className="grid min-h-screen place-items-center px-6 py-12">
       <div className="w-full max-w-md">
         <div className="mb-8 flex items-center gap-3">
-          {b.logoUrl && <img src={b.logoUrl} alt="" className="h-9 w-auto" />}
-          <span className="text-xl font-bold text-slate-900">{b.displayName}</span>
+          {b.logoUrl && <img src={b.logoUrl} alt={b.logoHasName ? b.displayName : ''} className={b.logoHasName ? 'h-14 w-auto rounded-lg bg-brand-secondary px-3' : 'h-9 w-auto'} />}
+          {!b.logoHasName && <span className="text-xl font-bold text-slate-900">{b.displayName}</span>}
         </div>
 
         <h1 className="text-2xl font-bold text-slate-900">Qual oficina?</h1>
@@ -50,13 +50,7 @@ export default async function OrganizationsPage() {
           ))}
         </ul>
 
-        <form
-          className="mt-8 text-center"
-          action={async () => {
-            'use server';
-            await signOut({ redirectTo: '/login' });
-          }}
-        >
+        <form className="mt-8 text-center" action="/logout" method="post">
           <button className="text-sm text-slate-500 underline-offset-4 hover:text-slate-700 hover:underline">Sair</button>
         </form>
       </div>

@@ -36,15 +36,15 @@ function setup(props: { value?: CatalogHit | null; initialQuery?: string } = {})
   );
   return { onChange, user: userEvent.setup(), ...utils };
 }
-const open = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('combobox'));
+const open = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: /buscar no catálogo|BE-123/i }));
 
 describe('CatalogPartPicker', () => {
   it('sem peça escolhida mostra o convite; com peça mostra número e nome', () => {
     setup();
-    expect(screen.getByRole('combobox').textContent).toContain('Buscar no catálogo');
+    expect(screen.getByRole('button', { name: /buscar no catálogo|BE-123/i }).textContent).toContain('Buscar no catálogo');
     cleanup();
     setup({ value: hit() });
-    expect(screen.getByRole('combobox').textContent).toContain('BE-123 · Bieleta Estabilizadora');
+    expect(screen.getByRole('button', { name: /buscar no catálogo|BE-123/i }).textContent).toContain('BE-123 · Bieleta Estabilizadora');
   });
 
   it('abrir sem texto suficiente não busca e pede pelo menos 2 letras', async () => {
@@ -59,9 +59,9 @@ describe('CatalogPartPicker', () => {
     const { user } = setup();
     await open(user);
     await user.type(screen.getByPlaceholderText(/nome ou código/i), 'bieleta & cia');
-    expect(await screen.findByText('Bieleta Estabilizadora')).toBeTruthy();
-    expect(screen.getByText('BE-123 · Fiat')).toBeTruthy();
-    expect(screen.getByText('BD-9')).toBeTruthy();
+    const first = await screen.findByRole('option', { name: /Bieleta Estabilizadora/ });
+    expect(first.textContent).toContain('BE-123 · Fiat');
+    expect(screen.getByRole('option', { name: /Bieleta Dianteira/ }).textContent).toContain('BD-9');
     expect(api.getJson).toHaveBeenLastCalledWith('/api/catalog/parts/search?q=bieleta%20%26%20cia&limit=10', expect.any(String));
   });
 
@@ -76,7 +76,7 @@ describe('CatalogPartPicker', () => {
     api.getJson.mockResolvedValue({ data: [hit()] });
     const { user, onChange } = setup({ initialQuery: 'biel' });
     await open(user);
-    await user.click(await screen.findByText('Bieleta Estabilizadora'));
+    await user.click(await screen.findByRole('option', { name: /Bieleta Estabilizadora/ }));
     expect(onChange).toHaveBeenCalledWith(hit());
     await waitFor(() => expect(screen.queryByPlaceholderText(/nome ou código/i)).toBeNull());
   });
@@ -85,8 +85,33 @@ describe('CatalogPartPicker', () => {
     api.getJson.mockResolvedValue({ data: [hit()] });
     const { user, onChange } = setup({ value: hit(), initialQuery: 'biel' });
     await open(user);
-    await user.click(await screen.findByText('Bieleta Estabilizadora'));
+    await user.click(await screen.findByRole('option', { name: /Bieleta Estabilizadora/ }));
     expect(onChange).toHaveBeenCalledWith(null);
+  });
+
+  it('mostra a foto da peça na lista e cai no ícone quando não há imagem', async () => {
+    api.getJson.mockResolvedValue({ data: [hit({ imageUrl: 'https://img.test/be.jpg' }), hit({ sku: 'cat-2', name: 'Bieleta Dianteira', partNumber: 'BD-9' })] });
+    const { user } = setup({ initialQuery: 'biel' });
+    await open(user);
+    const rows = await screen.findAllByRole('option');
+    expect(rows[0]!.querySelector('img')?.getAttribute('src')).toBe('https://img.test/be.jpg');
+    expect(rows[1]!.querySelector('img')).toBeNull();
+  });
+
+  it('o botão de limpar tira a peça escolhida sem abrir a busca', async () => {
+    const { user, onChange } = setup({ value: hit() });
+    await user.click(screen.getByRole('button', { name: /limpar peça do catálogo/i }));
+    expect(onChange).toHaveBeenCalledWith(null);
+    expect(screen.queryByPlaceholderText(/nome ou código/i)).toBeNull();
+  });
+
+  it('Enter escolhe a peça em foco (a primeira, sem tocar no mouse)', async () => {
+    api.getJson.mockResolvedValue({ data: [hit(), hit({ sku: 'cat-2', name: 'Bieleta Dianteira', partNumber: 'BD-9' })] });
+    const { user, onChange } = setup({ initialQuery: 'biel' });
+    await open(user);
+    await screen.findByRole('option', { name: /Bieleta Estabilizadora/ });
+    await user.keyboard('{ArrowDown}{Enter}');
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ sku: 'cat-2' }));
   });
 
   it('sem resultado: avisa que o catálogo não tem a peça', async () => {

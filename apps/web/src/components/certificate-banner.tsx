@@ -36,7 +36,7 @@ export function CertificateBanner({ alert, orgId }: { alert: CertificateAlert; o
         <Icon aria-hidden className="mt-0.5 size-4 shrink-0" />
         <p className="min-w-0 flex-1">
           <span className="font-semibold">{copy.title}</span> {copy.detail}{' '}
-          <Link href="/configuracoes" className="font-medium underline underline-offset-2">
+          <Link href="/configuracoes#certificado" className="font-medium underline underline-offset-2">
             Renovar certificado
           </Link>
         </p>
@@ -44,7 +44,7 @@ export function CertificateBanner({ alert, orgId }: { alert: CertificateAlert; o
           <button
             type="button"
             aria-label="Dispensar aviso"
-            className="-m-1 shrink-0 rounded p-1 hover:bg-black/5 focus-visible:outline-2"
+            className="-m-1 shrink-0 rounded p-1 hover:bg-foreground/5 focus-visible:outline-2"
             onClick={() => {
               try {
                 window.localStorage.setItem(key, '1');

@@ -919,8 +919,8 @@ describe('schemas de entrada', () => {
     expect(() => ItemActionSchema.parse({ action: 'link', partId: 'p', unitFactor: 0 })).toThrow(/maior que zero/);
     expect(() => ItemActionSchema.parse({ action: 'explode' })).toThrow();
   });
-  it('cadastro de peça exige preço de venda não negativo', () => {
-    expect(() => CreatePartSchema.parse({})).toThrow(/preço de venda/);
+  it('cadastro de peça: preço de venda é opcional (0 até a precificação) e não negativo', () => {
+    expect(CreatePartSchema.parse({})).toMatchObject({ sellPrice: 0 });
     expect(() => CreatePartSchema.parse({ sellPrice: -1 })).toThrow(/negativo/);
     expect(CreatePartSchema.parse({ sellPrice: 0 })).toMatchObject({ unitFactor: 1, saveMapping: true });
   });

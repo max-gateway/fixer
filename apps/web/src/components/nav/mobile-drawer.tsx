@@ -21,7 +21,7 @@ export function MobileDrawer({ open, onOpenChange, ...props }: Props) {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: reduce ? 0 : 0.2 }}
-                className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-sm md:hidden"
+                className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm md:hidden"
               />
             </Dialog.Overlay>
             <Dialog.Content asChild forceMount aria-describedby={undefined}>

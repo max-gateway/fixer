@@ -987,6 +987,7 @@ enum ItemResolution {
   UNRESOLVED
   AUTO_MAP // casou por SupplierItemMap
   AUTO_EAN // casou por Part.ean
+  AUTO_CATALOG // casou no catálogo global (GTIN ou código do fabricante) e a peça da oficina nasceu/ficou vinculada a ele
   MANUAL // escolhido pelo usuário
   IGNORED // não é estoque (uso e consumo, brinde, frete)
 }
@@ -1267,6 +1268,9 @@ model OrgMembership {
   keycloakId String // sub do token
   email      String
   role       String   @default("member")
+  // Quem escreveu o vínculo: control_plane (evento member_ready ou sync do diretório) ou local (convite feito pela tela de acessos do Fixer).
+  // O sync só remove vínculos control_plane: um convidado local nunca é apagado por "o control plane não lista".
+  source     String   @default("local")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

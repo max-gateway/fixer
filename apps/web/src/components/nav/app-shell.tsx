@@ -25,11 +25,10 @@ const W_OPEN = '17rem';
 const W_RAIL = '4.75rem';
 
 type Props = {
-  brand: { name: string; logoUrl?: string | null };
+  brand: { name: string; logoUrl?: string | null; iconUrl?: string | null; logoHasName?: boolean };
   user: NavUser | null;
   /** Oficina em uso (multi-tenant). `canSwitch`: o usuário participa de mais de uma. */
   org?: { name: string; canSwitch: boolean } | null;
-  signOutAction: () => Promise<void>;
   defaultCollapsed?: boolean;
   /** Faixa de aviso entre a barra do topo e o conteúdo (ex.: certificado vencendo). */
   banner?: ReactNode;
@@ -40,7 +39,7 @@ type Props = {
  * Estrutura da área interna: menu lateral recolhível (desktop) ou gaveta + tab bar (celular),
  * barra superior com contexto, busca (⌘K), sino e conta, e o conteúdo da página.
  */
-export function AppShell({ brand, user, org, signOutAction, defaultCollapsed = false, banner, children }: Props) {
+export function AppShell({ brand, user, org, defaultCollapsed = false, banner, children }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const reduce = useReducedMotion();
@@ -81,7 +80,7 @@ export function AppShell({ brand, user, org, signOutAction, defaultCollapsed = f
       <div style={{ '--sbw': collapsed ? W_RAIL : W_OPEN } as React.CSSProperties}>
         <aside
           aria-label="Menu lateral"
-          className="fixed inset-y-0 left-0 z-40 hidden w-(--sbw) border-r border-white/10 bg-brand-secondary transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:block"
+          className="fixed inset-y-0 left-0 z-40 hidden w-(--sbw) border-r border-white/[0.06] bg-brand-secondary transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:block"
         >
           <SidebarContent
             brand={brand}
@@ -97,7 +96,7 @@ export function AppShell({ brand, user, org, signOutAction, defaultCollapsed = f
         <div className="transition-[padding] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:pl-(--sbw)">
           <header
             className={`sticky top-0 z-30 border-b transition-[background-color,box-shadow,border-color] duration-200 ${
-              scrolled ? 'border-border bg-background/80 shadow-[0_8px_24px_-16px_rgb(11_18_32/0.35)] backdrop-blur-xl' : 'border-transparent bg-background'
+              scrolled ? 'border-border bg-background/75 backdrop-blur-xl backdrop-saturate-150' : 'border-transparent bg-transparent'
             }`}
           >
             <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-4 sm:px-6">
@@ -117,7 +116,7 @@ export function AppShell({ brand, user, org, signOutAction, defaultCollapsed = f
                     className="flex items-center gap-2"
                   >
                     {CurrentIcon && (
-                      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand">
+                      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-card text-brand ring-1 ring-border">
                         <CurrentIcon className="size-4" />
                       </span>
                     )}
@@ -131,7 +130,7 @@ export function AppShell({ brand, user, org, signOutAction, defaultCollapsed = f
                   type="button"
                   onClick={openPalette}
                   aria-label="Buscar ou ir para"
-                  className="group hidden h-9 w-56 items-center gap-2 rounded-lg bg-card px-3 text-sm text-muted-foreground ring-1 ring-border transition-[color,box-shadow] outline-none hover:text-foreground hover:ring-input focus-visible:ring-2 focus-visible:ring-ring lg:flex xl:w-72"
+                  className="group hidden h-9 w-56 items-center gap-2 rounded-lg bg-card/70 px-3 shadow-xs text-sm text-muted-foreground ring-1 ring-border transition-[color,box-shadow] outline-none hover:text-foreground hover:ring-input focus-visible:ring-2 focus-visible:ring-ring lg:flex xl:w-72"
                 >
                   <Search className="size-4" />
                   <span>Buscar ou ir para…</span>
@@ -141,7 +140,7 @@ export function AppShell({ brand, user, org, signOutAction, defaultCollapsed = f
                   <Search />
                 </Button>
                 <NotificationBell />
-                {user && <UserMenu user={user} org={org} signOutAction={signOutAction} onOpenPalette={openPalette} />}
+                {user && <UserMenu user={user} org={org} onOpenPalette={openPalette} />}
               </div>
             </div>
 
@@ -161,7 +160,7 @@ export function AppShell({ brand, user, org, signOutAction, defaultCollapsed = f
       </div>
 
       <MobileDrawer open={drawerOpen} onOpenChange={setDrawerOpen} brand={brand} org={org} mod={mod} onOpenPalette={() => (setDrawerOpen(false), openPalette())} />
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} signOutAction={signOutAction} />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <GoHint show={goPending} />
       <MobileTabBar onOpenMenu={() => setDrawerOpen(true)} />
     </TooltipProvider>

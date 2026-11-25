@@ -4,6 +4,7 @@ import { CostsModule } from '../costs/costs.module.js';
 import { CredentialService, KEY_PROVIDER } from './credentials/credential.service.js';
 import { EnvKeyProvider } from './crypto/key-provider.js';
 import { FiscalInboundController } from './fiscal-inbound.controller.js';
+import { CatalogMatchService } from './catalog-match.service.js';
 import { InvoicesController } from './invoices.controller.js';
 import { InvoicesService } from './invoices.service.js';
 import { FISCAL_CONFIG, loadFiscalConfig } from './fiscal.config.js';
@@ -36,6 +37,7 @@ import { InvoiceTaxBackfill } from './tax/backfill.service.js';
     { provide: DFE_SOURCE, useExisting: SefazDfeClient },
     ManifestService,
     InvoicesService,
+    CatalogMatchService,
     SyncRunner,
     SyncScheduler,
     InvoiceTaxBackfill,

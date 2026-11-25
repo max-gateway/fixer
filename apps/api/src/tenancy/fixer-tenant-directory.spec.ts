@@ -36,8 +36,8 @@ describe('FixerTenantDirectory.membershipsOf', () => {
       users: [row(A, ['pricing.write']), row(B, ['invoices.reconcile'])],
     });
     expect(await directory.membershipsOf('u1')).toEqual([
-      { orgId: A, roles: ['price_manager'] },
-      { orgId: B, roles: ['stockist'] },
+      { orgId: A, roles: ['price_manager', 'fiscal_editor'] },
+      { orgId: B, roles: ['stockist', 'fiscal_editor'] },
     ]);
   });
 
@@ -54,7 +54,7 @@ describe('FixerTenantDirectory.membershipsOf', () => {
   it('junta as permissões de todos os papéis de negócio do usuário', async () => {
     const two: Row = { orgId: A, active: true, roles: [{ role: { permissions: [{ permission: { key: 'invoices.reconcile' } }] } }, { role: { permissions: [{ permission: { key: 'pricing.write' } }] } }] };
     const { directory } = build({ orgs: { u1: [A] }, users: [two] });
-    expect(await directory.membershipsOf('u1')).toEqual([{ orgId: A, roles: ['price_manager'] }]);
+    expect(await directory.membershipsOf('u1')).toEqual([{ orgId: A, roles: ['price_manager', 'fiscal_editor'] }]);
   });
 
   it('consulta só as organizações do usuário e normaliza o UUID para minúsculas', async () => {

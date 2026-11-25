@@ -46,7 +46,7 @@ export function MobileTabBar({ onOpenMenu }: { onOpenMenu: () => void }) {
               <Link
                 href={NEW_ORDER.href}
                 aria-label={NEW_ORDER.label}
-                className="-mt-7 grid size-14 place-items-center rounded-full bg-brand text-white shadow-[0_8px_20px_-4px_var(--brand-primary)] ring-4 ring-background outline-none focus-visible:ring-white"
+                className="-mt-7 grid size-14 place-items-center rounded-full bg-brand text-white shadow-lg shadow-black/30 ring-4 ring-background outline-none focus-visible:ring-white"
               >
                 <Plus className="size-6" strokeWidth={2.5} />
               </Link>

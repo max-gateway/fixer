@@ -172,7 +172,7 @@ export function Portal({ token, initial, shop }: { token: string; initial: Porta
 
   return (
     <div className="min-h-dvh pb-24 sm:pb-10">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/85 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-card/85 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
           {shop.logoUrl && <img src={shop.logoUrl} alt="" className="h-7 w-auto" />}
           <span className="font-semibold">{shop.name}</span>
@@ -202,7 +202,7 @@ export function Portal({ token, initial, shop }: { token: string; initial: Porta
           <nav
             role="tablist"
             aria-label="Seções"
-            className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:static sm:mb-4 sm:grid-cols-4 sm:gap-1 sm:rounded-2xl sm:border sm:bg-card surface sm:p-1 sm:shadow-sm"
+            className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-slate-200 bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:static sm:mb-4 sm:grid-cols-4 sm:gap-1 sm:rounded-2xl sm:border sm:bg-card surface sm:p-1 sm:shadow-sm"
           >
             {tabs.map((t) => {
               const active = tab === t.id;
@@ -273,7 +273,7 @@ export function Portal({ token, initial, shop }: { token: string; initial: Porta
       <ProblemDialog open={problemOpen} onClose={() => setProblemOpen(false)} onSubmit={sendProblem} />
 
       {toast && (
-        <div role="status" className="animate-rise fixed inset-x-0 bottom-20 z-50 mx-auto w-fit max-w-[90%] rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white shadow-xl sm:bottom-8">
+        <div role="status" className="animate-rise fixed inset-x-0 bottom-20 z-50 mx-auto w-fit max-w-[90%] rounded-full bg-foreground px-5 py-2.5 text-sm font-medium text-background shadow-xl sm:bottom-8">
           {toast}
         </div>
       )}

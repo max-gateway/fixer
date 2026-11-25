@@ -2,6 +2,9 @@
 # Multi-stage so the final image carries only production deps + compiled output.
 
 FROM node:22-alpine AS base
+# Prisma não detecta o OpenSSL no alpine "pelado" (cai em openssl-1.1.x e o engine não carrega). No base, para o
+# `prisma generate` do build e o runtime enxergarem o mesmo OpenSSL.
+RUN apk add --no-cache openssl
 WORKDIR /repo
 
 FROM base AS deps
@@ -10,6 +13,7 @@ COPY packages/db/package.json packages/db/package.json
 COPY packages/domain/package.json packages/domain/package.json
 COPY packages/catalog/package.json packages/catalog/package.json
 COPY packages/config/package.json packages/config/package.json
+COPY packages/tax-rules/package.json packages/tax-rules/package.json
 COPY apps/api/package.json apps/api/package.json
 # @max-gateway/* vem do GitHub Packages: o token entra só neste RUN (docker build --secret id=npm_token,env=NODE_AUTH_TOKEN).
 RUN --mount=type=secret,id=npm_token NODE_AUTH_TOKEN="$(cat /run/secrets/npm_token)" npm ci
@@ -19,10 +23,12 @@ COPY packages/db packages/db
 COPY packages/domain packages/domain
 COPY packages/catalog packages/catalog
 COPY packages/config packages/config
+COPY packages/tax-rules packages/tax-rules
 COPY apps/api apps/api
 RUN npm run build --workspace=@fixer/db
 RUN npm run build --workspace=@fixer/domain
 RUN npm run build --workspace=@fixer/catalog
+RUN npm run build --workspace=@fixer/tax-rules
 RUN npm run build --workspace=@fixer/api
 
 FROM base AS runtime

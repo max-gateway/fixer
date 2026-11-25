@@ -4,18 +4,19 @@ import { cn } from "cn"
 import { Slot } from "radix-ui"
 
 const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [&>svg]:pointer-events-none [&>svg]:size-3",
+  "inline-flex w-fit shrink-0 items-center justify-center gap-1.5 rounded-full border px-2.5 py-1 text-xs leading-none font-semibold whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&>svg]:pointer-events-none [&>svg]:size-3",
   {
     variants: {
       variant: {
-        default: "border-transparent bg-primary text-primary-foreground",
+        default: "border-transparent bg-brand-soft text-brand",
         secondary: "border-transparent bg-secondary text-secondary-foreground",
-        destructive: "border-transparent bg-destructive text-white",
-        outline: "text-foreground",
-        // Semânticas fixas para todos os tenants (estado de entrega significa o mesmo em qualquer cliente).
-        success: "border-emerald-600/15 bg-emerald-100 text-emerald-800",
-        warning: "border-amber-600/20 bg-amber-100 text-amber-900",
-        danger: "border-red-600/15 bg-red-100 text-red-800",
+        destructive: "border-transparent bg-danger-soft text-danger",
+        outline: "border-[var(--border-strong)] bg-surface text-foreground",
+        // Status colors are semantic and independent from tenant branding.
+        success: "border-transparent bg-success-soft text-success",
+        warning: "border-transparent bg-warning-soft text-warning",
+        danger: "border-transparent bg-danger-soft text-danger",
+        info: "border-transparent bg-info-soft text-info",
       },
     },
     defaultVariants: {

@@ -29,15 +29,78 @@ export const CreateServiceSchema = z.object({
 export class CatalogService {
   constructor(private readonly prisma: PrismaService) {}
 
-  listParts(search?: string) {
+  /** `catalogSku` devolve a peça da oficina que representa aquela peça do catálogo (no máximo uma), se já foi cadastrada. */
+  listParts(search?: string, catalogSku?: string) {
     const q = search?.trim();
+    const sku = catalogSku?.trim();
     return this.prisma.part.findMany({
-      where: q
-        ? { OR: [{ name: { contains: q, mode: 'insensitive' } }, { sku: { contains: q, mode: 'insensitive' } }] }
-        : undefined,
+      where: sku
+        ? { catalogSku: sku }
+        : q
+          ? { OR: [{ name: { contains: q, mode: 'insensitive' } }, { sku: { contains: q, mode: 'insensitive' } }] }
+          : undefined,
       orderBy: { name: 'asc' },
       take: 100,
     });
+  }
+
+  /**
+   * Histórico da peça da oficina: entradas de estoque (com a nota e o fornecedor, quando vieram de NF-e), vendas em ordens de serviço e mudanças de
+   * preço. Cada lista traz as 50 mais recentes; os totais são do período inteiro. OS cancelada não conta como venda.
+   */
+  async partHistory(partId: string) {
+    const part = await this.prisma.part.findUnique({
+      where: { id: partId },
+      select: { id: true, sku: true, name: true, stockQty: true, costPrice: true, avgCost: true, sellPrice: true, catalogSku: true },
+    });
+    if (!part) throw new NotFoundException('Peça não encontrada');
+    const soldWhere = { partId, serviceOrder: { status: { not: 'CANCELLED' as const } } };
+    const [purchases, sales, prices, boughtAgg, soldAgg, soldCount] = await Promise.all([
+      this.prisma.stockMovement.findMany({
+        where: { partId, type: 'PURCHASE' },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          createdAt: true,
+          quantity: true,
+          unitCost: true,
+          note: true,
+          purchaseInvoiceItem: { select: { invoice: { select: { id: true, number: true, issuerName: true, issuedAt: true } } } },
+        },
+      }),
+      this.prisma.serviceOrderPartLine.findMany({
+        where: soldWhere,
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          createdAt: true,
+          quantity: true,
+          unitPrice: true,
+          unitCost: true,
+          serviceOrder: {
+            select: { id: true, number: true, status: true, customer: { select: { name: true } }, vehicle: { select: { plate: true, brand: true, model: true } } },
+          },
+        },
+      }),
+      this.prisma.partPriceHistory.findMany({
+        where: { partId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: { id: true, createdAt: true, costBefore: true, costAfter: true, sellBefore: true, sellAfter: true, marginAfter: true, source: true },
+      }),
+      this.prisma.stockMovement.aggregate({ where: { partId, type: 'PURCHASE' }, _sum: { quantity: true }, _count: true }),
+      this.prisma.serviceOrderPartLine.aggregate({ where: soldWhere, _sum: { quantity: true } }),
+      this.prisma.serviceOrderPartLine.count({ where: soldWhere }),
+    ]);
+    return {
+      part,
+      totals: { purchases: boughtAgg._count, boughtQty: boughtAgg._sum.quantity ?? 0, sales: soldCount, soldQty: soldAgg._sum.quantity ?? 0 },
+      purchases,
+      sales,
+      prices,
+    };
   }
 
   async createPart(input: z.infer<typeof CreatePartSchema>) {
