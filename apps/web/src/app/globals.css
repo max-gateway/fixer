@@ -5,56 +5,133 @@
 @import '@fontsource/bai-jamjuree/700.css';
 
 /*
- * Camadas de tema:
- *  - marca (por tenant): --brand-primary / --brand-secondary, injetados no <html> pelo layout
- *    (lib/branding.ts garante contraste mínimo com branco);
- *  - derivadas: calculadas aqui a partir da marca, sem build por tenant;
- *  - estrutura e semânticas: fixas para todos os tenants (status de OS significa a mesma coisa em qualquer cliente).
+ * FIXER DESIGN FOUNDATION
+ * ----------------------
+ * 1. Brand tokens are injected at runtime per tenant.
+ * 2. Semantic tokens define the product experience and remain tenant-agnostic.
+ * 3. Tailwind utilities consume semantic tokens through @theme.
+ * 4. Legacy slate aliases remain temporarily for existing screens.
+ *
+ * Never use brand colors to express business status.
  */
+
+/* Brand layer — runtime white-label */
 :root {
+  color-scheme: light;
+
   --brand-primary: #c2410c;
   --brand-secondary: #1c2430;
-  --brand-hover: color-mix(in oklab, var(--brand-primary) 85%, black);
-  --brand-soft: color-mix(in oklab, var(--brand-primary) 10%, white);
+
+  --brand-hover: color-mix(in oklab, var(--brand-primary) 86%, black);
+  --brand-active: color-mix(in oklab, var(--brand-primary) 76%, black);
+  --brand-soft: color-mix(in oklab, var(--brand-primary) 8%, white);
+  --brand-soft-hover: color-mix(in oklab, var(--brand-primary) 13%, white);
+  --brand-border: color-mix(in oklab, var(--brand-primary) 24%, white);
+  --brand-ring: color-mix(in oklab, var(--brand-primary) 32%, transparent);
 }
 
-/*
- * Tokens do shadcn/ui ligados à identidade: --primary segue a cor do tenant (white-label),
- * o resto é o cinza quente fixo do Fixer.
- */
+/* Semantic design tokens — shared by every tenant */
 :root {
-  --radius: 0.5rem;
-  --background: #f7f6f3;
-  --foreground: #1c2430;
-  --card: #ffffff;
-  --card-foreground: #1c2430;
-  --popover: #ffffff;
-  --popover-foreground: #1c2430;
+  /* Typography */
+  --background: #f5f6f8;
+  --foreground: #182230;
+  --muted-foreground: #667085;
+
+  /* Surfaces */
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #eef1f4;
+  --surface-overlay: #ffffff;
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface-overlay);
+  --popover-foreground: var(--foreground);
+
+  /* Borders and controls */
+  --border: #e3e7ed;
+  --border-strong: #cbd2dc;
+  --input: #d8dee7;
+  --ring: var(--brand-primary);
+
+  /* shadcn-compatible semantic tokens */
   --primary: var(--brand-primary);
   --primary-foreground: #ffffff;
-  --secondary: #efede8;
-  --secondary-foreground: #1c2430;
-  --muted: #efede8;
-  --muted-foreground: #5b6472;
-  --accent: #efede8;
-  --accent-foreground: #1c2430;
-  --destructive: #b91c1c;
-  --border: #e5e2dc;
-  --input: #e5e2dc;
-  --ring: var(--brand-primary);
+  --secondary: #edf0f4;
+  --secondary-foreground: #253244;
+  --muted: #eef1f4;
+  --accent: #f0f3f6;
+  --accent-foreground: #182230;
+  --destructive: #c43d3d;
+  --destructive-foreground: #ffffff;
+
+  /* Product status — independent from tenant branding */
+  --success: #16845b;
+  --success-foreground: #ffffff;
+  --success-soft: #e9f6ef;
+  --warning: #a96812;
+  --warning-foreground: #ffffff;
+  --warning-soft: #fff4df;
+  --danger: #c43d3d;
+  --danger-foreground: #ffffff;
+  --danger-soft: #fff0ef;
+  --info: #2876b8;
+  --info-foreground: #ffffff;
+  --info-soft: #edf5fc;
+
+  /* Navigation */
+  --nav-background: #17212b;
+  --nav-foreground: #d7dee7;
+  --nav-muted: #9ba8b8;
+  --nav-hover: rgb(255 255 255 / 7%);
+  --nav-active: rgb(255 255 255 / 11%);
+  --nav-border: rgb(255 255 255 / 9%);
+
+  /* Shape, elevation and motion */
+  --radius: 0.625rem;
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --radius-dialog: 1rem;
+
+  --shadow-xs: 0 1px 2px rgb(16 24 40 / 5%);
+  --shadow-sm: 0 1px 3px rgb(16 24 40 / 7%), 0 1px 2px rgb(16 24 40 / 4%);
+  --shadow-md: 0 4px 12px rgb(16 24 40 / 8%);
+  --shadow-lg: 0 16px 40px rgb(16 24 40 / 14%);
+
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --duration-slow: 260ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Layout */
+  --content-gutter: clamp(1rem, 2.5vw, 2rem);
+  --content-max: 88rem;
 }
 
+/* Tailwind v4 theme bridge */
 @theme inline {
+  /* Radius scale */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 10px);
+
+  /* Typography */
+  --font-sans: 'Bai Jamjuree', ui-sans-serif, system-ui, sans-serif;
+
+  /* Core surfaces */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
+
+  /* shadcn / Radix */
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
@@ -64,70 +141,256 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --font-sans: 'Bai Jamjuree', ui-sans-serif, system-ui, sans-serif;
-
+  /* Brand */
   --color-brand: var(--brand-primary);
   --color-brand-hover: var(--brand-hover);
+  --color-brand-active: var(--brand-active);
   --color-brand-soft: var(--brand-soft);
   --color-brand-secondary: var(--brand-secondary);
+  --color-brand-border: var(--brand-border);
+
+  /* Semantic status */
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  /* Navigation */
+  --color-nav: var(--nav-background);
+  --color-nav-foreground: var(--nav-foreground);
+  --color-nav-muted: var(--nav-muted);
 }
 
 /*
- * As telas usam a escala slate do Tailwind; aqui ela vira o cinza quente da identidade Fixer
- * (fundo, bordas, texto suave e tinta) sem precisar reescrever cada classe.
+ * Compatibility aliases:
+ * Existing screens use bg-slate-50, text-slate-500, etc. Keep their current
+ * visual intent while new code migrates to semantic tokens (bg-background,
+ * text-muted-foreground, bg-surface, border-border).
+ *
+ * Do not add new slate overrides. Prefer semantic tokens in new components.
  */
 @theme {
-  --color-slate-50: #f7f6f3;
-  --color-slate-100: #efede8;
-  --color-slate-200: #e5e2dc;
-  --color-slate-500: #5b6472;
-  --color-slate-600: #4b5362;
-  --color-slate-900: #1c2430;
+  --color-slate-50: #f5f6f8;
+  --color-slate-100: #eef1f4;
+  --color-slate-200: #e3e7ed;
+  --color-slate-500: #667085;
+  --color-slate-600: #475467;
+  --color-slate-900: #182230;
 }
 
+/* Base experience */
 @layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--border);
+  }
+
+  html {
+    min-height: 100%;
+    scroll-behavior: smooth;
+    scrollbar-gutter: stable;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    min-height: 100vh;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   button:not(:disabled),
   [role='button']:not([aria-disabled='true']) {
     cursor: pointer;
   }
-  :focus-visible {
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  input,
+  textarea,
+  select {
+    min-width: 0;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--muted-foreground);
+    opacity: 0.72;
+  }
+
+  img,
+  svg,
+  video,
+  canvas {
+    display: block;
+  }
+
+  img,
+  video {
+    max-width: 100%;
+  }
+
+  ::selection {
+    color: var(--foreground);
+    background: color-mix(in oklab, var(--brand-primary) 18%, white);
+  }
+
+  /* Visible keyboard focus without stacking a second ring on styled buttons. */
+  :where(a, [role='menuitem'], [role='tab'], [tabindex]:not([tabindex='-1'])):focus-visible {
     outline: 2px solid var(--brand-primary);
-    outline-offset: 2px;
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  :where(input, textarea, select):focus-visible {
+    outline: 2px solid var(--brand-ring);
+    outline-offset: 1px;
+  }
+
+  :where(button, [role='button']):disabled {
+    cursor: not-allowed;
+  }
+
+  :where([aria-invalid='true']) {
+    border-color: var(--danger);
   }
 }
 
-/* Números alinhados em colunas (placas, valores, nº de OS). */
+/* Utilities */
 @utility tabular {
   font-variant-numeric: tabular-nums;
 }
 
-/* Microinterações do portal do cliente. */
+@utility surface-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+@utility interactive-surface {
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    border-color var(--duration-normal) var(--ease-standard),
+    box-shadow var(--duration-normal) var(--ease-standard),
+    transform var(--duration-normal) var(--ease-standard);
+}
+
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    outline: 2px solid var(--brand-primary);
+    outline-offset: 3px;
+  }
+}
+
+/* Motion */
 @keyframes rise {
-  from { opacity: 0; transform: translateY(8px) scale(0.98); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
+
 @keyframes pop {
-  0% { opacity: 0; transform: translateX(-50%) scale(0.85); }
-  100% { opacity: 1; transform: translateX(-50%) scale(1); }
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
 }
+
 @keyframes tick {
   from { stroke-dashoffset: 24; }
   to { stroke-dashoffset: 0; }
 }
+
 @keyframes shimmer {
   to { background-position: -200% 0; }
 }
-@utility animate-rise { animation: rise 0.28s ease-out both; }
-@utility animate-pop { animation: pop 0.2s ease-out both; }
-@utility animate-tick { stroke-dasharray: 24; animation: tick 0.35s ease-out 0.05s both; }
+
+@utility animate-rise {
+  animation: rise var(--duration-slow) var(--ease-emphasized) both;
+}
+
+@utility animate-pop {
+  animation: pop var(--duration-normal) var(--ease-emphasized) both;
+}
+
+@utility animate-tick {
+  stroke-dasharray: 24;
+  animation: tick 350ms ease-out 50ms both;
+}
+
 @utility skeleton {
-  background: linear-gradient(90deg, #e5e2dc 25%, #efede8 50%, #e5e2dc 75%) 0 0 / 200% 100%;
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 25%,
+    color-mix(in oklab, var(--surface-sunken) 55%, white) 50%,
+    var(--surface-sunken) 75%
+  ) 0 0 / 200% 100%;
   animation: shimmer 1.4s linear infinite;
 }
+
+/* Thin, low-contrast scrollbars; native scrolling remains intact. */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--border-strong);
+    background-clip: padding-box;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Motion accessibility */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
