@@ -15,13 +15,15 @@ export class FixerDirectoryStore implements DirectoryStore {
     await this.system.orgProfile.upsert({ where: { orgId }, update: { name }, create: { orgId, name } });
   }
 
-  async upsertMember(orgId: string, sub: string, role: string, email: string | null): Promise<void> {
+  async upsertMember(orgId: string, sub: string, role: string, email: string | null, platformRoles?: string[]): Promise<void> {
     const mail = email ?? '';
+    // Papéis de plataforma: o control plane é o dono; ausente (control plane antigo) não apaga o que já foi projetado.
+    const roles = platformRoles ? { platformRoles } : {};
     await this.system.orgMembership.upsert({
       where: { orgId_keycloakId: { orgId, keycloakId: sub } },
       // Não apaga o e-mail que já existe se o control plane não mandou um.
-      update: { role, source: SOURCE, ...(mail ? { email: mail } : {}) },
-      create: { orgId, keycloakId: sub, email: mail, role, source: SOURCE },
+      update: { role, source: SOURCE, ...roles, ...(mail ? { email: mail } : {}) },
+      create: { orgId, keycloakId: sub, email: mail, role, source: SOURCE, ...roles },
     });
   }
 

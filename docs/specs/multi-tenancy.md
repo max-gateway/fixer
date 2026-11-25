@@ -58,7 +58,10 @@ Em produção os papéis são criados com senhas próprias (secret manager). Mig
    eventos do control plane; `FixerTenantDirectory`), nunca do claim `organization`, que é só uma pista. Quem participa de uma só organização não precisa
    informar nada; quem participa de várias envia `X-Org-Id` (sem ele: 400). **O cabeçalho só escolhe entre as organizações da própria pessoa; nunca concede
    acesso** (organização que não é dela = 404, idêntico ao inexistente). Token sem organização = 403. O papel da plataforma de cada pessoa
-   (`viewer`/`stockist`/`price_manager`) é derivado das permissões de negócio dela (`catalog-platform/platform-roles.ts`).
+   (`viewer`/`stockist`/`price_manager`, `fiscal_editor`, `accountant`) é **decidido pelo control plane**, que é o dono (control-plane.md, "Papéis de plataforma"):
+   o Fixer o lê da projeção em `OrgMembership.platformRoles` (evento `identity.member_ready` e sync do diretório) e **informa** ao control plane o que as
+   permissões de negócio dele implicam (`catalog-platform/platform-roles.ts` traduz; `control-plane/platform-roles.publisher.ts` envia, pela chave `product` presa
+   ao Fixer, só nas organizações que assinam o produto). Vínculo ainda não projetado = nenhum papel (fecha por padrão); pessoa desativada na oficina = nenhum papel.
 3. **Portal público** — `PortalTenantMiddleware`: a organização é a dona do `portalToken` da URL (o token é a credencial do cliente final). Token desconhecido = 404.
 4. **`PrismaService`** (RLS): cada operação, transação interativa ou SQL cru roda com `set_config('app.org_id', <org>, true)`, que vale só até o fim da
    transação, então a conexão volta ao pool limpa. Tabela de oficina sem organização no contexto **lança `TenantContextMissing`** (falha alto, nunca "lista vazia").

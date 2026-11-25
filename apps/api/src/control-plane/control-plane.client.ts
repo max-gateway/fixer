@@ -39,6 +39,32 @@ export class ControlPlaneClient {
     return payload as unknown as LicenseClaims;
   }
 
+  /** Membros da organização como o control plane os vê (`GET /v1/orgs/{org}/members`). `platformRoles` é o papel EFETIVO (atribuído ou padrão). */
+  async listMembers(orgId: string): Promise<{ userId: string; email: string; role: string; status: string; platformRoles: string[] }[] | null> {
+    const { url, apiKey } = this.cfg;
+    if (!url || !apiKey) throw new Error('Control plane não configurado');
+    const res = await fetch(`${url}/v1/orgs/${encodeURIComponent(orgId)}/members`, { headers: { 'x-api-key': apiKey }, signal: AbortSignal.timeout(10_000) });
+    // 404: a organização não assina este produto (a chave é presa ao produto). Não é erro de quem pergunta.
+    if (res.status === 404 || res.status === 403) return null;
+    if (!res.ok) throw new Error(`Control plane respondeu ${res.status} ao listar os membros`);
+    return ((await res.json()) as { members: { userId: string; email: string; role: string; status: string; platformRoles: string[] }[] }).members;
+  }
+
+  /** Atribui os papéis de plataforma de um membro (substitui; idempotente). `false` quando a organização ou o membro não existem para este produto. */
+  async setPlatformRoles(orgId: string, userId: string, roles: string[]): Promise<boolean> {
+    const { url, apiKey } = this.cfg;
+    if (!url || !apiKey) throw new Error('Control plane não configurado');
+    const res = await fetch(`${url}/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}/platform-roles`, {
+      method: 'PUT',
+      headers: { 'x-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ roles }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 404 || res.status === 403) return false;
+    if (!res.ok) throw new Error(`Control plane respondeu ${res.status} ao atribuir papéis de plataforma`);
+    return true;
+  }
+
   /**
    * Informa o total do período até agora (idempotente: o último valor vence). `false` quando o control plane não conhece a
    * assinatura (404): não é erro do envio. Qualquer outra falha lança.

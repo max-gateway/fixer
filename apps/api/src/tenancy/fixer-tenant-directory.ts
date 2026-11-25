@@ -1,7 +1,6 @@
 import type { Membership, TenantDirectory } from '@max-gateway/auth';
 import { Injectable, Optional } from '@nestjs/common';
 import { PlatformCatalogConfig } from '../catalog-platform/platform-catalog.config.js';
-import { platformRolesFor } from '../catalog-platform/platform-roles.js';
 import { SystemPrismaService } from '../prisma/system-prisma.service.js';
 import { MembershipService } from './membership.service.js';
 
@@ -9,9 +8,10 @@ const TTL_MS = 30_000;
 
 /**
  * Registro de tenants do Fixer para o `@max-gateway/auth` (porta `TenantDirectory`): quem participa de qual organização e com que papel
- * da PLATAFORMA. A participação vem de `OrgMembership` (alimentada pelos eventos de identidade do control plane); o papel é derivado das
- * permissões de negócio que a pessoa tem em cada organização (`platformRolesFor`). O Fixer só decide onde guardar o registro, nunca como
- * interpretar o token (docs/specs/parts-search-integration.md §4).
+ * da PLATAFORMA. Tanto a participação quanto o papel vêm de `OrgMembership`, que é PROJEÇÃO do control plane (evento `identity.member_ready` e sync do
+ * diretório): o control plane é o dono dos papéis de plataforma (docs/specs/control-plane.md). O Fixer só acrescenta o que é dele, o estado ativo ou
+ * desativado da pessoa na oficina, e informa ao control plane os papéis que as permissões do Fixer implicam (`PlatformRolesPublisher`). O Fixer só decide
+ * onde guardar o registro, nunca como interpretar o token (docs/specs/parts-search-integration.md §4).
  *
  * Atravessa organizações, então usa o cliente de sistema (sem RLS) e consulta só as organizações do próprio usuário. Cache curto por
  * usuário: uma mudança de papel chega às chamadas à plataforma em até 30 s (a autorização das rotas do próprio Fixer lê o banco a cada requisição).
@@ -32,21 +32,15 @@ export class FixerTenantDirectory implements TenantDirectory {
     const hit = this.cache.get(userId);
     if (hit && this.now() - hit.at < TTL_MS) return hit.memberships;
 
-    const orgs = [...new Set((await this.membership.orgsFor(userId)).map((o) => o.toLowerCase()))];
+    const projected = await this.membership.platformRolesFor(userId);
+    const orgs = [...projected.keys()];
     if (orgs.length === 0) return [];
 
-    const users = await this.system.user.findMany({
-      where: { keycloakId: userId, orgId: { in: orgs } },
-      select: { orgId: true, active: true, roles: { select: { role: { select: { permissions: { select: { permission: { select: { key: true } } } } } } } } },
-    });
-    const byOrg = new Map(users.map((u) => [u.orgId.toLowerCase(), u]));
-    const memberships = orgs.map((orgId): Membership => {
-      const user = byOrg.get(orgId);
-      // Desativado: continua participando, mas sem papel (nenhum escopo). Sem usuário ainda (convidado que não entrou): só consulta.
-      if (user && !user.active) return { orgId, roles: [] };
-      const keys = user?.roles.flatMap((r) => r.role.permissions.map((p) => p.permission.key)) ?? [];
-      return { orgId, roles: platformRolesFor(keys) };
-    });
+    const users = await this.system.user.findMany({ where: { keycloakId: userId, orgId: { in: orgs } }, select: { orgId: true, active: true } });
+    const inactive = new Set(users.filter((u) => !u.active).map((u) => u.orgId.toLowerCase()));
+    // Desativado na oficina: continua participando, mas sem papel (nenhum escopo). Os papéis são os projetados do control plane; vínculo ainda não
+    // projetado tem lista vazia (fecha por padrão).
+    const memberships = orgs.map((orgId): Membership => ({ orgId, roles: inactive.has(orgId) ? [] : (projected.get(orgId) ?? []) }));
     this.cache.set(userId, { at: this.now(), memberships });
     return memberships;
   }

@@ -238,7 +238,7 @@ Métricas por rota e organização (latência, taxa, erro, `Retry-After`), estad
 
 Spec da plataforma: `docs/specs/parts-search-fiscal.md` (repositório `platform`), §13.5. No Fixer:
 
-- **Papéis das pessoas** (`platformRolesFor`): `invoices.reconcile` e `pricing.write` também dão `fiscal_editor`; `fiscal.verify` (o contador) dá `accountant`. `fiscal:admin` (curadoria do cadastro global) nunca vem de papel de oficina.
+- **Papéis das pessoas** (`platformRolesFor`, que o Fixer **informa** ao control plane; quem decide e devolve o papel efetivo é o control plane, ver multi-tenancy.md §2): `invoices.reconcile` e `pricing.write` também dão `fiscal_editor`; `fiscal.verify` (o contador) dá `accountant`. `fiscal:admin` (curadoria do cadastro global) nunca vem de papel de oficina.
 - **Evidência das notas**: ao lançar uma nota (`POST /invoices/:id/confirm`), depois do commit e em segundo plano, as peças já vinculadas ao catálogo enviam NCM, CEST, origem e unidade ao `fiscal-observations`. Melhor esforço: não falha nem atrasa o lançamento. CPF de produtor rural e NCM sem 8 dígitos ficam de fora.
 - **Leitura**: `CatalogPlatformService.fiscalResolve` (até 500 SKUs, loja = o id da organização em minúsculas). A coluna fiscal local de `Part` segue como cache até o cadastro migrar.
 - **Backfill**: `GET /catalog-platform/fiscal-backfill` (permissão `fiscal.manage`) exporta NDJSON das peças casadas com dado fiscal; o CLI `fiscal-backfill` da plataforma o aplica com o client de serviço `fixer-sync`.

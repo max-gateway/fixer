@@ -130,7 +130,8 @@ export class ControlPlaneEventsConsumer implements OnModuleInit, OnApplicationSh
         const keycloakId = str(event.data.keycloakSub);
         const email = str(event.data.email);
         if (!keycloakId || !email) return 'ignored';
-        await this.membership.record({ keycloakId, email, role: str(event.data.role) ?? 'member' });
+        const platformRoles = Array.isArray(event.data.platformRoles) ? event.data.platformRoles.filter((r): r is string => typeof r === 'string') : undefined;
+        await this.membership.record({ keycloakId, email, role: str(event.data.role) ?? 'member', platformRoles });
         return 'member';
       }
       const ours = event.data.product === this.cfg.product;
